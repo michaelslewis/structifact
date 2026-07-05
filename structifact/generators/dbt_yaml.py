@@ -1,7 +1,10 @@
+import yaml
+
 from ..ir import TableSpec
 
-def generate_dbt_yaml(table: TableSpec) -> dict:
-    return {
+
+def generate_dbt_yaml(table: TableSpec) -> str:
+    data = {
         "version": 2,
         "models": [
             {
@@ -16,3 +19,5 @@ def generate_dbt_yaml(table: TableSpec) -> dict:
             }
         ],
     }
+
+    return yaml.dump(data, sort_keys=False)
