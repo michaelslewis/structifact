@@ -1,8 +1,0 @@
-version: 2
-models:
-- name: customers
-  columns:
-  - name: customer_id
-    description: Unique customer identifier
-  - name: created_at
-    description: Account creation time
