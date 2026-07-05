@@ -1,0 +1,10 @@
+table: customers
+
+fields:
+  - name: customer_id
+    type: string
+    description: Unique customer identifier
+
+  - name: created_at
+    type: timestamp
+    description: Account creation time

@@ -1,0 +1,25 @@
+[project]
+name = "structifact"
+version = "0.1.0"
+description = "Define once. Generate everywhere."
+authors = [
+    {name = "Michael S. Lewis"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "PyYAML>=6.0"
+]
+
+[project.scripts]
+structifact = "structifact.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["structifact*"]
+exclude = ["output*"]
