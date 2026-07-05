@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============================================
+# Structifact
+# ============================================
+
+# Generated artifacts
+output/
+
+# IDE settings (if you use VS Code)
+.vscode/
+
+# macOS
+.DS_Store
