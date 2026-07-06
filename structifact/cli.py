@@ -1,13 +1,17 @@
 import argparse
+import os
 
 from .parser import load_metadata
-from .generators.sql import generate_sql
-from .generators.dbt_yaml import generate_dbt_yaml
 from .utils import write_file
-
+from .generators.registry import GENERATORS
 
 def generate(args):
-    table = load_metadata(args.spec)
+    if args.spec.endswith(".xlsx"):
+        from .adapters.excel import load_excel
+
+        table = load_excel(args.spec)
+    else:
+        table = load_metadata(args.spec)
 
     print("\n--- STRUCTURED VIEW ---\n")
     print(f"Table: {table.name}\n")
@@ -16,15 +20,16 @@ def generate(args):
     for field in table.fields:
         print(f"- {field.name} ({field.type})")
 
-    sql = generate_sql(table)
-    dbt = generate_dbt_yaml(table)
-
-    write_file(f"{args.output}/{table.name}.sql", sql)
-    write_file(f"{args.output}/{table.name}.yml", dbt)
-
     print("\n--- GENERATED ARTIFACTS ---")
-    print(f"- {args.output}/{table.name}.sql")
-    print(f"- {args.output}/{table.name}.yml")
+
+    for gen in GENERATORS:
+        artifact = gen.generate(table)
+
+        path = f"{args.output}/{artifact.filename}"
+
+        write_file(path, artifact.content)
+
+        print(f"- {path}")
 
 
 def main():
@@ -35,22 +40,11 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
 
-    generate_parser = subparsers.add_parser(
-        "generate",
-        help="Generate artifacts from a specification"
-    )
+    generate_parser = subparsers.add_parser("generate")
 
-    generate_parser.add_argument(
-        "spec",
-        help="Input specification file"
-    )
+    generate_parser.add_argument("spec")
 
-    generate_parser.add_argument(
-        "-o",
-        "--output",
-        default="output",
-        help="Output directory"
-    )
+    generate_parser.add_argument("-o", "--output", default="output")
 
     generate_parser.set_defaults(func=generate)
 
