@@ -1,13 +1,20 @@
+from .base import Generator, Artifact
 from ..ir import TableSpec
 
-def generate_sql(table: TableSpec) -> str:
-    cols = []
 
-    for field in table.fields:
-        sql_type = "TEXT" if field.type == "string" else field.type.upper()
+class SQLGenerator(Generator):
+    name = "sql"
 
-        cols.append(f"    {field.name} {sql_type}")
+    def generate(self, table: TableSpec) -> Artifact:
+        columns = []
+        for f in table.fields:
+            columns.append(f"    {f.name} TEXT")
 
-    return f"""CREATE TABLE {table.name} (
-{",\n".join(cols)}
+        sql = f"""CREATE TABLE {table.name} (
+{',\n'.join(columns)}
 );"""
+
+        return Artifact(
+            filename=f"{table.name}.sql",
+            content=sql
+        )
