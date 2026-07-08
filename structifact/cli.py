@@ -1,17 +1,12 @@
 import argparse
 import os
 
-from .parser import load_metadata
+from .adapters.registry import load_spec
 from .utils import write_file
 from .generators.registry import GENERATORS
 
 def generate(args):
-    if args.spec.endswith(".xlsx"):
-        from .adapters.excel import load_excel
-
-        table = load_excel(args.spec)
-    else:
-        table = load_metadata(args.spec)
+    table = load_spec(args.spec)
 
     print("\n--- STRUCTURED VIEW ---\n")
     print(f"Table: {table.name}\n")
