@@ -6,8 +6,8 @@ ADAPTERS = {
     ".yml": ("structifact.adapters.yaml", "load_yaml"),
     ".yaml": ("structifact.adapters.yaml", "load_yaml"),
     ".xlsx": ("structifact.adapters.excel", "load_excel"),
+    ".csv": ("structifact.adapters.csv", "load_csv"),
 }
-
 
 def load_spec(path):
     extension = os.path.splitext(path)[1].lower()
