@@ -1,11 +1,11 @@
-def load_excel(path: str) -> TableSpec:
-    import pandas as pd
 import os
 
 from ..ir import TableSpec, FieldSpec
 
 
 def load_excel(path: str) -> TableSpec:
+    import pandas as pd
+
     df = pd.read_excel(path)
 
     fields = []
@@ -19,8 +19,9 @@ def load_excel(path: str) -> TableSpec:
             )
         )
 
-
-    table_name = os.path.splitext(os.path.basename(path))[0]
+    table_name = os.path.splitext(
+        os.path.basename(path)
+    )[0]
 
     return TableSpec(
         name=table_name,
