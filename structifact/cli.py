@@ -13,7 +13,15 @@ def generate(args):
 
     print("Fields:")
     for field in table.fields:
-        print(f"- {field.name} ({field.type})")
+        details = field.type
+
+        if field.length:
+            details += f"({field.length})"
+
+        if field.precision:
+            details += f"({field.precision},{field.scale})"
+
+        print(f"- {field.name} ({details})")
 
     print("\n--- GENERATED ARTIFACTS ---")
 

@@ -1,0 +1,14 @@
+table: transactions
+
+fields:
+  - name: customer_id
+    type: VARCHAR(255)
+    description: Customer identifier
+
+  - name: amount
+    type: NUMBER(13,2)
+    description: Transaction amount
+
+  - name: created_at
+    type: TIMESTAMP_NTZ
+    description: Creation timestamp
