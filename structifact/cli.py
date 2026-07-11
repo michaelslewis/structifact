@@ -4,9 +4,17 @@ import os
 from .adapters.registry import load_spec
 from .utils import write_file
 from .generators.registry import GENERATORS
+from .validation import validate_table
 
 def generate(args):
-    table = load_spec(args.spec)
+    try:
+        table = load_spec(args.spec)
+        validate_table(table)
+
+    except ValueError as e:
+        print("\nValidation failed:\n")
+        print(e)
+        return
 
     print("\n--- STRUCTURED VIEW ---\n")
     print(f"Table: {table.name}\n")
