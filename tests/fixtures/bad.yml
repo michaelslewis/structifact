@@ -1,0 +1,5 @@
+table: customers
+
+fields:
+  - name: customer_id
+    type: banana
