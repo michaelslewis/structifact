@@ -12,6 +12,11 @@ dependencies = [
     "PyYAML>=6.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest"
+]
+
 [project.scripts]
 structifact = "structifact.cli:main"
 
