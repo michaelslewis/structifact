@@ -13,8 +13,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+excel = [
+    "pandas>=2.0",
+]
+
 dev = [
-    "pytest"
+    "pytest",
 ]
 
 [project.scripts]
