@@ -1,10 +1,10 @@
 import yaml
 
-from ..ir import TableSpec, FieldSpec
+from ..ir import DatasetSpec, FieldSpec
 from ..types import parse_type
 
 
-def load_yaml(path: str) -> TableSpec:
+def load_yaml(path: str) -> DatasetSpec:
     with open(path, "r") as f:
         data = yaml.safe_load(f)
 
@@ -26,7 +26,7 @@ def load_yaml(path: str) -> TableSpec:
             )
         )
 
-    return TableSpec(
+    return DatasetSpec(
         name=data["table"],
         fields=fields,
     )

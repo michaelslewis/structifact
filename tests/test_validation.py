@@ -1,11 +1,11 @@
 import pytest
 
-from structifact.ir import TableSpec, FieldSpec
+from structifact.ir import DatasetSpec, FieldSpec
 from structifact.validation import validate_table
 
 
 def test_valid_table():
-    table = TableSpec(
+    dataset = DatasetSpec(
         name="customers",
         fields=[
             FieldSpec(
@@ -15,11 +15,11 @@ def test_valid_table():
         ]
     )
 
-    validate_table(table)
+    validate_table(dataset)
 
 
 def test_unknown_type():
-    table = TableSpec(
+    dataset = DatasetSpec(
         name="customers",
         fields=[
             FieldSpec(
@@ -31,11 +31,11 @@ def test_unknown_type():
     )
 
     with pytest.raises(ValueError):
-        validate_table(table)
+        validate_table(dataset)
 
 
 def test_duplicate_field_names():
-    table = TableSpec(
+    dataset = DatasetSpec(
         name="customers",
         fields=[
             FieldSpec(
@@ -50,11 +50,11 @@ def test_duplicate_field_names():
     )
 
     with pytest.raises(ValueError):
-        validate_table(table)
+        validate_table(dataset)
 
 
 def test_missing_table_name():
-    table = TableSpec(
+    dataset = DatasetSpec(
         name="",
         fields=[
             FieldSpec(
@@ -65,14 +65,14 @@ def test_missing_table_name():
     )
 
     with pytest.raises(ValueError):
-        validate_table(table)
+        validate_table(dataset)
 
 
 def test_empty_fields():
-    table = TableSpec(
+    dataset = DatasetSpec(
         name="customers",
         fields=[]
     )
 
     with pytest.raises(ValueError):
-        validate_table(table)
+        validate_table(dataset)

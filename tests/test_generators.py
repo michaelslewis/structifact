@@ -1,10 +1,10 @@
-from structifact.ir import TableSpec, FieldSpec
+from structifact.ir import DatasetSpec, FieldSpec
 from structifact.generators.sql import SQLGenerator
 from structifact.generators.dbt_yaml import DBTYAMLGenerator
 
 
 def create_customer_table():
-    return TableSpec(
+    return DatasetSpec(
         name="customers",
         fields=[
             FieldSpec(

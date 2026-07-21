@@ -1,11 +1,11 @@
 from .base import Generator, Artifact
-from ..ir import TableSpec
+from ..ir import DatasetSpec
 
 
 class SQLGenerator(Generator):
     name = "sql"
 
-    def generate(self, table: TableSpec) -> Artifact:
+    def generate(self, table: DatasetSpec) -> Artifact:
         columns = []
         for f in table.fields:
             columns.append(f"    {f.name} TEXT")

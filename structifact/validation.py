@@ -1,4 +1,4 @@
-from .ir import TableSpec
+from .ir import DatasetSpec
 
 
 SUPPORTED_TYPES = {
@@ -11,7 +11,7 @@ SUPPORTED_TYPES = {
 }
 
 
-def validate_table(table: TableSpec):
+def validate_table(table: DatasetSpec):
     errors = []
 
     if not table.name:

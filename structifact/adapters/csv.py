@@ -1,10 +1,10 @@
 import csv
 import os
 
-from ..ir import TableSpec, FieldSpec
+from ..ir import DatasetSpec, FieldSpec
 
 
-def load_csv(path: str) -> TableSpec:
+def load_csv(path: str) -> DatasetSpec:
     fields = []
 
     with open(path, newline="") as csvfile:
@@ -23,7 +23,7 @@ def load_csv(path: str) -> TableSpec:
         os.path.basename(path)
     )[0]
 
-    return TableSpec(
+    return DatasetSpec(
         name=table_name,
         fields=fields
     )

@@ -1,9 +1,9 @@
 import os
 
-from ..ir import TableSpec, FieldSpec
+from ..ir import DatasetSpec, FieldSpec
 
 
-def load_excel(path: str) -> TableSpec:
+def load_excel(path: str) -> DatasetSpec:
     import pandas as pd
 
     df = pd.read_excel(path)
@@ -23,7 +23,7 @@ def load_excel(path: str) -> TableSpec:
         os.path.basename(path)
     )[0]
 
-    return TableSpec(
+    return DatasetSpec(
         name=table_name,
         fields=fields
     )
