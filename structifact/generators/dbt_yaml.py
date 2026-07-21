@@ -1,12 +1,12 @@
 from .base import Generator, Artifact
 import yaml
-from ..ir import TableSpec
+from ..ir import DatasetSpec
 
 
 class DBTYAMLGenerator(Generator):
     name = "dbt"
 
-    def generate(self, table: TableSpec) -> Artifact:
+    def generate(self, table: DatasetSpec) -> Artifact:
         data = {
             "version": 2,
             "models": [

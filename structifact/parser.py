@@ -1,8 +1,8 @@
 import yaml
-from .ir import TableSpec, FieldSpec
+from .ir import DatasetSpec, FieldSpec
 
 
-def load_metadata(path: str) -> TableSpec:
+def load_metadata(path: str) -> DatasetSpec:
     with open(path, "r") as f:
         data = yaml.safe_load(f)
 
@@ -15,7 +15,7 @@ def load_metadata(path: str) -> TableSpec:
         for field in data["fields"]
     ]
 
-    return TableSpec(
+    return DatasetSpec(
         name=data["table"],
         fields=fields,
     )
