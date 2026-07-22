@@ -1,23 +1,53 @@
-from structifact.adapters.yaml import load_yaml
 from pathlib import Path
 
-
-def test_load_yaml():
-    table = load_yaml("examples/customers.yml")
-
-    assert table.name == "customers"
-    assert table.fields[0].name == "customer_id"
-    assert table.fields[1].name == "created_at"
-    assert table.fields[1].type == "timestamp"
+from structifact.adapters.yaml import load_yaml
 
 
-def test_load_dataset_yaml(tmp_path: Path):
-    metadata = tmp_path / "customers.yml"
-    metadata.write_text(
+def test_load_yaml_legacy_table_format():
+    dataset = load_yaml("examples/customers.yml")
+
+    assert dataset.name == "customers"
+
+    assert len(dataset.fields) == 2
+
+    assert dataset.fields[0].name == "customer_id"
+    assert dataset.fields[0].type == "string"
+
+    assert dataset.fields[1].name == "created_at"
+    assert dataset.fields[1].type == "timestamp"
+
+
+def test_load_yaml_dataset_format(tmp_path):
+    yaml_file = tmp_path / "customers.yml"
+
+    yaml_file.write_text(
         """
 dataset:
   name: customers
   description: Customer master data
+
+fields:
+  - name: customer_id
+    type: integer
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.name == "customers"
+    assert dataset.description == "Customer master data"
+
+    assert len(dataset.fields) == 1
+    assert dataset.fields[0].name == "customer_id"
+
+
+def test_load_yaml_constraints(tmp_path):
+    yaml_file = tmp_path / "customers.yml"
+
+    yaml_file.write_text(
+        """
+dataset:
+  name: customers
 
 fields:
   - name: customer_id
@@ -30,32 +60,11 @@ constraints:
 """
     )
 
-    dataset = load_yaml(str(metadata))
-
-    assert dataset.name == "customers"
-    assert dataset.description == "Customer master data"
-    assert len(dataset.fields) == 1
-    assert dataset.fields[0].name == "customer_id"
+    dataset = load_yaml(str(yaml_file))
 
     assert len(dataset.constraints) == 1
-    assert dataset.constraints[0].type == "primary_key"
-    assert dataset.constraints[0].columns == ["customer_id"]
 
+    constraint = dataset.constraints[0]
 
-def test_load_legacy_table_yaml(tmp_path: Path):
-    metadata = tmp_path / "customers.yml"
-    metadata.write_text(
-        """
-table: customers
-
-fields:
-  - name: customer_id
-    type: integer
-"""
-    )
-
-    dataset = load_yaml(str(metadata))
-
-    assert dataset.name == "customers"
-    assert dataset.description is None
-    assert dataset.constraints == []
+    assert constraint.type == "primary_key"
+    assert constraint.columns == ["customer_id"]

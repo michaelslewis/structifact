@@ -1,6 +1,6 @@
 import yaml
 
-from ..ir import ConstraintSpec, DatasetSpec, FieldSpec
+from ..ir import DatasetSpec, FieldSpec, ConstraintSpec
 from ..types import parse_type
 
 
@@ -8,11 +8,11 @@ def load_yaml(path: str) -> DatasetSpec:
     with open(path, "r") as f:
         data = yaml.safe_load(f)
 
-    dataset_info = data.get("dataset")
+    if "dataset" in data:
+        dataset = data["dataset"]
 
-    if dataset_info is not None:
-        name = dataset_info["name"]
-        description = dataset_info.get("description")
+        name = dataset["name"]
+        description = dataset.get("description")
     else:
         name = data["table"]
         description = None
