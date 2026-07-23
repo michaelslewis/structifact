@@ -1,176 +1,370 @@
 # Structifact
 
-> Define once. Generate everywhere.
+**Schema-Driven Data Engineering Framework**
 
-Structifact is a metadata compiler that transforms structured metadata definitions into reusable data artifacts.
+Structifact is an experimental metadata-driven data engineering framework that explores how declarative dataset definitions can be used to build reliable, repeatable, and maintainable data artifacts.
 
-Instead of defining the same data structure repeatedly across databases, transformation tools, and documentation systems, Structifact lets you define your metadata once and generate the artifacts you need.
+The core idea is simple:
 
-## Why Structifact?
+> Define dataset structure and intent once through metadata, then generate consistent engineering artifacts from that definition.
 
-Modern data systems often duplicate information about tables and fields:
+Rather than creating isolated scripts for every dataset, Structifact explores how metadata can become the foundation for schema validation, documentation, artifact generation, and future analytics engineering workflows.
 
-* Database schemas
-* Analytics models
-* Transformation definitions
-* Documentation
-* Data catalogs
+---
 
-These definitions can drift apart over time.
+# Project Vision
 
-Structifact provides a single metadata representation that can be validated, normalized, and compiled into different outputs.
+Modern data platforms often evolve into collections of custom pipelines with duplicated logic, inconsistent validation, and difficult maintenance.
 
-## Architecture
+Structifact explores an alternative approach:
 
-Structifact follows a compiler-style architecture:
+* Metadata defines dataset structure and expectations.
+* Framework components interpret that metadata.
+* Internal representations normalize different input formats.
+* Repeatable engineering artifacts are generated automatically.
+* Validation and quality checks become part of the workflow.
 
-```
-YAML / CSV / Excel
-        |
-        v
-     Adapters
-        |
-        v
- Intermediate Representation
-        |
-        v
- Validation + Type Normalization
-        |
-        v
-    Generators
-        |
-        +--> SQL
-        |
-        +--> dbt YAML
-```
+The long-term vision is to provide a reusable framework where onboarding a new dataset requires primarily metadata configuration rather than large amounts of custom pipeline code.
 
-The core intermediate representation (`TableSpec` and `FieldSpec`) allows new input formats and output generators to be added independently.
+---
 
-## Quick Start
+# Current Capabilities
 
-Clone the repository and install:
+Structifact is currently focused on establishing the core framework architecture.
 
-```bash
-git clone https://github.com/michaelslewis/structifact.git
-cd structifact
+The current implementation includes:
 
-python -m venv .venv
-source .venv/bin/activate
+* YAML-based dataset metadata definitions
+* Internal representation (IR) layer using `DatasetSpec`
+* YAML metadata compatibility handling
+* Metadata parsing and validation
+* Pluggable adapter architecture
+* CSV input support
+* Excel input support
+* SQL generation foundation
+* dbt-style YAML generation foundation
+* Automated validation tests
 
-pip install -e .
-```
+The current repository demonstrates the foundational architecture required for future metadata-driven data engineering workflows.
 
-Generate artifacts:
+---
 
-```bash
-structifact generate examples/customers.yml
-```
+# Example Workflow
 
-Example output:
-
-```
---- STRUCTURED VIEW ---
-
-Table: customers
-
-Fields:
-- customer_id (string)
-- created_at (timestamp)
-
---- GENERATED ARTIFACTS ---
-- output/customers.sql
-- output/customers.yml
-```
-
-## Example Metadata
-
-Input:
+A typical Structifact workflow begins with a dataset definition:
 
 ```yaml
-table: customers
+dataset:
+  name: customers
+  description: Customer master data
 
 fields:
   - name: customer_id
-    type: VARCHAR(255)
+    type: integer
+    description: Unique customer identifier
 
   - name: created_at
-    type: TIMESTAMP
+    type: timestamp
+    description: Record creation timestamp
+
+constraints:
+  - type: primary_key
+    columns:
+      - customer_id
 ```
 
-Structifact normalizes types internally:
+The YAML metadata is normalized into Structifact's internal representation:
 
 ```
-VARCHAR(255)
-    -> string(length=255)
-
-TIMESTAMP
-    -> timestamp
+YAML Metadata Contract
+          |
+          v
+     YAML Adapter
+          |
+          v
+     DatasetSpec IR
+          |
+     +----+----+
+     |         |
+     v         v
+Validation  Generators
 ```
 
-## Supported Inputs
+Structifact can then use this definition to generate consistent artifacts such as:
 
-Currently supported:
+* SQL artifacts
+* dbt-style metadata artifacts
+* future documentation and validation artifacts
 
+The goal is to move repetitive engineering decisions into reusable framework behavior.
+
+---
+
+# YAML Contract Compatibility
+
+The current canonical metadata format uses:
+
+```yaml
+dataset:
+  name: customers
+```
+
+Legacy metadata definitions supported:
+
+```yaml
+table: customers
+```
+
+The legacy format remains supported for compatibility, but new metadata definitions should use the `dataset:` format.
+
+---
+
+# Architecture Principles
+
+Structifact is built around several core principles:
+
+## Metadata First
+
+Metadata should be the source of truth.
+
+Whenever possible, schemas, validation rules, documentation, lineage, and generated artifacts should derive from a shared definition rather than being maintained separately.
+
+---
+
+## Declarative Over Imperative
+
+Users should describe:
+
+* what data represents
+* what fields exist
+* what constraints and metadata rules apply
+* what outputs are expected
+
+The framework should determine:
+
+* how metadata is interpreted
+* how validation is performed
+* how artifacts are generated
+
+---
+
+## Explicit Over Magical
+
+Automation should improve productivity without hiding behavior.
+
+Generated output should remain understandable and inspectable.
+
+Engineers should be able to review:
+
+* generated SQL
+* generated metadata artifacts
+* validation results
+* dataset definitions
+
+---
+
+## Reliability Before Complexity
+
+Structifact prioritizes:
+
+* predictable behavior
+* clear architecture
+* testability
+* maintainability
+
+over unnecessary abstraction.
+
+---
+
+# Technology Stack
+
+## Current Technologies
+
+The current implementation uses:
+
+* Python
 * YAML
+* SQL
+* Git
+* pytest
+
+Input formats currently explored include:
+
 * CSV
-* Excel (optional dependency)
+* Excel
+* YAML metadata
 
-Excel support can be installed with:
+---
 
-```bash
-pip install -e ".[excel]"
+## Future Technologies Under Consideration
+
+Future development may explore integrations with technologies such as:
+
+* DuckDB
+* Apache Parquet
+* dbt
+* Snowflake
+* Prefect
+* cloud storage platforms
+* additional warehouse technologies
+
+These are future directions rather than current dependencies.
+
+---
+
+# Repository Structure
+
+The repository is organized around a modular framework design:
+
+```
+Structifact/
+│
+├── examples/
+│   └── Example metadata and input files
+│
+├── structifact/
+│   ├── adapters/
+│   │   └── Input format integrations
+│   │
+│   ├── generators/
+│   │   └── Artifact generation logic
+│   │
+│   ├── parser.py
+│   ├── validation.py
+│   ├── types.py
+│   └── ir.py
+│
+├── tests/
+│   └── Automated framework tests
+│
+└── pyproject.toml
 ```
 
-## Generated Outputs
+---
 
-Currently supported:
+# Future Direction
 
-* SQL table definitions
-* dbt YAML model definitions
+Structifact is designed to evolve toward a broader metadata-driven analytics engineering framework.
 
-## Type System
+Potential future capabilities include:
 
-Structifact normalizes common database types into a consistent internal representation.
+## Metadata Validation
 
-Examples:
+* constraint validation
+* schema compatibility checks
+* generated validation suites
+* data quality reporting
 
-```
-VARCHAR(255)       -> string(length=255)
-NUMBER(13,2)       -> decimal(precision=13, scale=2)
-DATETIME2          -> timestamp
-```
+---
 
-Unsupported types are detected during validation before generation.
+## Richer Artifact Generation
 
-## Development
+Future generators may support:
 
-Install development dependencies:
+* richer SQL schema generation
+* dbt test generation
+* documentation artifacts
+* warehouse-specific outputs
 
-```bash
-pip install -e ".[dev]"
-```
+---
 
-Run tests:
+## Transformation Framework
 
-```bash
-pytest
-```
+Potential future capabilities:
 
-## Project Status
+* metadata-driven transformations
+* dependency management
+* generated SQL workflows
+* reusable transformation patterns
 
-Structifact is currently under active development. The core compiler pipeline, adapters, validation, type normalization, and initial generators are implemented.
+---
 
-## Roadmap
+## Documentation and Lineage
 
-Future improvements include:
+Potential future capabilities:
 
-* Additional output generators
-* Additional input adapters
-* Expanded database type mappings
-* Richer schema validation
-* More metadata attributes
-* Documentation and visualization features
+* automatic dataset documentation
+* column-level metadata
+* lineage generation
+* dependency visualization
 
-## License
+---
 
-Released under the MIT License.
+## Orchestration Integration
+
+Potential integrations:
+
+* Prefect
+* Dagster
+* Airflow
+
+Structifact should define what needs to happen, while orchestration systems determine when and where workflows execute.
+
+---
+
+## AI-Assisted Data Engineering
+
+A long-term exploration area is AI-assisted workflow generation.
+
+Potential capabilities include:
+
+* analyzing unfamiliar input files
+* detecting likely schemas
+* suggesting metadata definitions
+* recommending transformations
+* assisting with documentation
+* helping users generate analytics workflows
+
+AI should enhance engineering decisions rather than replace the underlying deterministic framework.
+
+---
+
+# Portfolio Purpose
+
+Structifact serves as both:
+
+1. An engineering exploration of metadata-driven data systems.
+2. A portfolio project demonstrating modern software and data engineering practices.
+
+The project demonstrates experience with:
+
+* Python development
+* SQL-based systems
+* schema design
+* validation frameworks
+* software architecture
+* modular engineering
+* documentation practices
+* analytics engineering concepts
+
+The goal is not simply to build another ETL script.
+
+The goal is to explore how engineering discipline can make data systems more reliable, understandable, and scalable.
+
+---
+
+# Documentation
+
+Additional project documentation:
+
+* `PROJECT_CONTEXT.md` — Overall project vision and current state
+* `ARCHITECTURE.md` — System architecture and component design
+* `DECISION_HISTORY.md` — Important architectural decisions and rationale
+* `ROADMAP.md` — Planned development milestones
+* `FUTURE_WORK.md` — Ideas and possible future directions
+* `EXAMPLES.md` — Practical usage examples
+* `CURRENT_STATE.md` — Snapshot of current implementation status
+* `DESIGN_PRINCIPLES.md` — Core engineering philosophy
+* `CURRENT_IMPLEMENTATION.md` — Detailed implementation documentation
+
+---
+
+# Project Status
+
+Structifact is actively under development.
+
+The current focus is evolving from architectural foundations toward metadata-aware validation and artifact generation.
+
+The guiding principle remains:
+
+> Define structure once. Generate reliable systems from it.
