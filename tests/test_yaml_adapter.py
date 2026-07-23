@@ -2,7 +2,7 @@ from pathlib import Path
 
 from structifact.adapters.yaml import load_yaml
 
-def test_load_yaml_dataset_format():
+def test_load_yaml_dataset_format_from_example():
     dataset = load_yaml("examples/customers.yml")
 
     assert dataset.name == "customers"
@@ -16,7 +16,7 @@ def test_load_yaml_dataset_format():
     assert dataset.fields[1].type == "timestamp"
 
 
-def test_load_yaml_dataset_format(tmp_path):
+def test_load_yaml_dataset_format_from_file(tmp_path):
     yaml_file = tmp_path / "customers.yml"
 
     yaml_file.write_text(
@@ -67,3 +67,19 @@ constraints:
 
     assert constraint.type == "primary_key"
     assert constraint.columns == ["customer_id"]
+
+def test_load_yaml_legacy_table_format(tmp_path):
+    yaml_file = tmp_path / "customers.yml"
+    yaml_file.write_text(
+        """
+table: customers
+
+fields:
+  - name: customer_id
+    type: integer
+"""
+    )
+
+    dataset = load_yaml(yaml_file)
+
+    assert dataset.name == "customers"
