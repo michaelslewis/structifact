@@ -2,8 +2,7 @@ from pathlib import Path
 
 from structifact.adapters.yaml import load_yaml
 
-
-def test_load_yaml_legacy_table_format():
+def test_load_yaml_dataset_format():
     dataset = load_yaml("examples/customers.yml")
 
     assert dataset.name == "customers"
@@ -11,7 +10,7 @@ def test_load_yaml_legacy_table_format():
     assert len(dataset.fields) == 2
 
     assert dataset.fields[0].name == "customer_id"
-    assert dataset.fields[0].type == "string"
+    assert dataset.fields[0].type == "integer"
 
     assert dataset.fields[1].name == "created_at"
     assert dataset.fields[1].type == "timestamp"
