@@ -48,6 +48,32 @@ def validate_table(table: DatasetSpec):
                 f"for field '{field.name}'"
             )
 
+    supported_constraints = {
+        "primary_key",
+        "unique",
+        "foreign_key",
+        "check",
+    }
+
+    for constraint in table.constraints:
+
+        if constraint.type not in supported_constraints:
+            errors.append(
+                f"Unsupported constraint type: {constraint.type}"
+            )
+
+        if not constraint.columns:
+            errors.append(
+                f"Constraint '{constraint.type}' requires columns"
+            )
+
+        for column in constraint.columns:
+            if column not in field_names:
+                errors.append(
+                    f"Constraint '{constraint.type}' references "
+                    f"unknown field '{column}'"
+                )
+
     if errors:
         raise ValueError(
             "\n".join(errors)
