@@ -1,0 +1,17 @@
+dataset:
+  name: customers
+  description: Customer master data
+
+fields:
+  - name: customer_id
+    type: integer
+    description: Unique customer identifier
+
+  - name: created_at
+    type: timestamp
+    description: Record creation timestamp
+
+constraints:
+  - type: primary_key
+    columns:
+      - customer_id
