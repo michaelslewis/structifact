@@ -27,8 +27,10 @@ class SQLGenerator(Generator):
         for f in table.fields:
             columns.append(f"    {f.name} {_sql_type(f)}")
 
+        joined_columns = ',\n'.join(columns)
+
         sql = f"""CREATE TABLE {table.name} (
-{',\n'.join(columns)}
+{joined_columns}
 );"""
 
         return Artifact(
