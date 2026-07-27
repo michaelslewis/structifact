@@ -6,6 +6,22 @@ from .utils import write_file
 from .generators.registry import GENERATORS
 from .validation import validate_table
 
+def validate(args):
+    try:
+        table = load_spec(args.spec)
+        validate_table(table)
+
+    except ValueError as e:
+        print("\nValidation failed:\n")
+        print(e)
+        return
+
+    print(f"✓ Loaded metadata")
+    print(f"✓ Parsed {len(table.fields)} fields")
+    print(f"✓ Valid schema")
+    print(f"✓ No constraint violations")
+
+
 def generate(args):
     try:
         table = load_spec(args.spec)
@@ -50,6 +66,12 @@ def main():
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    validate_parser = subparsers.add_parser("validate")
+
+    validate_parser.add_argument("spec")
+
+    validate_parser.set_defaults(func=validate)
 
     generate_parser = subparsers.add_parser("generate")
 
