@@ -31,6 +31,33 @@ The guiding progression is:
 
 ---
 
+# Recently Completed
+
+The following items were previously described below as planned work.
+They are now implemented, tested, and covered by CI:
+
+* **Type-aware SQL generation** (Phase 4) — the SQL generator now maps
+  normalized types to real SQL types (`INTEGER`, `TIMESTAMP`,
+  `DECIMAL(precision,scale)`, etc.) instead of emitting `TEXT` for
+  every column.
+* **`structifact validate` command** (Phase 2 / Phase 3) — implemented
+  exactly as shown in the Phase 2 example below: loads metadata,
+  validates schema and constraints, and reports the documented
+  checkmark output.
+* **CSV/Excel adapters normalize types** the same way the YAML adapter
+  does, via `types.parse_type()`, instead of expecting pre-normalized
+  input.
+* **Continuous integration** — the test suite now runs automatically
+  via GitHub Actions on every push and pull request against `main`.
+* **A golden-path example** (`examples/customers/`) shows the full
+  input → output flow end to end for a new reader.
+
+The phase sections below are left as originally written for planning
+context, but should not be read as "not yet done" for the specific
+items called out above.
+
+---
+
 # Current State
 
 ## Established Foundation
