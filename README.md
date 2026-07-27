@@ -1,5 +1,7 @@
 # Structifact
 
+[![Tests](https://github.com/michaelslewis/Structifact/actions/workflows/tests.yml/badge.svg)](https://github.com/michaelslewis/Structifact/actions/workflows/tests.yml)
+
 **Schema-Driven Data Engineering Framework**
 
 Structifact is an experimental metadata-driven data engineering framework that explores how declarative dataset definitions can be used to build reliable, repeatable, and maintainable data artifacts.
@@ -90,11 +92,28 @@ YAML Metadata Contract
 Validation  Generators
 ```
 
-Structifact can then use this definition to generate consistent artifacts such as:
+Structifact can validate a definition against its schema:
+
+```bash
+structifact validate examples/customers.yml
+```
+
+```text
+✓ Loaded metadata
+✓ Parsed 2 fields
+✓ Valid schema
+✓ No constraint violations
+```
+
+And generate consistent artifacts such as:
 
 * SQL artifacts
 * dbt-style metadata artifacts
 * future documentation and validation artifacts
+
+```bash
+structifact generate examples/customers.yml
+```
 
 The goal is to move repetitive engineering decisions into reusable framework behavior.
 
@@ -229,7 +248,7 @@ Structifact/
 │   ├── generators/
 │   │   └── Artifact generation logic
 │   │
-│   ├── parser.py
+│   ├── cli.py
 │   ├── validation.py
 │   ├── types.py
 │   └── ir.py
