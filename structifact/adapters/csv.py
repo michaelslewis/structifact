@@ -2,6 +2,7 @@ import csv
 import os
 
 from ..ir import DatasetSpec, FieldSpec
+from ..types import parse_type
 
 
 def load_csv(path: str) -> DatasetSpec:
@@ -11,11 +12,18 @@ def load_csv(path: str) -> DatasetSpec:
         reader = csv.DictReader(csvfile)
 
         for row in reader:
+            parsed = parse_type(row["type"])
+
             fields.append(
                 FieldSpec(
                     name=row["column_name"],
-                    type=row["type"],
-                    description=row.get("description", "") or ""
+                    type=parsed["type"],
+                    raw_type=row["type"],
+                    description=row.get("description", "") or "",
+
+                    length=parsed.get("length"),
+                    precision=parsed.get("precision"),
+                    scale=parsed.get("scale"),
                 )
             )
 
