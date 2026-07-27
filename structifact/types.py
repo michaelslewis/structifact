@@ -24,8 +24,6 @@ TYPE_MAP = {
 
     "DATE": "date",
 
-        "DATE": "date",
-
     "TIMESTAMP": "timestamp",
     "TIMESTAMP_NTZ": "timestamp",
     "TIMESTAMP_LTZ": "timestamp",

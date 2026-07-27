@@ -1,4 +1,4 @@
 CREATE TABLE customers (
-    customer_id TEXT,
-    created_at TEXT
+    customer_id INTEGER,
+    created_at TIMESTAMP
 );

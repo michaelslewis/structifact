@@ -31,7 +31,25 @@ def test_sql_generator():
     assert artifact.filename == "customers.sql"
     assert "CREATE TABLE customers" in artifact.content
     assert "customer_id TEXT" in artifact.content
-    assert "created_at TEXT" in artifact.content
+    assert "created_at TIMESTAMP" in artifact.content
+
+
+def test_sql_generator_decimal_uses_precision_and_scale():
+    table = DatasetSpec(
+        name="transactions",
+        fields=[
+            FieldSpec(
+                name="amount",
+                type="decimal",
+                precision=13,
+                scale=2,
+            ),
+        ]
+    )
+
+    artifact = SQLGenerator().generate(table)
+
+    assert "amount DECIMAL(13,2)" in artifact.content
 
 
 def test_dbt_yaml_generator():
