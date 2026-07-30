@@ -97,10 +97,30 @@ def parse_type(raw_type: str) -> dict:
 
 
 _BOOLEAN_VALUES = {"true", "false"}
+_NULL_TOKENS = {"null", "n/a", "na", "none", "nan", "-", "unknown"}
 
 # YYYY-MM-DD, optionally followed by a time component (space or "T")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?")
+
+# A value that looks numeric but starts with a zero and has more than
+# one digit before any decimal point (e.g. "001", "02134") — treating
+# these as integers silently destroys information, so they should be
+# left as strings even though int() would happily parse them.
+_LEADING_ZERO_RE = re.compile(r"^0\d+(\.\d+)?$")
+
+
+def is_null_token(value) -> bool:
+    """
+    True if a raw sample value represents "no data" — either
+    genuinely empty, or a common placeholder like NULL, N/A, -, etc.
+    """
+    if value is None:
+        return True
+
+    stripped = str(value).strip()
+
+    return stripped == "" or stripped.lower() in _NULL_TOKENS
 
 
 def infer_type_from_values(values: list) -> str:
@@ -110,10 +130,11 @@ def infer_type_from_values(values: list) -> str:
     it hasn't been told what type a column is.
 
     This is deliberately conservative: if the sample is empty, or
-    values disagree with each other in a way that doesn't fit one
-    type cleanly, this returns "unknown" rather than guessing.
+    values disagree with each other (or contain a landmine like a
+    leading-zero identifier) in a way that doesn't fit one type
+    cleanly, this returns "unknown" or "string" rather than guessing.
     """
-    non_empty = [v.strip() for v in values if v is not None and str(v).strip() != ""]
+    non_empty = [v.strip() for v in values if not is_null_token(v)]
 
     if not non_empty:
         return "unknown"
@@ -126,6 +147,12 @@ def infer_type_from_values(values: list) -> str:
 
     if all(_DATE_RE.match(v) for v in non_empty):
         return "date"
+
+    if any(_LEADING_ZERO_RE.match(v) for v in non_empty):
+        # Looks numeric, but at least one value has a leading zero —
+        # treat the whole column as a string rather than risk quietly
+        # corrupting an identifier like a zip code or padded order ID.
+        return "string"
 
     if all(_is_int(v) for v in non_empty):
         return "integer"

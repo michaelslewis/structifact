@@ -43,6 +43,62 @@ def test_infer_ignores_blanks_when_checking_agreement():
     assert infer_type_from_values(["1", "", "3"]) == "integer"
 
 
+def test_infer_leading_zero_stays_string_not_integer():
+    # int("001") == 1 works fine, but silently dropping the leading
+    # zero would corrupt an identifier like a zip code or order id
+    assert infer_type_from_values(["001", "002", "003"]) == "string"
+
+
+def test_infer_recognizes_common_null_tokens():
+    from structifact.types import is_null_token
+
+    for token in ["", "  ", "NULL", "null", "N/A", "n/a", "-", "None"]:
+        assert is_null_token(token) is True
+
+    assert is_null_token("shipped") is False
+
+
+def test_infer_type_excludes_null_tokens_from_agreement():
+    # NULL/N/A shouldn't count as disagreeing "string" values that
+    # break an otherwise-clean integer column
+    assert infer_type_from_values(["1", "NULL", "3", "N/A"]) == "integer"
+
+
+# --- messy real-world-shaped data ---
+
+def test_discover_messy_csv_treats_leading_zero_ids_as_string():
+    discovered = discover_csv("tests/fixtures/messy_orders.csv")
+    by_name = {f.name: f for f in discovered.fields}
+
+    assert by_name["order_id"].inferred_type == "string"
+    assert by_name["zip_code"].inferred_type == "string"
+
+
+def test_discover_messy_csv_counts_null_tokens_as_blank():
+    discovered = discover_csv("tests/fixtures/messy_orders.csv")
+    by_name = {f.name: f for f in discovered.fields}
+
+    # notes has: "", "  ", "N/A", "NULL", "-", and one real value —
+    # only the real value should count as non-blank
+    assert by_name["notes"].null_count == 5
+
+
+def test_discover_messy_csv_hints_at_currency_formatting():
+    discovered = discover_csv("tests/fixtures/messy_orders.csv")
+    by_name = {f.name: f for f in discovered.fields}
+
+    assert by_name["amount"].inferred_type == "string"
+    assert "currency" in by_name["amount"].format_hint
+
+
+def test_discover_messy_csv_hints_at_inconsistent_date_formats():
+    discovered = discover_csv("tests/fixtures/messy_orders.csv")
+    by_name = {f.name: f for f in discovered.fields}
+
+    assert by_name["order_date"].inferred_type == "string"
+    assert "date" in by_name["order_date"].format_hint
+
+
 # --- discover_csv ---
 
 def test_discover_csv_infers_expected_columns():

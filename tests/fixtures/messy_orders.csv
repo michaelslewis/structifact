@@ -1,0 +1,7 @@
+order_id,customer_email,order_date,amount,status,notes,zip_code
+001,alice@example.com,2024-01-15,"$1,234.56",Shipped,,90210
+002,bob@example.com,01/22/2024,89.99,shipped,  ,10001
+003,carol@example.com,2024-01-30,"$45.00",SHIPPED,N/A,
+004,,2024-02-02,12.50,pending,NULL,02134
+005,dave@example.com,2024-02-05,,cancelled,-,08540
+006,eve@example.com,2024-02-10,199.99,Shipped,"Left at door, gate code 4421",90210

@@ -13,10 +13,15 @@ treated as authoritative metadata; see `render_draft_yaml()`.
 
 import csv
 import os
+import re
 from dataclasses import dataclass, field
 from typing import List
 
-from .types import infer_type_from_values
+from .types import infer_type_from_values, is_null_token
+
+
+_CURRENCY_RE = re.compile(r"^\$?-?[\d,]+\.\d{0,2}$|^\$[\d,]+$")
+_DATE_LIKE_RE = re.compile(r"^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}")
 
 
 @dataclass
@@ -26,6 +31,7 @@ class DiscoveredField:
     sample_count: int
     null_count: int
     looks_unique: bool
+    format_hint: str = ""
 
     @property
     def nullable(self) -> bool:
@@ -63,18 +69,20 @@ def discover_csv(path: str, sample_size: int = 100) -> DiscoveredDataset:
 
     fields = []
     for name, values in columns.items():
-        non_empty = [v for v in values if v is not None and v.strip() != ""]
+        non_empty = [v.strip() for v in values if not is_null_token(v)]
+        inferred_type = infer_type_from_values(values)
 
         fields.append(
             DiscoveredField(
                 name=name,
-                inferred_type=infer_type_from_values(values),
+                inferred_type=inferred_type,
                 sample_count=len(values),
                 null_count=len(values) - len(non_empty),
                 looks_unique=(
                     len(non_empty) > 0
                     and len(set(non_empty)) == len(non_empty)
                 ),
+                format_hint=_guess_format_hint(inferred_type, non_empty),
             )
         )
 
@@ -86,6 +94,35 @@ def discover_csv(path: str, sample_size: int = 100) -> DiscoveredDataset:
         row_count=row_count,
         fields=fields,
     )
+
+
+def _guess_format_hint(inferred_type: str, non_empty_values: list) -> str:
+    """
+    When a column couldn't be cleanly typed (fell back to "string"),
+    give a human a starting guess about *why* rather than leaving
+    them to puzzle it out — e.g. "this looks like currency" instead
+    of silently saying nothing.
+    """
+    if inferred_type != "string" or not non_empty_values:
+        return ""
+
+    currency_like = sum(1 for v in non_empty_values if _CURRENCY_RE.match(v))
+    if currency_like / len(non_empty_values) >= 0.6:
+        return (
+            "looks like currency values with inconsistent formatting "
+            "(e.g. '$' or ',' in some but not all values) — "
+            "consider normalizing before treating as decimal"
+        )
+
+    date_like = sum(1 for v in non_empty_values if _DATE_LIKE_RE.match(v))
+    if date_like / len(non_empty_values) >= 0.6:
+        return (
+            "looks like dates, but in inconsistent formats — "
+            "normalize to one format (e.g. YYYY-MM-DD) before "
+            "treating as a date"
+        )
+
+    return ""
 
 
 def render_draft_yaml(discovered: DiscoveredDataset) -> str:
@@ -123,6 +160,8 @@ def render_draft_yaml(discovered: DiscoveredDataset) -> str:
             hint_parts.append("all sampled values unique — possible key")
         if f.inferred_type == "unknown":
             hint_parts.append("could not infer a type — check manually")
+        if f.format_hint:
+            hint_parts.append(f.format_hint)
 
         lines.append(f"    description: TODO  # {', '.join(hint_parts)}")
         lines.append("")
