@@ -1,0 +1,5 @@
+customer_id,email,created_at,is_active,notes
+1,alice@example.com,2024-01-15,true,
+2,bob@example.com,2024-02-20,false,VIP customer
+3,carol@example.com,2024-03-05,true,
+4,dave@example.com,2024-04-10,true,Referred by alice
