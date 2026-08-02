@@ -28,6 +28,7 @@ def load_yaml(path: str) -> DatasetSpec:
                 type=parsed["type"],
                 raw_type=field["type"],
                 description=field.get("description"),
+                role=field.get("role"),
 
                 length=parsed.get("length"),
                 precision=parsed.get("precision"),
