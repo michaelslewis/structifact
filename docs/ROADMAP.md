@@ -619,3 +619,48 @@ Structifact succeeds if it enables engineers to:
 # Guiding Principle
 
 > Define structure once. Generate reliable systems from it.
+
+---
+
+# Scoping Notes: Real-World Requirements Complexity
+
+These notes capture findings from reviewing a (synthetic, non-proprietary)
+example matching the shape of real enterprise data source requirements,
+to ground Phases 7 and 10 in concrete detail rather than abstract goals.
+
+## Why a requirements-document parser is hard (relevant to a future Phase)
+
+A real-world requirements document is not flat, table-shaped input like
+current adapters expect. It typically has:
+
+* A join-mapping section, separate from per-table field definitions
+* Join info expressed two different ways in practice — inline
+  pseudo-SQL text, or a numeric pointer into a separate join-key list
+* Scattered freeform notes (e.g. lookup-table fallback rules) that
+  apply to specific fields but aren't structurally tied to them
+
+The freeform-notes problem in particular is a strong argument for
+building this on top of the LLM-assisted half of `discover` once it
+exists, rather than as pure deterministic parsing — "does this stray
+paragraph apply to field X" is a judgment call, not a parsing rule.
+
+## Why derived/transformation fields require new IR concepts (Phase 7)
+
+Neither `FieldSpec` nor `ConstraintSpec` currently has any way to express
+"this field's value is computed from other fields via a conditional
+expression" (e.g. a sign adjustment based on a type code, or a tiered
+commission calculation). Real Phase 7 work, not a quick add — needs new
+IR types, validation rules, and generator logic.
+
+The IR also has no concept of one dataset depending on another (e.g. a
+main model referencing an intermediate lookup model) — also unaddressed
+today.
+
+## What's comparatively easy: catalog generation
+
+`FieldSpec` in `ir.py` already has a `role: Optional[str] = None` field
+(dimension | measure) — reserved but currently unused by any adapter or
+generator. Wiring this up (YAML adapter accepts `role:` per field, plus
+a new catalog-CSV generator) needs no new IR concepts and is scoped
+similarly to `validate` or `discover` — a near-term target, not a
+multi-week effort.
