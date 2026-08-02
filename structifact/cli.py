@@ -3,7 +3,7 @@ import os
 
 from .adapters.registry import load_spec
 from .utils import write_file
-from .generators.registry import GENERATORS
+from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
 from .discover import discover_csv, render_draft_yaml
 
@@ -74,7 +74,21 @@ def generate(args):
 
     print("\n--- GENERATED ARTIFACTS ---")
 
-    for gen in GENERATORS:
+    if args.generators:
+        by_name = {g.name: g for g in ALL_GENERATORS}
+        requested = [n.strip() for n in args.generators.split(",") if n.strip()]
+
+        unknown = [n for n in requested if n not in by_name]
+        if unknown:
+            print(f"\nUnknown generator(s): {', '.join(unknown)}")
+            print(f"Available: {', '.join(sorted(by_name.keys()))}")
+            return
+
+        selected = [by_name[n] for n in requested]
+    else:
+        selected = GENERATORS
+
+    for gen in selected:
         artifact = gen.generate(table)
 
         path = f"{args.output}/{artifact.filename}"
@@ -103,6 +117,16 @@ def main():
     generate_parser.add_argument("spec")
 
     generate_parser.add_argument("-o", "--output", default="output")
+
+    generate_parser.add_argument(
+        "-g", "--generators", default=None,
+        help=(
+            "Comma-separated generator names to run instead of the "
+            "default set (e.g. 'sql,catalog_extended'). Run without "
+            "this flag to see the default generators; an unknown "
+            "name lists what's available."
+        ),
+    )
 
     generate_parser.set_defaults(func=generate)
 

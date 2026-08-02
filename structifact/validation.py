@@ -10,6 +10,11 @@ SUPPORTED_TYPES = {
     "boolean",
 }
 
+SUPPORTED_ROLES = {
+    "dimension",
+    "measure",
+}
+
 
 def validate_table(table: DatasetSpec):
     errors = []
@@ -46,6 +51,13 @@ def validate_table(table: DatasetSpec):
             errors.append(
                 f"Unsupported type '{invalid_type}' "
                 f"for field '{field.name}'"
+            )
+
+        if field.role is not None and field.role not in SUPPORTED_ROLES:
+            errors.append(
+                f"Unsupported role '{field.role}' "
+                f"for field '{field.name}' "
+                f"(must be 'dimension' or 'measure')"
             )
 
     supported_constraints = {

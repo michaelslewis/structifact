@@ -1,0 +1,24 @@
+dataset:
+  name: customers
+  description: Customer master data
+
+fields:
+  - name: customer_id
+    type: integer
+    description: Unique customer identifier
+    role: dimension
+
+  - name: lifetime_value
+    type: decimal
+    description: Total lifetime spend
+    role: measure
+
+  - name: created_at
+    type: timestamp
+    description: Record creation timestamp
+    role: dimension
+
+constraints:
+  - type: primary_key
+    columns:
+      - customer_id
