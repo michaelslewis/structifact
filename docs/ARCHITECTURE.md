@@ -11,9 +11,6 @@ Input Metadata
 Adapters
        |
        v
-Metadata Parser
-       |
-       v
 Intermediate Representation (IR)
        |
        +----------------+
@@ -91,7 +88,7 @@ where generated behavior originated
 
 Generated outputs should remain human-readable.
 
-Structifact should automate repetitive engineering work without hiding engineering decisions.
+Structifact should automate repetitive engineering work without hiding engineering decisions. This is also why `structifact discover` — the deterministic schema-inference command — always writes a clearly-labeled draft for human review rather than treating any inferred value as real metadata, and why catalog generators never fabricate values (like a `pii` flag or `changed_by` name) that the IR has no actual way of knowing.
 
 Reliability Before Cleverness
 
@@ -119,9 +116,6 @@ Input Formats
 Adapters
       |
       v
-Metadata Parser
-      |
-      v
 Intermediate Representation
       |
       v
@@ -142,19 +136,21 @@ Location:
 
 structifact/adapters/
 
-The adapter layer handles external metadata formats.
+The adapter layer handles external metadata formats. Each adapter is responsible for loading a source format and constructing IR objects (`DatasetSpec` / `FieldSpec` / `ConstraintSpec`) directly — there is no separate parsing stage between an adapter and the IR.
 
 Responsibilities:
 
 loading source definitions
-converting external formats into framework inputs
+converting external formats into DatasetSpec/FieldSpec/ConstraintSpec objects
 isolating format-specific behavior
 
-Current adapter examples:
+Current adapters:
 
-YAML
-CSV
-Excel
+YAML (`structifact/adapters/yaml.py`) — the primary format; supports the canonical `dataset:` contract, the legacy `table:` format, per-field `role` (`dimension` | `measure`), and constraints
+CSV (`structifact/adapters/csv.py`)
+Excel (`structifact/adapters/excel.py`)
+
+All three adapters normalize raw type strings through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping logic.
 
 Future adapters may include:
 
@@ -164,23 +160,6 @@ cloud storage formats
 API-based metadata sources
 
 Adapters should not contain business rules or generation logic.
-
-Metadata Parser
-
-Location:
-
-structifact/parser.py
-
-The parser converts adapter output into Structifact's internal representation.
-
-Responsibilities:
-
-interpreting metadata definitions
-creating IR objects
-normalizing metadata structures
-preparing definitions for validation and generation
-
-The parser should remain independent from specific output formats.
 
 Intermediate Representation (IR)
 
@@ -222,6 +201,7 @@ The artifact model describes implementation outputs:
 
 SQL
 dbt metadata
+catalog CSVs
 documentation
 lineage artifacts
 
@@ -234,6 +214,7 @@ constraints:
   - type: primary_key
     columns:
       - customer_id
+```
 
 DatasetSpec
 
@@ -291,6 +272,7 @@ name
 type
 description
 nullable
+role
 length
 precision
 scale
@@ -303,6 +285,8 @@ represent data type information
 represent field-level metadata
 support validation and generation
 
+`role` (`dimension` | `measure`) is optional — fields without a role are still valid. When present, it's validated against the supported set (`structifact/validation.py`) and consumed by the catalog generators to classify columns in generated catalog output. It is not derived or inferred; a field's role is only ever what the metadata explicitly states.
+
 FieldSpec should remain focused on characteristics inherent to the field itself.
 
 Field Characteristics vs Constraints
@@ -314,6 +298,7 @@ Field properties:
 name
 type
 nullable
+role
 description
 
 Constraints:
@@ -324,7 +309,7 @@ foreign key
 accepted values
 validation rules
 
-This avoids allowing FieldSpec to grow into an unmanageable collection of flags.
+This avoids allowing FieldSpec to grow into an unmanageable collection of flags. Notably, FieldSpec still has no way to express a *derived* or *computed* field (a value calculated from other fields via an expression) — that remains unaddressed future work; see the Transformation Framework scoping notes in `ROADMAP.md`.
 
 ConstraintSpec
 
@@ -396,7 +381,7 @@ Migrate internal usage gradually.
 Update documentation and examples to use DatasetSpec terminology.
 Remove deprecated terminology only after the ecosystem has migrated.
 
-This preserves working functionality while improving the long-term architecture.
+This preserves working functionality while improving the long-term architecture. `TableSpec` remains a plain alias for `DatasetSpec` in `ir.py`; no separate class exists.
 
 Type System
 
@@ -408,7 +393,8 @@ The type system defines Structifact's understanding of data types.
 
 Responsibilities:
 
-normalizing external type names
+normalizing external type names (`parse_type`, `normalize_type`)
+inferring a likely type from raw sample values with no declared type (`infer_type_from_values`, used by `structifact discover`)
 mapping source types into framework types
 preserving type metadata
 supporting validation and generation
@@ -420,6 +406,8 @@ VARCHAR  -> string
 INTEGER  -> integer
 
 DECIMAL  -> decimal
+
+`infer_type_from_values` is deliberately conservative: values that look numeric but have a leading zero (e.g. a zip code) are kept as `string` rather than risk silently corrupting an identifier, and common null placeholders (`NULL`, `N/A`, `-`, etc.) are recognized rather than only literal empty strings.
 
 The type system should remain separate from the IR.
 
@@ -441,11 +429,12 @@ Validation operates against the IR.
 
 The validation framework ensures metadata definitions are consistent and reliable.
 
-Current and near-term responsibilities:
+Current responsibilities:
 
 dataset validation
 field validation
 supported type checks
+role checks (when a field specifies `role`, it must be `dimension` or `measure`)
 constraint validation
 meaningful error reporting
 
@@ -473,10 +462,12 @@ Generator
       v
 Artifact
 
-Current examples:
+Current generators:
 
-SQL generation
-dbt-compatible YAML generation
+SQL generation (`sql.py`) — type-aware; maps normalized types to real SQL types (`INTEGER`, `TIMESTAMP`, `DECIMAL(precision,scale)`, etc.)
+dbt-compatible YAML generation (`dbt_yaml.py`)
+Catalog CSV generation (`catalog.py`) — a minimal catalog (name, description, role, type, length) using only what the IR actually knows; run by default
+Extended catalog CSV generation (`catalog_extended.py`) — a richer catalog matching a specific downstream tool's expected column set. Fields the IR has no way to know (`pii`, `comments`) are always blank rather than guessed; `changed_by` is explicitly configurable (constructor argument or `STRUCTIFACT_CHANGED_BY` environment variable), blank if unset; `changed_on` is a real generation timestamp. **Not** run by default — see Registry Pattern below.
 
 Future generators may include:
 
@@ -491,22 +482,25 @@ Registry Pattern
 
 Adapters and generators use registry concepts.
 
-Examples:
+Locations:
 
 structifact/adapters/registry.py
-
 structifact/generators/registry.py
 
-Registries provide extensibility points for supported components.
+The generator registry distinguishes two sets:
 
-This allows future additions without modifying the framework core.
+`GENERATORS` — run by default on every `structifact generate`. Reserved for generators whose output shape requires no user-specific configuration (SQL, dbt YAML, the minimal catalog).
+`OPTIONAL_GENERATORS` — available, but not run unless explicitly requested via `structifact generate -g <name>`. Reserved for generators that depend on assumptions Structifact cannot make for every user (currently just the extended catalog generator).
+
+This split exists because Structifact cannot know what any given user's downstream tooling requires — adding a new org-specific output format means writing one more small generator and deciding which set it belongs in, not teaching the framework to guess.
+
+Registries provide extensibility points for supported components. This allows future additions without modifying the framework core.
 
 Command Line Interface
 
 Locations:
 
 structifact/cli.py
-
 structifact/__main__.py
 
 The CLI is the primary user interaction boundary.
@@ -516,20 +510,26 @@ The CLI is intentionally prioritized early because it serves two purposes:
 A practical developer workflow.
 A demonstration of the framework architecture.
 
-Near-term workflows:
+Current commands:
 
 structifact validate examples/customers.yml
 
-Example output:
+Output:
 
 ✓ Loaded metadata
-✓ Parsed 5 fields
+✓ Parsed 2 fields
 ✓ Valid schema
 ✓ No constraint violations
 
-Future workflows:
+structifact generate examples/customers.yml [-o output_dir] [-g generator_names]
 
-structifact generate examples/customers.yml
+Runs the default generator set, or an explicitly selected subset via `-g` (comma-separated generator names). An unknown name lists what's available rather than failing silently.
+
+structifact discover some_data.csv [-o output.yml] [-n sample_size]
+
+Infers a draft schema from raw CSV sample data and writes it to a file for human review. Never validates or generates from the draft automatically — see Future Architectural Direction below.
+
+Future workflows:
 
 structifact docs examples/customers.yml
 
@@ -596,23 +596,28 @@ Generators
       v
 
 Engineering Artifacts
+
+An additional, separate flow exists for schema discovery from raw data with no existing metadata:
+
+Raw Sample Data (CSV)
+        |
+        v
+Deterministic Inference (structifact/discover.py)
+        |
+        v
+Draft YAML (clearly labeled, not authoritative)
+        |
+        v
+Human Review
+        |
+        v
+(only then) Adapter Loading, as in the flow above
+
 Testing Architecture
 
 Testing is a core design requirement.
 
-Current test areas include:
-
-tests/
-
-test_types.py
-
-test_validation.py
-
-test_generators.py
-
-test_csv_adapter.py
-
-test_yaml_adapter.py
+Current test areas include type system behavior, adapter behavior (per format), IR construction, validation rules, each generator, `discover`'s inference logic, and CLI command behavior — see `tests/` for the current, evolving set of test files.
 
 Future tests should continue validating:
 
@@ -630,14 +635,17 @@ The current architecture intentionally leaves room for future expansion.
 
 AI-Assisted Metadata Discovery
 
-AI is considered a future assistance layer around the deterministic Structifact core.
+The deterministic half of this is implemented: `structifact discover` infers a draft schema (types, nullability, key/format hints) from raw sample data using no AI, and writes it to a file for human review — it is never auto-validated or auto-generated from.
 
-The future workflow:
+The LLM-assisted half remains future work:
 
 Unknown Dataset
         |
         v
-AI-Assisted Discovery
+Deterministic Inference (implemented)
+        |
+        v
+LLM-Assisted Discovery (not yet implemented)
         |
         v
 Suggested Metadata Contract
@@ -651,17 +659,18 @@ Structifact IR
         v
 Validation + Generation
 
-Potential capabilities:
+Potential future capabilities:
 
-schema suggestions
-type detection
+richer schema suggestions than deterministic inference can produce
 constraint recommendations
-metadata generation
+interpreting freeform notes attached to a field (e.g. business logic described in prose)
 documentation assistance
 
-AI should create suggestions, not replace the metadata contract.
+AI should create suggestions, not replace the metadata contract. The approved metadata model remains authoritative. Structifact must remain fully functional without any AI-assisted feature.
 
-The approved metadata model remains authoritative.
+Transformation Framework
+
+Not yet implemented. Neither `FieldSpec` nor `ConstraintSpec` has any way to express a field whose value is computed from other fields via an expression (e.g. a conditional sign adjustment, a tiered commission calculation), nor does the IR have a concept of one dataset depending on another (e.g. a model referencing an intermediate lookup model). This is real new IR/validation/generator work, not an incremental addition — see the scoping notes in `ROADMAP.md` for a concrete example of the kind of complexity this would need to support.
 
 Execution and Orchestration
 
@@ -715,9 +724,6 @@ The long-term Structifact architecture:
                      |
                      v
               Adapter Layer
-                     |
-                     v
-              Metadata Parser
                      |
                      v
               DatasetSpec IR
