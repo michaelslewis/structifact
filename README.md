@@ -133,12 +133,20 @@ reasoning behind these choices.
 * YAML, CSV, and Excel input adapters, all normalizing types through
   a shared type system
 * An Intermediate Representation (`DatasetSpec` / `FieldSpec` /
-  `ConstraintSpec`) as the stable internal model
+  `ConstraintSpec`) as the stable internal model, including optional
+  per-field `role` classification (`dimension` / `measure`)
 * Schema and constraint validation, with clear error reporting
 * Type-aware SQL generation (`INTEGER`, `TIMESTAMP`,
   `DECIMAL(precision,scale)`, etc. — not a blanket text type)
 * dbt-compatible YAML metadata generation
-* A `validate` and `generate` CLI
+* Catalog CSV generation — a minimal default generator, plus a
+  second, richer format available via `-g catalog_extended` for
+  downstream tools that expect a specific column set
+* `structifact discover` — infers a draft schema from raw CSV sample
+  data (types, nullability, key/format hints), for human review
+  before it becomes real metadata
+* A `validate`, `generate`, and `discover` CLI, with `-g/--generators`
+  to select which generators run
 * Continuous integration running the full test suite on every push
 
 ## Technology Stack
