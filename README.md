@@ -135,7 +135,9 @@ reasoning behind these choices.
 * An Intermediate Representation (`DatasetSpec` / `FieldSpec` /
   `ConstraintSpec`) as the stable internal model, including optional
   per-field `role` classification (`dimension` / `measure`)
-* Schema and constraint validation, with clear error reporting
+* Schema and constraint validation, with clear error reporting —
+  including per-field `accepted_values` well-formedness checks and
+  rejecting more than one `primary_key` constraint per dataset
 * Type-aware SQL generation (`INTEGER`, `TIMESTAMP`,
   `DECIMAL(precision,scale)`, etc. — not a blanket text type)
 * dbt-compatible YAML metadata generation
