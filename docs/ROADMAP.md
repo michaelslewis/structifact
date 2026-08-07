@@ -73,6 +73,14 @@ They are now implemented, tested, and covered by CI:
 * **Generator selection** — `structifact generate` now accepts
   `-g/--generators` to explicitly choose which generators run;
   omitting it keeps the previous default behavior unchanged.
+* **Validation expansion (Phase 6, well-formedness level)** —
+  `FieldSpec.accepted_values` lets a field declare a domain of
+  allowed values; validation rejects an empty list or duplicate
+  entries within it. Validation also rejects more than one
+  `primary_key` constraint per dataset. These check the metadata
+  definition itself, not real data — Structifact still doesn't
+  ingest actual data rows, so this isn't data-quality validation
+  yet, just catching malformed declarations earlier.
 
 The phase sections below are left as originally written for planning
 context, but should not be read as "not yet done" for the specific

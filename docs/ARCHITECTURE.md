@@ -273,6 +273,7 @@ type
 description
 nullable
 role
+accepted_values
 length
 precision
 scale
@@ -287,6 +288,8 @@ support validation and generation
 
 `role` (`dimension` | `measure`) is optional — fields without a role are still valid. When present, it's validated against the supported set (`structifact/validation.py`) and consumed by the catalog generators to classify columns in generated catalog output. It is not derived or inferred; a field's role is only ever what the metadata explicitly states.
 
+`accepted_values` (a list of strings) is likewise optional. Validation only checks that the declaration itself is well-formed — non-empty, no duplicate entries — since Structifact validates metadata definitions, not real data rows; there is currently no data-ingestion path to check actual values against this list. Note this deviates from the original plan below, which envisioned accepted values as a *constraint* rather than a field property — implementation ended up treating it as intrinsic to the field instead. That's worth revisiting if it causes friction, rather than silently left as an unexplained inconsistency.
+
 FieldSpec should remain focused on characteristics inherent to the field itself.
 
 Field Characteristics vs Constraints
@@ -299,6 +302,7 @@ name
 type
 nullable
 role
+accepted_values
 description
 
 Constraints:
@@ -306,7 +310,6 @@ Constraints:
 primary key
 unique
 foreign key
-accepted values
 validation rules
 
 This avoids allowing FieldSpec to grow into an unmanageable collection of flags. Notably, FieldSpec still has no way to express a *derived* or *computed* field (a value calculated from other fields via an expression) — that remains unaddressed future work; see the Transformation Framework scoping notes in `ROADMAP.md`.
@@ -350,6 +353,9 @@ multi-column constraints
 relationships
 validation rules
 data contracts
+
+A dataset may have at most one `primary_key` constraint — validation rejects a second one rather than silently allowing an ambiguous schema.
+
 TableSpec Compatibility Strategy
 
 Historically, Structifact used:
