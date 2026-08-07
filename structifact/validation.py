@@ -60,12 +60,37 @@ def validate_table(table: DatasetSpec):
                 f"(must be 'dimension' or 'measure')"
             )
 
+        if field.accepted_values is not None:
+            if not field.accepted_values:
+                errors.append(
+                    f"Field '{field.name}' has an empty "
+                    f"accepted_values list — remove it or add values"
+                )
+
+            seen_values = set()
+            for value in field.accepted_values:
+                if value in seen_values:
+                    errors.append(
+                        f"Duplicate accepted_value '{value}' "
+                        f"for field '{field.name}'"
+                    )
+                seen_values.add(value)
+
     supported_constraints = {
         "primary_key",
         "unique",
         "foreign_key",
         "check",
     }
+
+    primary_key_count = sum(
+        1 for c in table.constraints if c.type == "primary_key"
+    )
+    if primary_key_count > 1:
+        errors.append(
+            f"Dataset '{table.name}' has {primary_key_count} "
+            f"primary_key constraints — a dataset can have at most one"
+        )
 
     for constraint in table.constraints:
 

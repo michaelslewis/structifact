@@ -22,6 +22,13 @@ def load_yaml(path: str) -> DatasetSpec:
     for field in data["fields"]:
         parsed = parse_type(field["type"])
 
+        raw_accepted_values = field.get("accepted_values")
+        accepted_values = (
+            [str(v) for v in raw_accepted_values]
+            if raw_accepted_values is not None
+            else None
+        )
+
         fields.append(
             FieldSpec(
                 name=field["name"],
@@ -29,6 +36,7 @@ def load_yaml(path: str) -> DatasetSpec:
                 raw_type=field["type"],
                 description=field.get("description"),
                 role=field.get("role"),
+                accepted_values=accepted_values,
 
                 length=parsed.get("length"),
                 precision=parsed.get("precision"),

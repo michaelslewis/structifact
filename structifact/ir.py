@@ -25,6 +25,8 @@ class FieldSpec:
     precision: Optional[int] = None
     scale: Optional[int] = None
 
+    accepted_values: Optional[List[str]] = None
+
     nullable: bool = True
 
 
