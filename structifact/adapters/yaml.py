@@ -49,6 +49,8 @@ def load_yaml(path: str) -> DatasetSpec:
                 precision=parsed.get("precision"),
                 scale=parsed.get("scale"),
 
+                nullable=field.get("nullable", True),
+
                 computed=field.get("computed", False),
                 expression=field.get("expression"),
                 depends_on=depends_on,
