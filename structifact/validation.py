@@ -76,6 +76,49 @@ def validate_table(table: DatasetSpec):
                     )
                 seen_values.add(value)
 
+    # Computed-field well-formedness (Phase 7, first minimal step).
+    # This only checks that the metadata is internally consistent —
+    # it does not (and cannot yet) validate that `expression` is
+    # actually valid SQL, since Structifact doesn't execute anything.
+    # Requires field_names to be fully populated first, so this runs
+    # as its own pass after the loop above rather than inline with
+    # it — a field can validly depend_on a field declared later in
+    # the same file.
+    for field in table.fields:
+
+        if field.computed:
+            if not field.expression:
+                errors.append(
+                    f"Field '{field.name}' is marked computed but has "
+                    f"no expression — a computed field requires one"
+                )
+        elif field.expression:
+            errors.append(
+                f"Field '{field.name}' has an expression but is not "
+                f"marked computed: true — set computed: true, or "
+                f"remove the expression if it wasn't intentional"
+            )
+
+        if field.depends_on:
+            if not field.computed:
+                errors.append(
+                    f"Field '{field.name}' has depends_on but is not "
+                    f"marked computed: true"
+                )
+
+            if field.name in field.depends_on:
+                errors.append(
+                    f"Field '{field.name}' cannot appear in its own "
+                    f"depends_on"
+                )
+
+            for dep in field.depends_on:
+                if dep not in field_names:
+                    errors.append(
+                        f"Field '{field.name}' depends_on unknown "
+                        f"field '{dep}'"
+                    )
+
     supported_constraints = {
         "primary_key",
         "unique",

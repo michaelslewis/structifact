@@ -28,11 +28,10 @@ class DocsGenerator(Generator):
     no role, no accepted_values, etc. simply omits that line rather
     than guessing or showing a placeholder.
 
-    Deliberately does NOT include a computed/derived-logic section:
-    FieldSpec has no field for representing derived/computed logic
-    yet (see ROADMAP.md, Phase 7 — Transformation Framework). Adding
-    one here would mean inventing metadata that doesn't exist in the
-    IR, which is exactly what this generator is designed not to do.
+    Computed fields (Phase 7, first minimal step) render their
+    expression and depends_on when present. `expression` is shown
+    verbatim as assumed-valid SQL — this generator does not validate,
+    execute, or otherwise interpret it.
     """
 
     name = "docs"
@@ -64,6 +63,16 @@ class DocsGenerator(Generator):
             if f.accepted_values:
                 values = ", ".join(f"`{v}`" for v in f.accepted_values)
                 lines.append(f"- **Accepted values:** {values}")
+
+            if f.computed:
+                lines.append("- **Computed:** Yes")
+
+                if f.expression:
+                    lines.append(f"- **Expression:** `{f.expression}`")
+
+                if f.depends_on:
+                    deps = ", ".join(f.depends_on)
+                    lines.append(f"- **Depends on:** {deps}")
 
             if f.description:
                 lines.append("")

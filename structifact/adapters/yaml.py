@@ -29,6 +29,13 @@ def load_yaml(path: str) -> DatasetSpec:
             else None
         )
 
+        raw_depends_on = field.get("depends_on")
+        depends_on = (
+            [str(v) for v in raw_depends_on]
+            if raw_depends_on is not None
+            else None
+        )
+
         fields.append(
             FieldSpec(
                 name=field["name"],
@@ -41,6 +48,10 @@ def load_yaml(path: str) -> DatasetSpec:
                 length=parsed.get("length"),
                 precision=parsed.get("precision"),
                 scale=parsed.get("scale"),
+
+                computed=field.get("computed", False),
+                expression=field.get("expression"),
+                depends_on=depends_on,
             )
         )
 

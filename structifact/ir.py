@@ -29,6 +29,25 @@ class FieldSpec:
 
     nullable: bool = True
 
+    # Computed/derived fields (Phase 7 — Transformation Framework,
+    # first minimal step). This represents that a field's value is
+    # derived rather than sourced directly — it does NOT yet support
+    # generating SQL from it (see generators/sql.py, unchanged by
+    # this step).
+    #
+    # `expression` is assumed to be valid SQL syntax, meant to be
+    # inlined as-is by a future generator. This is deliberately NOT
+    # the same thing as the freeform business-logic text
+    # `discover --requirements --ai` extracts into its draft output
+    # (e.g. "if order_type in ('RET','CRM') then -1 else 1" is
+    # readable pseudocode, not valid SQL as written). Turning a
+    # discovery draft's raw logic into a real `expression` here is a
+    # human decision (or a separate, later translation step) — never
+    # automatic.
+    computed: bool = False
+    expression: Optional[str] = None
+    depends_on: Optional[List[str]] = None
+
 
 @dataclass
 class ConstraintSpec:
