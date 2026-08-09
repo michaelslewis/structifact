@@ -17,6 +17,10 @@ excel = [
     "pandas>=2.0",
 ]
 
+ai = [
+    "anthropic>=0.40",
+]
+
 dev = [
     "pytest",
 ]

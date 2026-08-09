@@ -5,7 +5,9 @@ from .adapters.registry import load_spec
 from .utils import write_file
 from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
-from .discover import discover_csv, render_draft_yaml
+from .discover import (
+    discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
+)
 
 def validate(args):
     try:
@@ -23,7 +25,7 @@ def validate(args):
     print(f"✓ No constraint violations")
 
 
-def discover(args):
+def discover(args, ai_client=None):
     if not args.spec.lower().endswith(".csv"):
         print("\nstructifact discover currently only supports raw CSV input.")
         return
@@ -36,7 +38,37 @@ def discover(args):
     print(f"✓ Sampled {sampled} row(s)")
     print(f"✓ Inferred {len(discovered.fields)} column(s)")
 
-    yaml_content = render_draft_yaml(discovered)
+    ai_suggestions = None
+
+    if getattr(args, "ai", False):
+        if ai_client is None:
+            from .llm import AnthropicLLMClient
+
+            try:
+                ai_client = AnthropicLLMClient()
+            except RuntimeError as e:
+                print(f"\n{e}")
+                return
+
+        prompt = build_ai_prompt(discovered)
+        estimate = ai_client.estimate_cost(prompt)
+
+        print(f"\nAI-assisted field descriptions requested.")
+        print(f"Estimate: {estimate.note}")
+
+        proceed = getattr(args, "yes", False)
+
+        if not proceed:
+            answer = input("Proceed with this request? [y/N] ").strip().lower()
+            proceed = answer == "y"
+
+        if proceed:
+            raw = ai_client.suggest_field_descriptions(prompt)
+            ai_suggestions = parse_ai_suggestions(raw)
+        else:
+            print("Skipped — writing deterministic draft only (no AI request made).")
+
+    yaml_content = render_draft_yaml(discovered, ai_suggestions=ai_suggestions)
 
     output_path = args.output or f"{discovered.name}.discovered.yml"
     write_file(output_path, yaml_content)
@@ -138,6 +170,22 @@ def main():
 
     discover_parser.add_argument(
         "-n", "--sample-size", type=int, default=100
+    )
+
+    discover_parser.add_argument(
+        "--ai", action="store_true",
+        help=(
+            "Also ask an LLM to suggest field descriptions. Requires "
+            "ANTHROPIC_API_KEY. Off by default — never runs, never costs "
+            "anything, unless you pass this explicitly. Shows a cost "
+            "estimate and asks for confirmation before making any "
+            "request, unless -y is also passed."
+        ),
+    )
+
+    discover_parser.add_argument(
+        "-y", "--yes", action="store_true",
+        help="Skip the confirmation prompt when using --ai.",
     )
 
     discover_parser.set_defaults(func=discover)
