@@ -4,8 +4,9 @@ LLM client abstraction for AI-assisted discovery.
 Structifact's deterministic core (adapters, validation, generators,
 and the base `structifact discover` command) never imports this
 module and never makes a network call. This module exists solely for
-the optional, explicitly opt-in AI-assisted half of
-`structifact discover --ai`.
+the optional, explicitly opt-in AI-assisted halves of
+`structifact discover --ai` (raw-data field descriptions and
+requirements-document extraction).
 
 Design: LLMClient is a small interface, not tied to any one provider.
 Only an Anthropic implementation ships today, since that's the only
@@ -42,10 +43,24 @@ class LLMClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def suggest_field_descriptions(self, prompt: str) -> str:
-        """Makes the actual request. Only called after the user has
-        explicitly confirmed (or passed -y)."""
+    def complete(self, prompt: str) -> str:
+        """Makes the actual request with an arbitrary prompt. Only
+        called after the user has explicitly confirmed (or passed
+        -y). Provider implementations only need to implement this one
+        generic method — everything Structifact asks an LLM to do
+        (raw-data field descriptions, requirements-doc extraction,
+        anything added later) is just a different prompt over the
+        same call, not a new method per use case."""
         raise NotImplementedError
+
+    def suggest_field_descriptions(self, prompt: str) -> str:
+        """
+        Kept as a named, self-documenting entry point for the
+        raw-data discovery path (and for backward compatibility with
+        existing call sites). Just delegates to complete() — provider
+        implementations do not need to override this separately.
+        """
+        return self.complete(prompt)
 
 
 class FakeLLMClient(LLMClient):
@@ -65,7 +80,7 @@ class FakeLLMClient(LLMClient):
             note="fake client — no real cost",
         )
 
-    def suggest_field_descriptions(self, prompt: str) -> str:
+    def complete(self, prompt: str) -> str:
         self.prompts_received.append(prompt)
         return self.canned_response
 
@@ -126,7 +141,7 @@ class AnthropicLLMClient(LLMClient):
             ),
         )
 
-    def suggest_field_descriptions(self, prompt: str) -> str:
+    def complete(self, prompt: str) -> str:
         import anthropic  # lazy import: only required if this path runs
 
         client = anthropic.Anthropic(api_key=self.api_key)
