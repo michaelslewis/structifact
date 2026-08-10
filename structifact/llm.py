@@ -108,7 +108,20 @@ class AnthropicLLMClient(LLMClient):
     # console.anthropic.com/pricing before relying on this number.
     _APPROX_INPUT_COST_PER_MTOK = 1.0
     _APPROX_OUTPUT_COST_PER_MTOK = 5.0
-    _APPROX_OUTPUT_TOKEN_CAP = 500
+    # This caps BOTH the cost estimate shown before confirmation AND
+    # the real API request's max_tokens — so it's not just a display
+    # number, it's a hard ceiling on how long a real response can be.
+    # 500 truncated a real response for a requirements-document
+    # extraction with ~20 fields; 4000 ALSO truncated one on a
+    # different run of the same document, purely from normal
+    # run-to-run output-length variance — a fixed cap can't fully
+    # eliminate this risk, only push the odds down. Raised again with
+    # real headroom; the marginal cost of an unused higher ceiling
+    # remains negligible (well under a cent at Haiku's output
+    # pricing) next to the cost of another truncated, unusable
+    # response. complete() also now surfaces stop_reason ==
+    # "max_tokens" explicitly if this cap is ever hit again.
+    _APPROX_OUTPUT_TOKEN_CAP = 8000
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -151,5 +164,19 @@ class AnthropicLLMClient(LLMClient):
             max_tokens=self._APPROX_OUTPUT_TOKEN_CAP,
             messages=[{"role": "user", "content": prompt}],
         )
+
+        if response.stop_reason == "max_tokens":
+            # Authoritative, not a guess: the API itself is telling us
+            # the response was cut off before the model finished, not
+            # inferred indirectly from e.g. a downstream YAML parse
+            # failure on an unclosed code fence. Surfacing this
+            # directly, at the source, is far more actionable than
+            # letting the caller puzzle out a generic parse error.
+            print(
+                f"\nWarning: the AI response was cut off after hitting "
+                f"the {self._APPROX_OUTPUT_TOKEN_CAP}-token output "
+                f"limit before finishing — the output below is "
+                f"incomplete, not just possibly malformed."
+            )
 
         return response.content[0].text

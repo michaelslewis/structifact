@@ -299,16 +299,21 @@ def build_requirements_prompt(text: str) -> str:
         "field name and surrounding context. Never invent business "
         "meaning that isn't supported by the text.",
         "  - role: dimension or measure",
-        "  - datatype: e.g. varchar(10), decimal(9,2), date, integer — "
-        "only if given or reasonably inferable; omit this key entirely "
-        "if not",
+        "  - type: e.g. varchar(10), decimal(9,2), date, integer — this "
+        "MUST use this exact key name 'type' (not 'datatype'), "
+        "matching Structifact's real metadata schema, so a "
+        "reviewed draft can be loaded directly without renaming "
+        "keys. Only if given or reasonably inferable; omit this "
+        "key entirely if not",
         "  - computed: true if the field's value is derived from other "
         "fields via a formula or conditional expression (a 'Logic' "
         "column, inline math like 'x = y / z', or logic described in "
         "prose) — false or omitted otherwise",
-        "  - computed_logic_raw: if computed is true, the exact "
-        "expression or logic as written in the document. Do not "
-        "translate it into SQL or any other language — copy it as-is.",
+        "  - expression: if computed is true, the exact expression or "
+        "logic as written in the document, copied as-is — do NOT "
+        "translate it into SQL or any other language. Use the "
+        "exact key name 'expression' (not 'computed_logic_raw'), "
+        "matching Structifact's real metadata schema.",
         "  - note: optional. Use this ONLY to flag real uncertainty in "
         "your own inference (e.g. 'role guessed from context — no "
         "explicit dimension/measure label in source', or 'no source "
@@ -334,9 +339,9 @@ def build_requirements_prompt(text: str) -> str:
         "  - name: <string>",
         "    description: <string>",
         "    role: dimension | measure",
-        "    datatype: <string, optional>",
+        "    type: <string, optional>",
         "    computed: <true, only if applicable>",
-        "    computed_logic_raw: <string, only if computed is true>",
+        "    expression: <string, only if computed is true>",
         "    note: <string, optional>",
         "unresolved_notes:",
         "  - <string>",
@@ -347,6 +352,26 @@ def build_requirements_prompt(text: str) -> str:
     ]
 
     return "\n".join(lines)
+
+
+_CODE_FENCE_RE = re.compile(r"^```(?:yaml)?\s*\n(.*?)\n```\s*$", re.DOTALL)
+
+
+def _strip_code_fence(text: str) -> str:
+    """
+    Strip a markdown code fence around the AI's response, if present.
+
+    The prompt explicitly asks for "no markdown code fences", but
+    that's an instruction, not a guarantee — real models sometimes
+    wrap output in ```yaml ... ``` anyway (observed in practice, not
+    hypothetical). yaml.safe_load fails immediately on the leading
+    backtick, so stripping a fence when present is more robust than
+    failing outright over a purely cosmetic wrapper around otherwise-
+    valid YAML.
+    """
+    stripped = text.strip()
+    match = _CODE_FENCE_RE.match(stripped)
+    return match.group(1) if match else text
 
 
 def parse_requirements_draft(raw_text: str) -> dict:
@@ -360,6 +385,24 @@ def parse_requirements_draft(raw_text: str) -> dict:
     the caller can show the user what actually came back, rather than
     failing confusingly further downstream.
     """
+    raw_text = _strip_code_fence(raw_text)
+
+    if raw_text.strip().startswith("```"):
+        # _strip_code_fence only strips a fence with a matching close.
+        # Still starting with ``` here means the fence never closed —
+        # almost always because the response was cut off mid-stream
+        # before the model finished, not a formatting quirk to work
+        # around. AnthropicLLMClient now also surfaces this directly
+        # via stop_reason == "max_tokens" at the source, but this
+        # covers any LLMClient implementation that doesn't.
+        raise ValueError(
+            "AI response appears to have been cut off before "
+            "finishing (starts with an unclosed code fence) — this "
+            "usually means the output hit the token limit. Try "
+            "again, or raise the output token cap if it recurs.\n\n"
+            f"Raw response:\n{raw_text}"
+        )
+
     try:
         parsed = yaml.safe_load(raw_text)
     except yaml.YAMLError as e:
@@ -417,7 +460,8 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         "#",
         f"# Source: {source_path}",
         "",
-        f"dataset: {parsed.get('dataset', 'unknown_dataset')}",
+        "dataset:",
+        f"  name: {parsed.get('dataset', 'unknown_dataset')}",
         "",
         "fields:",
     ]
@@ -438,14 +482,14 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         if role:
             lines.append(f"    role: {role}")
 
-        datatype = f.get("datatype")
-        if datatype:
-            lines.append(f"    datatype: {datatype}")
+        field_type = f.get("type")
+        if field_type:
+            lines.append(f"    type: {field_type}")
 
         if f.get("computed"):
             lines.append("    computed: true")
-            logic = f.get("computed_logic_raw", "")
-            lines.append(f"    computed_logic_raw: {logic!r}")
+            logic = f.get("expression", "")
+            lines.append(f"    expression: {logic!r}")
 
         note = f.get("note")
         if note:
@@ -453,7 +497,11 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
 
         lines.append("")
 
-    notes = parsed.get("unresolved_notes") or []
+    # A note is documented as "a short plain-language string", but
+    # models don't always follow that shape exactly (observed in
+    # practice: a nested YAML mapping instead of a string). Coerce
+    # rather than crash or silently render inconsistent types.
+    notes = [n if isinstance(n, str) else str(n) for n in (parsed.get("unresolved_notes") or [])]
 
     lines.append("unresolved_notes:")
     if notes:
