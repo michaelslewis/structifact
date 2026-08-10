@@ -35,13 +35,12 @@ class SQLGenerator(Generator):
     model (closer to a dbt model) is a distinct, larger future item,
     not something this generator does.
 
-    Only primary_key and unique constraints are emitted.
-    foreign_key and check are accepted by validation as constraint
-    types but deliberately NOT emitted here: ConstraintSpec doesn't
-    yet carry enough information to generate them correctly (a
-    foreign_key needs a target table/column; a check needs its own
-    expression). Emitting either now would mean guessing at syntax
-    the IR can't actually support yet.
+    primary_key, unique, foreign_key, and check constraints are all
+    emitted. foreign_key/check support (Phase 1 — ConstraintSpec
+    Foundation) closes the previously-tracked gap: ConstraintSpec now
+    carries what each needs (target_table/target_column for
+    foreign_key, expression for check), assumed-valid and inlined
+    as-is — same trust model as a computed field's `expression`.
     """
 
     name = "sql"
@@ -69,8 +68,15 @@ class SQLGenerator(Generator):
                 columns = ", ".join(c.columns)
                 lines.append(f"    UNIQUE ({columns})")
 
-            # foreign_key / check: deliberately not emitted — see
-            # class docstring.
+            elif c.type == "foreign_key":
+                column = c.columns[0]
+                lines.append(
+                    f"    FOREIGN KEY ({column}) "
+                    f"REFERENCES {c.target_table} ({c.target_column})"
+                )
+
+            elif c.type == "check":
+                lines.append(f"    CHECK ({c.expression})")
 
         joined_columns = ',\n'.join(lines)
 

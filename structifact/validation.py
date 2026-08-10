@@ -142,16 +142,55 @@ def validate_table(table: DatasetSpec):
                 f"Unsupported constraint type: {constraint.type}"
             )
 
-        if not constraint.columns:
-            errors.append(
-                f"Constraint '{constraint.type}' requires columns"
-            )
+        # `check` constraints are validated by their `expression`,
+        # not `columns` — a check expression may reference multiple
+        # columns inline (e.g. "start_date < end_date") or none in a
+        # form validation.py can easily parse. Requiring `columns`
+        # for check would just force awkward/redundant metadata.
+        # primary_key / unique / foreign_key still require columns
+        # exactly as before.
+        if constraint.type != "check":
+            if not constraint.columns:
+                errors.append(
+                    f"Constraint '{constraint.type}' requires columns"
+                )
 
         for column in constraint.columns:
             if column not in field_names:
                 errors.append(
                     f"Constraint '{constraint.type}' references "
                     f"unknown field '{column}'"
+                )
+
+        # foreign_key well-formedness (Phase 1 — ConstraintSpec
+        # Foundation, closing the previously-tracked gap). Only
+        # single-column foreign keys are supported — see ir.py
+        # docstring. target_table/target_column are free-text and
+        # not resolved against another dataset.
+        if constraint.type == "foreign_key":
+            if len(constraint.columns) != 1:
+                errors.append(
+                    f"foreign_key constraint must reference exactly "
+                    f"one column, got {len(constraint.columns)}"
+                )
+
+            if not constraint.target_table:
+                errors.append(
+                    "foreign_key constraint requires target_table"
+                )
+
+            if not constraint.target_column:
+                errors.append(
+                    "foreign_key constraint requires target_column"
+                )
+
+        # check well-formedness. Like FieldSpec.expression, this is
+        # assumed-valid SQL — Structifact does not parse or validate
+        # the SQL itself, only that an expression is present.
+        if constraint.type == "check":
+            if not constraint.expression:
+                errors.append(
+                    "check constraint requires an expression"
                 )
 
     if errors:

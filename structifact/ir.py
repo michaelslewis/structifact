@@ -62,10 +62,34 @@ class ConstraintSpec:
     - unique
     - foreign_key
     - check
+
+    foreign_key and check (Phase 1 — ConstraintSpec Foundation,
+    closing the previously-tracked gap):
+
+    `target_table` / `target_column` are used only when
+    type == "foreign_key". Both are free-text strings, not validated
+    against another known dataset — Structifact validates one
+    dataset at a time today and has no cross-dataset resolution
+    anywhere in the IR yet (that's closer to Phase 7/9 "dataset
+    dependency" territory, a separate and larger concern). Only
+    single-column foreign keys are supported; `columns` must contain
+    exactly one entry for a foreign_key constraint. Composite FKs
+    are deliberately out of scope until a real example needs them,
+    matching how computed-field `expression` support was scoped.
+
+    `expression` is used only when type == "check". Like
+    FieldSpec.expression, it is assumed-valid SQL, inlined as-is by
+    a generator — Structifact does not parse or validate the SQL
+    itself, only that it's present and non-empty.
     """
 
     type: str
     columns: List[str]
+
+    target_table: Optional[str] = None
+    target_column: Optional[str] = None
+
+    expression: Optional[str] = None
 
 
 @dataclass
