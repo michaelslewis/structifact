@@ -1,0 +1,134 @@
+version: 2
+
+models:
+  - name: work_order_source
+    config:
+      tags: [demo, synthetic]
+    schema: DEMO
+    description: >
+      SYNTHETIC EXAMPLE (fictional company/data). Built from
+      REQUIREMENTS_workorder.md in this folder. Scoping material
+      testing the self-join/multi-role and priority-dedup patterns
+      Structifact cannot yet represent or generate.
+    meta:
+      datasource_name: Work Order Source (Demo)
+      datasource_project: Demo
+      data_catalog: true
+
+      folders:
+        - name: Work Order
+          columns:
+            - src_wo_hdr_wo_id
+            - src_wo_hdr_wo_date
+            - src_wo_hdr_currency_code
+            - src_wo_hdr_wo_type
+            - sign_adjustment
+
+        - name: Work Order Line
+          columns:
+            - src_wo_line_line_id
+            - src_wo_line_labor_hours
+            - src_wo_line_rate_code
+            - src_price_cond_labor_rate
+
+        - name: Amounts
+          columns:
+            - labor_amount_lc
+            - labor_amount_usd
+            - resolved_fx_rate
+
+        - name: Customer
+          columns:
+            - src_cust_mst_customer_name
+            - src_cust_mst_region_code
+
+        - name: Contacts
+          columns:
+            - src_partner_requested_by_name
+            - src_partner_billed_to_name
+            - src_partner_site_contact_name
+            - src_partner_site_contact_phone
+
+    columns:
+      - name: src_wo_hdr_wo_id
+        description: Work Order ID
+        meta:
+          role: dimension
+      - name: src_wo_hdr_wo_date
+        description: Work Order Date
+        meta:
+          role: dimension
+      - name: src_wo_hdr_currency_code
+        description: Currency Code
+        meta:
+          role: dimension
+      - name: src_wo_hdr_wo_type
+        description: Work Order Type
+        meta:
+          role: dimension
+      - name: sign_adjustment
+        description: "+1 for standard work orders, -1 for returns/credit memos"
+        meta:
+          role: measure
+      - name: src_wo_line_line_id
+        description: Work Order Line ID
+        meta:
+          role: dimension
+      - name: src_wo_line_labor_hours
+        description: Labor Hours
+        meta:
+          role: measure
+      - name: src_wo_line_rate_code
+        description: Rate Code
+        meta:
+          role: dimension
+      - name: src_price_cond_labor_rate
+        description: Labor Rate
+        meta:
+          role: measure
+      - name: labor_amount_lc
+        description: Labor Amount, local currency, sign-adjusted
+        meta:
+          role: measure
+      - name: resolved_fx_rate
+        description: >
+          Exchange rate to USD, resolved from int_fx_rate_lookup with
+          a 1.0 fallback for USD-denominated work orders only
+        meta:
+          role: measure
+      - name: labor_amount_usd
+        description: Labor Amount converted to USD
+        meta:
+          role: measure
+      - name: src_cust_mst_customer_name
+        description: Customer Name
+        meta:
+          role: dimension
+      - name: src_cust_mst_region_code
+        description: Customer Region Code
+        meta:
+          role: dimension
+      - name: src_partner_requested_by_name
+        description: >
+          Name of the current contact who requested the work order
+          (role REQ; most recent is_current row wins on tie)
+        meta:
+          role: dimension
+      - name: src_partner_billed_to_name
+        description: >
+          Name of the current billed-to contact (role BILL; most
+          recent is_current row wins on tie)
+        meta:
+          role: dimension
+      - name: src_partner_site_contact_name
+        description: >
+          Name of the current on-site contact (role SITE; most
+          recent is_current row wins on tie)
+        meta:
+          role: dimension
+      - name: src_partner_site_contact_phone
+        description: Phone number of the current on-site contact
+        meta:
+          role: dimension
+
+exposures: []

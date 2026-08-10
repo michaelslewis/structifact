@@ -1,0 +1,19 @@
+name,description,role,type,length
+src_wo_hdr_wo_id,Work Order ID,dimension,varchar,12
+src_wo_hdr_wo_date,Work Order Date,dimension,date,
+src_wo_hdr_currency_code,Currency Code,dimension,varchar,3
+src_wo_hdr_wo_type,Work Order Type,dimension,varchar,4
+sign_adjustment,"+1 for standard work orders, -1 for returns/credit memos",measure,integer,
+src_wo_line_line_id,Work Order Line ID,dimension,varchar,6
+src_wo_line_labor_hours,Labor Hours,measure,decimal,"7,2"
+src_wo_line_rate_code,Rate Code,dimension,varchar,4
+src_price_cond_labor_rate,Labor Rate,measure,decimal,"9,2"
+labor_amount_lc,"Labor Amount, local currency, sign-adjusted",measure,decimal,"15,2"
+resolved_fx_rate,"Exchange rate to USD, resolved from int_fx_rate_lookup with a 1.0 fallback for USD only",measure,decimal,"9,6"
+labor_amount_usd,Labor Amount converted to USD,measure,decimal,"15,2"
+src_cust_mst_customer_name,Customer Name,dimension,varchar,60
+src_cust_mst_region_code,Customer Region Code,dimension,varchar,4
+src_partner_requested_by_name,"Name of the current contact who requested the work order (role REQ)",dimension,varchar,60
+src_partner_billed_to_name,"Name of the current billed-to contact (role BILL)",dimension,varchar,60
+src_partner_site_contact_name,"Name of the current on-site contact (role SITE)",dimension,varchar,60
+src_partner_site_contact_phone,Phone number of the current on-site contact,dimension,varchar,20
