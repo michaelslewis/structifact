@@ -553,6 +553,44 @@ its own scoping session. Dependency graphs and execution ordering
 
 ---
 
+## Two Further Gaps Found (via examples/workorder_demo)
+
+Testing `discover --requirements --ai` against a second, harder
+synthetic example (`examples/workorder_demo`, modeled on real
+complexity from an actual SAP-shaped requirements sheet) surfaced two
+additional gaps neither the coffee example nor the computed-field
+work above touch at all. Both are concretely scoped from a real
+example (`REQUIREMENTS_workorder.md` → `work_order_source.sql`), not
+abstract planning:
+
+* **Same source table referenced multiple times under different
+  roles.** `work_order_source.sql`'s reference implementation joins
+  `PARTNER_ROLE` three separate times — once each for
+  requested-by/billed-to/site-contact — with a different filter and
+  alias each time (the real example this was modeled on does this
+  five times: shipped-to/sold-to/payer/etc. off one shared partner
+  table). Nothing in the IR represents source-level joins at all
+  today — `DatasetSpec`/`FieldSpec` describe a dataset's *output*
+  columns, not how to derive them from underlying source tables.
+  This is a deeper gap than "add a join list to `ConstraintSpec`": it
+  implies a genuinely new IR concept (something like a source
+  reference + join specification), not an extension of an existing
+  one.
+* **Priority-based row deduplication.** The reference SQL picks one
+  "current" contact per role using a tiebreak rule (prefer
+  `is_current = 'Y'`; fall back to the most recently updated row).
+  This is a *row-selection* rule, not a *column-value* rule — a
+  fundamentally different kind of logic than a computed field's
+  `expression`, which transforms values within a row, not chooses
+  which row wins. Nothing in `FieldSpec`/`ConstraintSpec` has any
+  place to hold this either.
+
+Both are real, but neither has a design yet — closing either would
+need its own scoping conversation, the same way the computed-field
+work above started from a scoping conversation before any code.
+
+---
+
 ## Planned Work
 
 Support metadata describing:
