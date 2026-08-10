@@ -48,6 +48,27 @@ class FieldSpec:
     expression: Optional[str] = None
     depends_on: Optional[List[str]] = None
 
+    # Cross-source field attribution (Phase 7 — sources/joins
+    # milestone). Both None (the default) means "this field comes
+    # from the dataset's own primary source, under a column with the
+    # same name as the field" — i.e. today's existing behavior for
+    # every dataset that doesn't use sources/joins at all.
+    #
+    # `source`, when set, must name a SourceRef.name declared in the
+    # same dataset's `sources` list (never a SourceRef.table directly
+    # — see SourceRef's docstring for why those are different).
+    # `source_column` is the column name on that source; if omitted
+    # while `source` is set, it defaults to this field's own `name`.
+    #
+    # Deliberately NOT used together with `computed`/`expression` in
+    # this milestone — a computed field's expression is raw SQL that
+    # may already reference joined-in columns by their source alias
+    # directly (e.g. "labor_amount_lc * resolved_fx_rate"), so it
+    # doesn't need source/source_column duplicating that. Combining
+    # them is a real question for a future milestone, not this one.
+    source: Optional[str] = None
+    source_column: Optional[str] = None
+
 
 @dataclass
 class ConstraintSpec:
@@ -93,6 +114,87 @@ class ConstraintSpec:
 
 
 @dataclass
+class DedupRule:
+    """
+    Priority-based row selection within a joined-in source
+    (Phase 7 — sources/joins milestone).
+
+    This is NOT a uniqueness constraint — it's a row-selection rule:
+    given a group of rows sharing the same partition_by key(s),
+    exactly one wins, chosen by order_by priority (first entry =
+    highest priority; ties broken by subsequent entries). Maps
+    directly onto:
+
+        ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) = 1
+
+    which is the exact pattern examples/workorder_demo's reference
+    SQL uses by hand for each PARTNER_ROLE join (prefer
+    is_current = 'Y', fall back to the most recently updated row).
+
+    `order_by` entries are raw SQL fragments (e.g. "is_current
+    desc"), same trust model as FieldSpec.expression — Structifact
+    does not parse or validate them, only checks they're present.
+    """
+
+    partition_by: List[str]
+    order_by: List[str]
+
+
+@dataclass
+class SourceRef:
+    """
+    A named, joinable source within a dataset's transformation
+    (Phase 7 — sources/joins milestone).
+
+    The `name` vs `table` distinction is the reason this class
+    exists as its own concept rather than just a table name: `table`
+    is the physical table being read from; `name` is the logical
+    alias for THIS PARTICULAR JOINED-IN INSTANCE of that table
+    within this dataset. They're different specifically so the same
+    physical table can be joined into one dataset multiple times
+    under different roles — e.g. `table: partner_role` appearing as
+    three separate SourceRefs (`name: partner_requested_by`,
+    `name: partner_billed_to`, `name: partner_site_contact`), each
+    with its own `filter` and `dedup` rule. `name` is what
+    JoinSpec.source and FieldSpec.source both refer to — always
+    `name`, never `table` directly.
+
+    `filter` is an optional raw SQL predicate scoping this instance
+    of the source (e.g. "role_code = 'REQ'"). Same trust model as
+    `expression`/`on` elsewhere in the IR — not parsed or validated.
+    """
+
+    name: str
+    table: str
+    filter: Optional[str] = None
+    dedup: Optional[DedupRule] = None
+
+
+@dataclass
+class JoinSpec:
+    """
+    Joins a SourceRef into a dataset's primary source
+    (Phase 7 — sources/joins milestone).
+
+    `source` refers to a SourceRef.name declared in the same
+    dataset's `sources` list (validated — see validation.py).
+
+    `on` is a single raw SQL join condition, inlined as-is by the
+    generator. Multiple join keys are expressed with AND inside the
+    same string (e.g. "a = b AND c = d") rather than a separate
+    structured list — same trust model as FieldSpec.expression.
+
+    `type` is restricted to Structifact's currently-supported join
+    types (see validation.py) — not free text, since generating an
+    unsupported join keyword would just produce broken SQL silently.
+    """
+
+    source: str
+    on: str
+    type: str = "left"
+
+
+@dataclass
 class DatasetSpec:
     """
     Canonical intermediate representation for a Structifact dataset.
@@ -110,20 +212,29 @@ class DatasetSpec:
     constraints: List[ConstraintSpec] = field(default_factory=list)
 
     # Phase 7 — Transformation Framework (ModelGenerator). The table
-    # this dataset's SELECT-based transformation model reads from.
-    # Deliberately explicit rather than assumed: guessing that the
-    # source table always shares the dataset's name would silently
-    # produce wrong SQL for anyone whose source table is named
-    # differently (a staging prefix, a legacy name, etc.), which
-    # runs against "metadata as the source of truth" — Structifact
-    # should be told, not infer. When omitted, ModelGenerator falls
-    # back to `name` for the common case where they do match, so
-    # this costs nothing for most users. This is NOT a general join
-    # mechanism — it names exactly one source for a 1:1 transform;
-    # multi-table joins remain a separate, unstarted design (see
-    # FUTURE_WORK.md, Transformation Framework, "Two Further Gaps
-    # Found").
+    # this dataset's SELECT-based transformation model reads from as
+    # its primary source. Deliberately explicit rather than assumed:
+    # guessing that the source table always shares the dataset's
+    # name would silently produce wrong SQL for anyone whose source
+    # table is named differently (a staging prefix, a legacy name,
+    # etc.), which runs against "metadata as the source of truth" —
+    # Structifact should be told, not infer. When omitted,
+    # ModelGenerator falls back to `name` for the common case where
+    # they do match, so this costs nothing for most users.
     source_table: Optional[str] = None
+
+    # Phase 7 — sources/joins milestone. Additional joinable sources
+    # beyond the dataset's own primary source (source_table/name),
+    # and the joins connecting them in. Both default to empty lists,
+    # so any existing dataset with neither declared produces exactly
+    # today's ModelGenerator behavior (a single-source SELECT) —
+    # this is purely additive. See SourceRef/JoinSpec docstrings
+    # above for the full contract. Deliberately does NOT yet support
+    # a computed field's expression referencing a joined field by
+    # source alias, or conditional-fallback logic (e.g. FX-rate-style
+    # COALESCE) — both are real, but scoped to a later milestone.
+    sources: List[SourceRef] = field(default_factory=list)
+    joins: List[JoinSpec] = field(default_factory=list)
 
 
 # Backwards compatibility during migration.

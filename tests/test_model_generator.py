@@ -1,4 +1,18 @@
-import pytest
+"""
+Tests for ModelGenerator's base (no sources/joins) behavior:
+computed-field expressions, non-computed passthrough, the None
+contract, and source_table fallback/override.
+
+Sources/joins/dedup behavior (the bigger sources/joins milestone) is
+covered separately in tests/test_model_sources_joins.py.
+
+Note: as of the sources/joins milestone, ModelGenerator qualifies
+every non-computed field with its source alias (previously it did
+not), and its SQL keywords are lowercase (previously "SELECT"/"AS").
+This is a deliberate output change — existing metadata remains valid
+and semantically equivalent, but generated SQL now looks like
+`orders.order_id as order_id` instead of `order_id AS order_id`.
+"""
 
 from structifact.ir import DatasetSpec, FieldSpec
 from structifact.generators.model import ModelGenerator
@@ -9,10 +23,10 @@ def _gen():
 
 
 # ---------------------------------------------------------------------
-# No computed fields -> None
+# No computed fields, no sources/joins -> None
 # ---------------------------------------------------------------------
 
-def test_no_computed_fields_returns_none():
+def test_no_computed_fields_no_sources_returns_none():
     table = DatasetSpec(
         name="orders",
         fields=[
@@ -40,7 +54,6 @@ def test_none_return_does_not_crash_cli_style_loop():
     artifact = _gen().generate(table)
 
     if artifact is None:
-        # This branch should be taken — nothing to write.
         written = False
     else:
         written = True
@@ -49,7 +62,7 @@ def test_none_return_does_not_crash_cli_style_loop():
 
 
 # ---------------------------------------------------------------------
-# Computed field -> real SELECT expression
+# Computed field -> real SELECT expression, unqualified
 # ---------------------------------------------------------------------
 
 def test_computed_field_emits_expression_in_select():
@@ -68,7 +81,7 @@ def test_computed_field_emits_expression_in_select():
     artifact = _gen().generate(table)
 
     assert artifact is not None
-    assert "qty * unit_price AS gross_amount" in artifact.content
+    assert "qty * unit_price as gross_amount" in artifact.content
 
 
 def test_computed_field_output_is_select_not_create_table():
@@ -85,15 +98,15 @@ def test_computed_field_output_is_select_not_create_table():
 
     artifact = _gen().generate(table)
 
-    assert artifact.content.startswith("SELECT")
+    assert artifact.content.startswith("select")
     assert "CREATE TABLE" not in artifact.content
 
 
 # ---------------------------------------------------------------------
-# Non-computed fields -> passthrough via AS
+# Non-computed fields -> qualified passthrough
 # ---------------------------------------------------------------------
 
-def test_non_computed_field_passes_through_with_as():
+def test_non_computed_field_qualified_with_primary_source():
     table = DatasetSpec(
         name="orders",
         fields=[
@@ -107,7 +120,7 @@ def test_non_computed_field_passes_through_with_as():
 
     artifact = _gen().generate(table)
 
-    assert "order_id AS order_id" in artifact.content
+    assert "orders.order_id as order_id" in artifact.content
 
 
 def test_mixed_fields_all_appear_in_select_list():
@@ -127,10 +140,10 @@ def test_mixed_fields_all_appear_in_select_list():
     artifact = _gen().generate(table)
     content = artifact.content
 
-    assert "order_id AS order_id" in content
-    assert "qty AS qty" in content
-    assert "unit_price AS unit_price" in content
-    assert "qty * unit_price AS gross_amount" in content
+    assert "orders.order_id as order_id" in content
+    assert "orders.qty as qty" in content
+    assert "orders.unit_price as unit_price" in content
+    assert "qty * unit_price as gross_amount" in content
 
 
 # ---------------------------------------------------------------------
@@ -151,7 +164,7 @@ def test_falls_back_to_dataset_name_when_source_table_unset():
 
     artifact = _gen().generate(table)
 
-    assert "FROM orders;" in artifact.content
+    assert "from orders;" in artifact.content
 
 
 def test_uses_explicit_source_table_when_set():
@@ -169,8 +182,9 @@ def test_uses_explicit_source_table_when_set():
 
     artifact = _gen().generate(table)
 
-    assert "FROM stg_orders_raw;" in artifact.content
-    assert "FROM orders;" not in artifact.content
+    assert "from stg_orders_raw;" in artifact.content
+    assert "stg_orders_raw.qty as qty" in artifact.content
+    assert "from orders;" not in artifact.content
 
 
 # ---------------------------------------------------------------------

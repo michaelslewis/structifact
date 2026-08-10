@@ -15,6 +15,17 @@ SUPPORTED_ROLES = {
     "measure",
 }
 
+# Phase 7 — sources/joins milestone. Deliberately small: the
+# reference SQL (examples/workorder_demo) only ever uses LEFT joins.
+# "inner" is included as the one other obviously-common type worth
+# supporting without a design conversation; anything else can be
+# added when a real example needs it, same YAGNI reasoning as
+# elsewhere in this project.
+SUPPORTED_JOIN_TYPES = {
+    "left",
+    "inner",
+}
+
 
 def validate_table(table: DatasetSpec):
     errors = []
@@ -128,6 +139,72 @@ def validate_table(table: DatasetSpec):
             "source_table, if set, cannot be blank — omit it "
             "entirely to fall back to the dataset name"
         )
+
+    # sources/joins relationship validation (Phase 7 — sources/joins
+    # milestone). Structifact doesn't parse or validate the raw SQL
+    # fragments (filter, on, order_by) — only the metadata
+    # relationships between sources, joins, and fields, which it can
+    # actually check meaningfully.
+    source_names = set()
+
+    for source in table.sources:
+        if not source.name:
+            errors.append(
+                "Every entry in 'sources' requires a name"
+            )
+        elif source.name in source_names:
+            errors.append(
+                f"Duplicate source name: {source.name}"
+            )
+        source_names.add(source.name)
+
+        if not source.table:
+            errors.append(
+                f"Source '{source.name}' requires a table"
+            )
+
+        if source.dedup is not None:
+            if not source.dedup.partition_by:
+                errors.append(
+                    f"Source '{source.name}' has a dedup rule with "
+                    f"an empty partition_by — a dedup rule requires "
+                    f"at least one partition_by column"
+                )
+
+            if not source.dedup.order_by:
+                errors.append(
+                    f"Source '{source.name}' has a dedup rule with "
+                    f"an empty order_by — a dedup rule requires at "
+                    f"least one order_by entry to break ties"
+                )
+
+    for join in table.joins:
+        if join.source not in source_names:
+            errors.append(
+                f"Join references unknown source '{join.source}' — "
+                f"it must match a name declared in 'sources'"
+            )
+
+        if not join.on:
+            errors.append(
+                f"Join on source '{join.source}' requires an "
+                f"'on' condition"
+            )
+
+        if join.type not in SUPPORTED_JOIN_TYPES:
+            errors.append(
+                f"Unsupported join type '{join.type}' for source "
+                f"'{join.source}' — supported types: "
+                f"{', '.join(sorted(SUPPORTED_JOIN_TYPES))}"
+            )
+
+    for field in table.fields:
+        if field.source is not None and field.source not in source_names:
+            errors.append(
+                f"Field '{field.name}' references unknown source "
+                f"'{field.source}' — it must match a name declared "
+                f"in 'sources'"
+            )
 
     supported_constraints = {
         "primary_key",
