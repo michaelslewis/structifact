@@ -71,7 +71,7 @@ def test_render_draft_yaml_with_ai_suggestions_marks_them_clearly():
 
     rendered = render_draft_yaml(discovered, ai_suggestions=suggestions)
 
-    assert "description: Unique customer identifier  # AI-suggested, review before trusting" in rendered
+    assert 'description: "Unique customer identifier"  # AI-suggested, review before trusting' in rendered
 
     # strip comment markers before joining lines, so this reads the
     # disclaimer as prose rather than tripping over the leading "#"
@@ -179,7 +179,7 @@ def test_discover_cli_ai_with_yes_flag_uses_fake_client(tmp_path, capsys):
     assert len(fake.prompts_received) == 1  # the request was actually made
 
     written = (tmp_path / "out.yml").read_text()
-    assert "A suggested description  # AI-suggested" in written
+    assert '"A suggested description"  # AI-suggested' in written
 
 
 # --- CLI: --ai without -y, interactive confirmation ---

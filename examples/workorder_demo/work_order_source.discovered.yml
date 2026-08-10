@@ -1,0 +1,126 @@
+# DRAFT schema — AI-extracted from a requirements document.
+#
+# This is a first-pass suggestion from an LLM reading the raw
+# document below. It has not been validated, and the AI has
+# not seen your actual data — only the requirements text.
+#
+# Review every field, especially anything marked 'computed':
+# Structifact cannot generate SQL for derived fields yet, so
+# the raw logic is preserved as text for you to implement by
+# hand. Also review everything under unresolved_notes below —
+# information the AI found but could not structurally place,
+# most often join keys/relationships or cross-field business
+# rules.
+#
+# Source: REQUIREMENTS_workorder.md
+
+dataset:
+  name: "work_order_source"
+
+fields:
+  - name: "work_order_id"
+    description: "Work Order ID"
+    role: "dimension"
+    type: "varchar(12)"
+
+  - name: "work_order_date"
+    description: "Work Order Date"
+    role: "dimension"
+    type: "date"
+
+  - name: "currency_code"
+    description: "Currency Code"
+    role: "dimension"
+    type: "varchar(3)"
+
+  - name: "work_order_type"
+    description: "Work Order Type"
+    role: "dimension"
+    type: "varchar(4)"
+
+  - name: "status_code"
+    description: "Status Code"
+    role: "dimension"
+    type: "varchar(2)"
+    note: "marked for deprioritization in v1"  # AI-flagged uncertainty
+
+  - name: "sign_adjustment"
+    description: "Sign Adjustment"
+    role: "measure"
+    type: "integer"
+    computed: true
+    expression: "if src_wo_hdr_wo_type in ('CRM','RET') then -1 else 1"
+
+  - name: "line_id"
+    description: "Line ID"
+    role: "dimension"
+    type: "varchar(6)"
+
+  - name: "labor_hours"
+    description: "Labor Hours"
+    role: "measure"
+    type: "decimal(7,2)"
+
+  - name: "rate_code"
+    description: "Rate Code"
+    role: "dimension"
+    type: "varchar(4)"
+
+  - name: "labor_rate"
+    description: "Labor Rate"
+    role: "measure"
+    type: "decimal(9,2)"
+
+  - name: "labor_amount_lc"
+    description: "Labor Amount (Local Currency)"
+    role: "measure"
+    type: "decimal(15,2)"
+    computed: true
+    expression: "src_wo_line_labor_hours * src_price_cond_labor_rate * sign_adjustment"
+
+  - name: "labor_amount_usd"
+    description: "Labor Amount (USD)"
+    role: "measure"
+    type: "decimal(15,2)"
+    computed: true
+    expression: "labor_amount_lc * resolved_fx_rate"
+
+  - name: "customer_name"
+    description: "Customer Name"
+    role: "dimension"
+    type: "varchar(60)"
+
+  - name: "region_code"
+    description: "Region Code"
+    role: "dimension"
+    type: "varchar(4)"
+
+  - name: "requested_by_name"
+    description: "Requested By (Name)"
+    role: "dimension"
+    type: "varchar(60)"
+    note: "from PARTNER_ROLE joined on role_code='REQ'"  # AI-flagged uncertainty
+
+  - name: "billed_to_name"
+    description: "Billed To (Name)"
+    role: "dimension"
+    type: "varchar(60)"
+    note: "from PARTNER_ROLE joined on role_code='BILL'"  # AI-flagged uncertainty
+
+  - name: "site_contact_name"
+    description: "Site Contact (Name)"
+    role: "dimension"
+    type: "varchar(60)"
+    note: "from PARTNER_ROLE joined on role_code='SITE'"  # AI-flagged uncertainty
+
+  - name: "site_contact_phone"
+    description: "Site Contact (Phone)"
+    role: "dimension"
+    type: "varchar(20)"
+    note: "from PARTNER_ROLE joined on role_code='SITE'"  # AI-flagged uncertainty
+
+unresolved_notes:
+  - "{'PARTNER_ROLE table must be joined three separate times (REQ, BILL, SITE) using role_code filter; deduplication logic applies to each': \"prioritize is_current='Y', else fall back to most recent updated_at\"}"
+  - "{'FX conversion lookup (fx_rate_lookup) joins on currency_code and wo_date; fallback rule': 'if no rate found and currency is USD, use 1.0; otherwise leave converted amount null'}"
+  - "WO_HDR to WO_LINE joined on wo_id (1-to-many); CUST_MST joined on customer_id; PRICE_COND joined on rate_code"
+  - "resolved_fx_rate is referenced in labor_amount_usd expression but not explicitly defined as a source column \u2014 inferred as output of FX lookup with fallback logic applied"
