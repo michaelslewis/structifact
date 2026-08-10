@@ -26,6 +26,7 @@ see `render_draft_yaml()` and `render_requirements_draft_yaml()`.
 """
 
 import csv
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -256,7 +257,7 @@ def render_draft_yaml(discovered: DiscoveredDataset, ai_suggestions: dict = None
         ai_description = ai_suggestions.get(f.name)
 
         if ai_description:
-            lines.append(f"    description: {ai_description}  # AI-suggested, review before trusting")
+            lines.append(f"    description: {_yaml_str(ai_description)}  # AI-suggested, review before trusting")
             lines.append(f"    # {', '.join(hint_parts)}")
         else:
             lines.append(f"    description: TODO  # {', '.join(hint_parts)}")
@@ -303,8 +304,11 @@ def build_requirements_prompt(text: str) -> str:
         "MUST use this exact key name 'type' (not 'datatype'), "
         "matching Structifact's real metadata schema, so a "
         "reviewed draft can be loaded directly without renaming "
-        "keys. Only if given or reasonably inferable; omit this "
-        "key entirely if not",
+        "keys. This key is REQUIRED for every field, unlike the "
+        "others below — if a type isn't explicitly given or clearly "
+        "inferable, use your best reasonable guess (e.g. 'string') "
+        "rather than omitting the key, and flag the uncertainty "
+        "via the note field instead",
         "  - computed: true if the field's value is derived from other "
         "fields via a formula or conditional expression (a 'Logic' "
         "column, inline math like 'x = y / z', or logic described in "
@@ -429,6 +433,24 @@ def parse_requirements_draft(raw_text: str) -> dict:
     return parsed
 
 
+def _yaml_str(value) -> str:
+    """
+    Safely render a value as a YAML-parseable double-quoted scalar.
+
+    Python's repr() (used here previously) is NOT safe for this: an
+    embedded apostrophe is escaped with a backslash in Python's
+    single-quote repr (e.g. "can\\'t"), but YAML single-quoted
+    scalars don't support backslash escapes at all — YAML only
+    recognizes a DOUBLED single quote ('') as a literal apostrophe.
+    Any AI-generated text containing a natural apostrophe (extremely
+    common in prose — "customer's", "wasn't specified") silently
+    produced invalid YAML. JSON string escaping, by contrast, is a
+    valid subset of YAML's double-quoted scalar syntax, so
+    json.dumps is the correct tool here, not repr().
+    """
+    return json.dumps(str(value))
+
+
 def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
     """
     Render the parsed AI extraction as a draft YAML file.
@@ -461,7 +483,7 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         f"# Source: {source_path}",
         "",
         "dataset:",
-        f"  name: {parsed.get('dataset', 'unknown_dataset')}",
+        f"  name: {_yaml_str(parsed.get('dataset', 'unknown_dataset'))}",
         "",
         "fields:",
     ]
@@ -472,28 +494,46 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         if not isinstance(f, dict) or not f.get("name"):
             continue
 
-        lines.append(f"  - name: {f['name']}")
+        lines.append(f"  - name: {_yaml_str(f['name'])}")
 
         description = f.get("description")
         if description:
-            lines.append(f"    description: {description}")
+            lines.append(f"    description: {_yaml_str(description)}")
 
         role = f.get("role")
         if role:
-            lines.append(f"    role: {role}")
+            lines.append(f"    role: {_yaml_str(role)}")
 
         field_type = f.get("type")
-        if field_type:
-            lines.append(f"    type: {field_type}")
+        if not field_type:
+            # load_yaml requires every field to have a type — there's
+            # no optional path in the real loader, unlike this
+            # draft's prompt (which allows the model to omit it when
+            # unsure). Always emit one so the draft is guaranteed
+            # loadable regardless of what the model actually did,
+            # rather than silently producing an incomplete field that
+            # crashes downstream with a KeyError. "string" is the
+            # safest/most permissive fallback; the gap is flagged via
+            # note so a reviewer knows to fix it, not hidden.
+            field_type = "string"
+            fallback_note = (
+                "AI did not supply a type for this field — defaulted "
+                "to 'string', review and correct"
+            )
+            f = dict(f)
+            f["note"] = (
+                f"{f['note']}; {fallback_note}" if f.get("note") else fallback_note
+            )
+        lines.append(f"    type: {_yaml_str(field_type)}")
 
         if f.get("computed"):
             lines.append("    computed: true")
             logic = f.get("expression", "")
-            lines.append(f"    expression: {logic!r}")
+            lines.append(f"    expression: {_yaml_str(logic)}")
 
         note = f.get("note")
         if note:
-            lines.append(f"    note: {note}  # AI-flagged uncertainty")
+            lines.append(f"    note: {_yaml_str(note)}  # AI-flagged uncertainty")
 
         lines.append("")
 
@@ -506,7 +546,7 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
     lines.append("unresolved_notes:")
     if notes:
         for n in notes:
-            lines.append(f"  - {n!r}")
+            lines.append(f"  - {_yaml_str(n)}")
     else:
         lines.append("  []")
 
