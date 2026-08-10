@@ -1,4 +1,5 @@
 import re
+from typing import List, Optional
 
 
 TYPE_MAP = {
@@ -177,3 +178,62 @@ def _is_float(value: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+_TRUE_TOKENS = {"true", "1", "yes"}
+_FALSE_TOKENS = {"false", "0", "no"}
+
+
+def parse_bool(value, field_name: str, default: bool = True) -> bool:
+    """
+    Parse a boolean from a raw tabular cell (CSV/Excel don't have a
+    native boolean type the way YAML does — everything arrives as
+    text, or as None/NaN for a blank cell).
+
+    A missing or blank cell returns `default`, matching the same
+    default FieldSpec itself uses when a key is omitted entirely
+    (e.g. nullable defaults to True). A cell with real, unrecognized
+    text raises ValueError rather than silently guessing — an
+    adapter silently misreading "flase" as some default would be a
+    worse failure mode than a clear error surfaced through the same
+    try/except ValueError path `structifact validate`/`generate`
+    already use for bad metadata.
+    """
+    if value is None:
+        return default
+
+    text = str(value).strip()
+
+    if text == "":
+        return default
+
+    lowered = text.lower()
+
+    if lowered in _TRUE_TOKENS:
+        return True
+
+    if lowered in _FALSE_TOKENS:
+        return False
+
+    raise ValueError(
+        f"Could not parse '{text}' as true/false for '{field_name}'"
+    )
+
+
+def parse_list(value) -> Optional[List[str]]:
+    """
+    Parse a semicolon-delimited list from a raw tabular cell (CSV/
+    Excel have no native list type the way YAML does). Returns None
+    for a missing/blank cell — "not specified", matching how the
+    YAML adapter treats an absent accepted_values/depends_on key,
+    rather than "specified as an empty list".
+    """
+    if value is None:
+        return None
+
+    text = str(value).strip()
+
+    if text == "":
+        return None
+
+    return [part.strip() for part in text.split(";") if part.strip()]
