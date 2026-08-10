@@ -430,6 +430,22 @@ remaining piece that blocks turning a raw requirements document into
 real, generated SQL/YAML/catalog output rather than a draft with
 logic flagged for manual implementation.
 
+A second, harder synthetic example (`examples/workorder_demo`,
+modeled on real complexity from an actual SAP-shaped requirements
+sheet) surfaced two further gaps this framework will eventually need
+to address, neither yet designed (see ROADMAP.md, Phase 7, "Two
+Further Gaps Found"):
+
+* the same source table referenced multiple times under different
+  roles within one dataset's generation logic (e.g. a shared partner
+  table joined separately for requested-by/billed-to/site-contact) —
+  the IR currently has no way to represent source-level joins at all,
+  only a dataset's output columns
+* priority-based row deduplication (picking one "current" row per key
+  via a tiebreak rule) — a row-selection concern, meaningfully
+  different in kind from a computed field's value-transformation
+  `expression`
+
 Potential capabilities:
 
 transformation definitions
