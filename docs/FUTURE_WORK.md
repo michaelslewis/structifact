@@ -36,6 +36,23 @@ The goal is:
 
 AI reduces the effort required to create and maintain high-quality metadata while keeping engineers in control.
 
+Current Status
+
+As of the current implementation (see ROADMAP.md, Phase 10), the
+workflow described below is realized for two input types: raw CSV
+sample data (`structifact discover --ai`) and freeform requirements
+documents of arbitrary shape (`structifact discover --requirements
+--ai`). The architectural boundary this section describes — AI
+produces suggestions, Structifact metadata remains the source of
+truth — was upheld in both: neither path auto-validates or
+auto-generates from AI output, both always write a draft file for
+human review, and both are opt-in, cost-estimated, and confirmed
+before any real request is made. The scenario below (a plain
+`customers.csv`) reflects the earlier, simpler input shape; the
+requirements-document path additionally handles derived/computed
+fields and freeform relational/business-rule notes, which this
+scenario doesn't illustrate.
+
 Potential Future Workflow
 
 A future AI-assisted workflow could look like:
@@ -248,6 +265,14 @@ Documentation and Knowledge Generation
 
 Future generators could produce documentation artifacts from metadata.
 
+Current Status
+
+This has been prioritized as near-term work (see ROADMAP.md, Phase
+5), ahead of several other items in this document, given the concrete
+value of a `structifact docs` command for demonstrating the framework
+— it requires no new inference or data ingestion, only rendering
+metadata Structifact already holds.
+
 Possible outputs:
 
 dataset documentation
@@ -387,6 +412,23 @@ Platform-specific components implement execution details.
 Transformation Framework
 
 A future direction could extend Structifact from schema definition toward declarative transformations.
+
+Current Status
+
+This gap is no longer purely abstract. Real scoping work — a
+synthetic requirements-document example and the now-implemented
+`discover --requirements --ai` (see ROADMAP.md, Phase 10) — surfaced
+a concrete, recurring case the IR cannot represent: a field computed
+from other fields via a conditional expression, and datasets that
+depend on other datasets via a join. `discover --requirements --ai`
+currently flags such fields as `computed: true` and preserves the raw
+logic as text rather than attempting to generate SQL for it. A
+deliberately small first step — just enough IR support to represent a
+single computed field, not the full framework below — is now planned
+as near-term work (see ROADMAP.md, Phase 7), since it is the one
+remaining piece that blocks turning a raw requirements document into
+real, generated SQL/YAML/catalog output rather than a draft with
+logic flagged for manual implementation.
 
 Potential capabilities:
 

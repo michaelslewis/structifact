@@ -51,14 +51,34 @@ They are now implemented, tested, and covered by CI:
   via GitHub Actions on every push and pull request against `main`.
 * **A golden-path example** (`examples/customers/`) shows the full
   input → output flow end to end for a new reader.
-* **`structifact discover`** (deterministic half of Phase 10) — infers
+* **`structifact discover`** (Phase 10, deterministic half) — infers
   a draft schema from raw CSV sample data (types, nullability, a
   conservative "possible key" hint), including handling for common
   real-world messiness (null placeholders like `NULL`/`N/A`,
   leading-zero identifiers, and hints for currency/date-formatting
   issues). Writes a clearly-labeled draft for human review; never
-  auto-validated or auto-generated from. The LLM-assisted half is not
-  yet built.
+  auto-validated or auto-generated from.
+* **`structifact discover --ai`** (Phase 10, LLM-assisted field
+  descriptions) — optional, off by default, zero cost/network unless
+  explicitly invoked. A provider-agnostic `LLMClient` interface
+  (`structifact/llm.py`) shows a cost estimate and requires explicit
+  confirmation (or `-y`) before any real request; declining makes
+  genuinely zero API calls. AI-suggested descriptions are clearly
+  marked distinct from deterministic ones in the draft output.
+* **`structifact discover --requirements <file> --ai`** (Phase 10,
+  LLM-assisted requirements-document extraction) — extracts a draft
+  field list from a raw requirements document (`.md`/`.txt`) of
+  arbitrary shape: multi-column tables, plain prose, terse bullet
+  lists, or a mix, often with freeform notes outside any table. No
+  deterministic half is possible for this input type, so the path
+  requires `--ai` explicitly and does nothing without it. Fields
+  whose value is derived from other fields (a "Logic" column, inline
+  math, or logic described in prose) are flagged `computed: true`
+  with the raw logic preserved as text rather than translated to SQL
+  — see the computed-field IR support below. Anything structurally
+  unplaceable — join keys/relationships between tables, cross-field
+  business rules, deprioritization or confirmation-status notes — is
+  surfaced in an `unresolved_notes` list rather than silently dropped.
 * **Field `role` classification** — `FieldSpec.role` (dimension |
   measure) is now actually populated: the YAML adapter accepts an
   optional `role:` key per field, and `validation.py` checks it's a
@@ -70,6 +90,25 @@ They are now implemented, tested, and covered by CI:
   including a configurable `changed_by` and a real generation
   timestamp — deliberately **not** run by default, since Structifact
   has no way to know which catalog shape, if any, a given user needs).
+* **`DocsGenerator`** (Phase 5 — Documentation Generation) — renders
+  human-readable Markdown from a dataset's actual metadata (name,
+  type with length/precision-scale, raw declared type, role,
+  nullable, accepted_values, description, computed-field details, and
+  constraints), per field and dataset-level. Never fabricates a value
+  a field doesn't have. Wired into the generator registry as optional
+  (`generate -g docs`), not run by default.
+* **Minimal computed-field support in the IR** (Phase 7, first step)
+  — `FieldSpec` gained `computed`, `expression`, and `depends_on`.
+  `expression` is assumed-valid SQL meant to be inlined as-is by a
+  generator — deliberately NOT the same thing as the freeform
+  business-logic text `discover --requirements --ai` extracts (e.g.
+  "if order_type in ('RET','CRM') then -1 else 1" is pseudocode, not
+  valid SQL as written). Promoting a discovery draft's raw logic into
+  a real `expression` is a human decision, not automatic. The YAML
+  adapter parses all three keys; validation checks well-formedness
+  only (computed requires expression, expression requires
+  computed: true, depends_on entries must reference real fields in
+  the same dataset, forward references allowed, no self-reference).
 * **Generator selection** — `structifact generate` now accepts
   `-g/--generators` to explicitly choose which generators run;
   omitting it keeps the previous default behavior unchanged.
@@ -81,10 +120,31 @@ They are now implemented, tested, and covered by CI:
   definition itself, not real data — Structifact still doesn't
   ingest actual data rows, so this isn't data-quality validation
   yet, just catching malformed declarations earlier.
+* **SQL generation now emits `NOT NULL`, `PRIMARY KEY`, and `UNIQUE`**
+  for fields/constraints where the IR has enough information to do
+  so correctly. Fixed a real bug in the process: the YAML adapter
+  never parsed `nullable:` from field metadata at all, so
+  `FieldSpec.nullable` always defaulted to `True` regardless of what
+  a user wrote — `SQLGenerator` honoring it would have been silently
+  ineffective without that fix. Computed fields (see above) get a SQL
+  comment documenting their expression, not executable derivation
+  syntax — `SQLGenerator` produces `CREATE TABLE` DDL, not a
+  transformation query, and emitting vendor-specific
+  `GENERATED ALWAYS AS` syntax would lock generated output to one SQL
+  dialect before Structifact has any platform integrations (Phase 8).
+  `foreign_key` and `check` constraint types are still accepted by
+  `validation.py` as valid types, but deliberately not emitted by
+  `SQLGenerator` — see "Status" under ConstraintSpec Foundation
+  below; this is a tracked gap, not a silent omission.
 
 The phase sections below are left as originally written for planning
 context, but should not be read as "not yet done" for the specific
-items called out above.
+items called out above. Phases are organized by capability maturity,
+not a strict execution order — Phase 10 (AI-assistance) advanced well
+ahead of Phases 5–9 because it built directly on already-completed
+foundations (the deterministic `discover` command and the IR), not
+because of a change in priority for the other phases. See "Current
+Status" under Phase 10 below for what remains there.
 
 ---
 
@@ -253,6 +313,17 @@ fields:
 
 The initial implementation should establish the structure without prematurely building a complete rule engine.
 
+**Status**: `primary_key` and `unique` are fully supported end-to-end
+today — validated, and emitted in generated SQL. `foreign_key` and
+`check` are accepted as valid constraint *types* by `validation.py`,
+but `ConstraintSpec` doesn't yet carry what either needs to generate
+correctly: a `foreign_key` needs a target table and column to
+reference; a `check` needs its own expression to check. Neither
+exists on `ConstraintSpec` (`type` and `columns` only) as of this
+writing. Closing this gap means growing `ConstraintSpec`, which
+deserves its own scoping conversation rather than being guessed at —
+see "Recently Completed" above for the SQL-generation side of this.
+
 ---
 
 # Phase 2 — Expand Validation Framework
@@ -365,11 +436,31 @@ Improve metadata generation:
 
 ---
 
+## Status
+
+Normalized types, nullable behavior, and constraints (`primary_key`/
+`unique`) are done — see "Recently Completed" above. `foreign_key`/
+`check` constraints remain open, blocked on `ConstraintSpec` (see
+Phase 1's ConstraintSpec Foundation status). Configurable templates
+are not started and remain genuinely optional — nothing currently
+depends on them.
+
+---
+
 # Phase 5 — Documentation Generation
 
 ## Goal
 
 Make metadata useful for human understanding.
+
+---
+
+## Status
+
+**Done, first version.** `DocsGenerator` (see "Recently Completed"
+above) renders dataset- and field-level Markdown documentation,
+including computed-field details. Not yet covered: cross-dataset
+views, relationship/lineage documentation (that's Phase 9 territory).
 
 ---
 
@@ -443,6 +534,22 @@ Validation should remain:
 ## Goal
 
 Move from describing datasets toward describing data workflows.
+
+---
+
+## Status
+
+A deliberately small first step is done: `FieldSpec` can now
+represent a single computed field (an `expression` and its
+`depends_on` fields — see "Recently Completed" above), and
+`SQLGenerator` documents it as a comment. What remains, genuinely
+larger and not started: actually *emitting* a computed field's logic
+as executable output. The natural next artifact for that is a
+`SELECT`-based transformation-model generator (closer to a dbt
+model), not a change to `SQLGenerator`'s `CREATE TABLE` DDL — that's
+a distinct generator, not a tweak to an existing one, and deserves
+its own scoping session. Dependency graphs and execution ordering
+(below) remain fully unstarted.
 
 ---
 
@@ -545,6 +652,29 @@ It should not influence the core metadata architecture.
 
 ---
 
+## Current Status
+
+This phase advanced significantly earlier than the roadmap's original
+"long-term capability" framing suggested, because it built directly
+on the already-completed deterministic `discover` command rather than
+requiring new foundational work. As of the most recent commit:
+
+* **Implemented**: raw-CSV schema inference (deterministic), AI-assisted
+  field descriptions for CSV input (`discover --ai`), and AI-assisted
+  requirements-document extraction (`discover --requirements --ai`).
+  See "Recently Completed" above for full detail.
+* **Not yet built**: column classification beyond dimension/measure,
+  validation recommendations, transformation suggestions (blocked on
+  Phase 7), and documentation assistance beyond what `DocsGenerator`
+  already renders deterministically.
+
+The design requirements below were upheld throughout: every AI-assisted
+path writes a draft file for human review and is never auto-validated
+or auto-generated from; every AI request is opt-in, cost-estimated,
+and confirmed before it runs; declining makes zero API calls.
+
+---
+
 ## Future Concept
 
 The intended workflow:
@@ -574,13 +704,18 @@ Validation + Generation
 
 Future exploration:
 
-* schema inference assistance
-* column classification
-* candidate key detection
-* validation recommendations
-* metadata generation
-* transformation suggestions
-* documentation assistance
+* schema inference assistance — **implemented** (`discover`,
+  `discover --ai`, `discover --requirements --ai`)
+* column classification — future
+* candidate key detection — partially implemented (deterministic
+  `discover`'s "looks unique in this sample" hint)
+* validation recommendations — future
+* metadata generation — partially implemented (both `discover` paths
+  write draft YAML)
+* transformation suggestions — future, blocked on Phase 7
+* documentation assistance — partially implemented (`DocsGenerator`
+  is deterministic, not AI-assisted; an AI-assisted documentation
+  pass remains future work)
 
 ---
 
