@@ -3,6 +3,7 @@ from .dbt_yaml import DBTYAMLGenerator
 from .catalog import CatalogCSVGenerator
 from .catalog_extended import ExtendedCatalogCSVGenerator
 from .docs import DocsGenerator
+from .model import ModelGenerator
 
 # Run by default on every `structifact generate` — no configuration
 # required, output shape is the same for every user.
@@ -18,9 +19,16 @@ GENERATORS = [
 # changed_by), or are new enough that they shouldn't silently change
 # existing default output. Opt in explicitly:
 # `structifact generate -g <name>`.
+#
+# ModelGenerator (Phase 7 — Transformation Framework) is opt-in for
+# the same "new enough, shouldn't silently change default output"
+# reason as DocsGenerator was — it's also the first generator whose
+# generate() can return None (see base.py), so it's a good idea to
+# let it settle here before it's ever a default.
 OPTIONAL_GENERATORS = [
     ExtendedCatalogCSVGenerator(),
     DocsGenerator(),
+    ModelGenerator(),
 ]
 
 ALL_GENERATORS = GENERATORS + OPTIONAL_GENERATORS
