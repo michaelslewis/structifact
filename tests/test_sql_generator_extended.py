@@ -8,7 +8,14 @@ Covers the golden cases:
   primary_key constraint -> PRIMARY KEY (...)
   unique constraint -> UNIQUE (...)
   computed field with expression -> SQL comment, no executable syntax
-  foreign_key / check constraints -> NOT emitted (documented gap)
+
+foreign_key / check constraint emission is covered separately in
+tests/test_constraint_fk_check.py, alongside the ConstraintSpec
+validation that makes emitting them meaningful (target_table/
+target_column for foreign_key, expression for check). They used to
+be documented here as "not emitted" — that was correct at the time,
+but is no longer true as of the ConstraintSpec foreign_key/check
+work, so those two cases moved rather than staying here stale.
 """
 
 import os
@@ -137,27 +144,6 @@ def test_composite_primary_key_emitted():
     )
     sql = _gen().generate(table).content
     assert "PRIMARY KEY (order_id, line_id)" in sql
-
-
-def test_foreign_key_constraint_not_emitted():
-    table = DatasetSpec(
-        name="orders",
-        fields=[FieldSpec(name="customer_id", type="integer")],
-        constraints=[ConstraintSpec(type="foreign_key", columns=["customer_id"])],
-    )
-    sql = _gen().generate(table).content
-    assert "FOREIGN KEY" not in sql
-    assert "REFERENCES" not in sql
-
-
-def test_check_constraint_not_emitted():
-    table = DatasetSpec(
-        name="orders",
-        fields=[FieldSpec(name="qty", type="integer")],
-        constraints=[ConstraintSpec(type="check", columns=["qty"])],
-    )
-    sql = _gen().generate(table).content
-    assert "CHECK" not in sql
 
 
 # ---------------------------------------------------------------------
