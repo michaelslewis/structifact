@@ -119,6 +119,16 @@ def validate_table(table: DatasetSpec):
                         f"field '{dep}'"
                     )
 
+    # source_table well-formedness (Phase 7 — ModelGenerator). Only
+    # checks that an explicitly-set value isn't blank — None is
+    # valid (falls back to dataset name), but an empty string is
+    # almost certainly a mistake, not an intentional choice.
+    if table.source_table is not None and not table.source_table.strip():
+        errors.append(
+            "source_table, if set, cannot be blank — omit it "
+            "entirely to fall back to the dataset name"
+        )
+
     supported_constraints = {
         "primary_key",
         "unique",

@@ -196,6 +196,14 @@ def generate(args):
     for gen in selected:
         artifact = gen.generate(table)
 
+        # generate() may return None to mean "nothing to generate
+        # for this dataset" (see generators/base.py) — e.g.
+        # ModelGenerator for a dataset with no computed fields.
+        # Skip writing anything in that case rather than erroring
+        # on artifact.filename against a None.
+        if artifact is None:
+            continue
+
         path = f"{args.output}/{artifact.filename}"
 
         write_file(path, artifact.content)

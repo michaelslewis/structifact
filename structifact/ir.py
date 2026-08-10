@@ -109,6 +109,22 @@ class DatasetSpec:
 
     constraints: List[ConstraintSpec] = field(default_factory=list)
 
+    # Phase 7 — Transformation Framework (ModelGenerator). The table
+    # this dataset's SELECT-based transformation model reads from.
+    # Deliberately explicit rather than assumed: guessing that the
+    # source table always shares the dataset's name would silently
+    # produce wrong SQL for anyone whose source table is named
+    # differently (a staging prefix, a legacy name, etc.), which
+    # runs against "metadata as the source of truth" — Structifact
+    # should be told, not infer. When omitted, ModelGenerator falls
+    # back to `name` for the common case where they do match, so
+    # this costs nothing for most users. This is NOT a general join
+    # mechanism — it names exactly one source for a 1:1 transform;
+    # multi-table joins remain a separate, unstarted design (see
+    # FUTURE_WORK.md, Transformation Framework, "Two Further Gaps
+    # Found").
+    source_table: Optional[str] = None
+
 
 # Backwards compatibility during migration.
 #
