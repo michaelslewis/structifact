@@ -62,13 +62,13 @@ fields:
   - name: src_ord_hdr_order_id
     description: Order ID
     role: dimension
-    datatype: varchar(10)
+    type: varchar(10)
   - name: sign_adjustment
     description: "+1 for standard orders, -1 for returns/credit memos"
     role: measure
-    datatype: integer
+    type: integer
     computed: true
-    computed_logic_raw: "if order_type in ('RET','CRM') then -1 else 1"
+    expression: "if order_type in ('RET','CRM') then -1 else 1"
 unresolved_notes:
   - "FX conversion requires a lookup joined on currency_code and order_date, with a 1.0 fallback for USD only"
 """
@@ -106,7 +106,7 @@ fields:
     description: Resolution time in hours
     role: measure
     computed: true
-    computed_logic_raw: "closed timestamp minus opened timestamp"
+    expression: "closed timestamp minus opened timestamp"
   - name: priority_level
     description: "Priority: Low, Medium, High, or Urgent"
     role: dimension
@@ -151,12 +151,12 @@ fields:
     description: Click-through rate
     role: measure
     computed: true
-    computed_logic_raw: "ctr = clicks / impressions"
+    expression: "ctr = clicks / impressions"
   - name: cpa
     description: Cost per acquisition
     role: measure
     computed: true
-    computed_logic_raw: "cpa = spend_usd / conversions"
+    expression: "cpa = spend_usd / conversions"
 unresolved_notes: []
 """
 
@@ -200,7 +200,7 @@ def test_parse_flags_computed_field_with_raw_logic():
     computed = [f for f in parsed["fields"] if f.get("computed")]
     assert len(computed) == 1
     assert computed[0]["name"] == "sign_adjustment"
-    assert "RET" in computed[0]["computed_logic_raw"]
+    assert "RET" in computed[0]["expression"]
 
 
 def test_parse_preserves_uncertainty_note():
@@ -213,7 +213,7 @@ def test_parse_preserves_math_shorthand_logic():
     parsed = parse_requirements_draft(TERSE_RESPONSE)
     ctr = next(f for f in parsed["fields"] if f["name"] == "ctr")
     assert ctr["computed"] is True
-    assert ctr["computed_logic_raw"] == "ctr = clicks / impressions"
+    assert ctr["expression"] == "ctr = clicks / impressions"
 
 
 def test_parse_captures_unresolved_join_note():
