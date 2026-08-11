@@ -24,163 +24,18 @@ The guiding principle remains:
 
 Build the foundation that makes future capabilities possible.
 
+A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
+
 AI-Assisted Metadata Discovery
 
-One of the most compelling long-term possibilities for Structifact is assisting engineers with understanding unfamiliar datasets.
+Status: substantially implemented. See ROADMAP.md for the current, detailed status — raw-CSV schema inference, AI-assisted field descriptions, and AI-assisted requirements-document extraction are all real, shipped, opt-in, cost-estimated, and always produce a draft for human review rather than anything auto-applied. The architectural boundary this section originally described — AI produces suggestions, Structifact metadata remains the source of truth — was upheld throughout.
 
-The goal is not:
+What remains genuinely future here:
 
-AI replaces metadata engineering.
-
-The goal is:
-
-AI reduces the effort required to create and maintain high-quality metadata while keeping engineers in control.
-
-Current Status
-
-As of the current implementation (see ROADMAP.md, Phase 10), the
-workflow described below is realized for two input types: raw CSV
-sample data (`structifact discover --ai`) and freeform requirements
-documents of arbitrary shape (`structifact discover --requirements
---ai`). The architectural boundary this section describes — AI
-produces suggestions, Structifact metadata remains the source of
-truth — was upheld in both: neither path auto-validates or
-auto-generates from AI output, both always write a draft file for
-human review, and both are opt-in, cost-estimated, and confirmed
-before any real request is made. The scenario below (a plain
-`customers.csv`) reflects the earlier, simpler input shape; the
-requirements-document path additionally handles derived/computed
-fields and freeform relational/business-rule notes, which this
-scenario doesn't illustrate.
-
-Potential Future Workflow
-
-A future AI-assisted workflow could look like:
-
-Unknown Dataset
-        |
-        v
-AI-Assisted Discovery
-        |
-        v
-Suggested Metadata Contract
-        |
-        v
-Human Review and Approval
-        |
-        v
-Structifact IR
-        |
-        v
-Validation + Generation
-
-The important architectural boundary:
-
-AI produces suggestions.
-
-Structifact metadata remains the source of truth.
-
-Example Future Scenario
-
-A user provides:
-
-customers.csv
-
-Structifact could eventually analyze the dataset and suggest:
-
-Detected:
-
-customer_id
-- likely identifier
-- values appear unique
-
-email
-- 97% match email pattern
-- nullable candidate
-
-created_date
-- timestamp candidate
-
-country_code
-- repeated categorical values
-
-The system could then propose:
-
-dataset:
-  name: customers
-
-fields:
-
-  - name: customer_id
-    type: integer
-
-  - name: email
-    type: string
-
-  - name: created_date
-    type: timestamp
-
-An engineer reviews and modifies the proposal before acceptance.
-
-Architectural Requirements for AI Integration
-
-Any AI-assisted capability should preserve:
-
-Human Approval
-
-AI suggestions should never silently become production metadata.
-
-Explainability
-
-Recommendations should include reasoning.
-
-Examples:
-
-Suggested type: timestamp
-
-Reason:
-97% of values matched ISO datetime pattern.
-Deterministic Core
-
-Structifact should remain fully functional without AI services.
-
-The architecture should continue to work as:
-
-Explicit Metadata
-        |
-        v
-Structifact IR
-        |
-        v
-Validation
-        |
-        v
-Generation
-
-AI should be an optional assistance layer around this workflow.
-
-Metadata Authoring Assistance
-
-A future goal could be reducing the friction of creating metadata definitions.
-
-Possible capabilities:
-
-schema suggestions
-YAML generation assistance
-interactive metadata creation
-IDE integration
-metadata completion
-validation feedback during authoring
-
-Possible future commands:
-
-structifact discover customers.csv
-
-structifact suggest-schema customers.csv
-
-structifact explain customers.yml
-
-These should improve developer experience without changing the underlying metadata model.
+column classification beyond dimension/measure
+validation-rule *recommendations* (as opposed to the deterministic rule-checking that already exists in quality.py)
+interactive/IDE-integrated metadata authoring assistance (see the IDE Integration section below, which folds this in)
+AI-assisted documentation (DocsGenerator is fully deterministic today)
 
 Schema Evolution Management
 
@@ -219,6 +74,9 @@ added fields
 removed fields
 incompatible changes
 downstream impact
+
+This remains fully unstarted and genuinely future — nothing in the current IR or CLI touches schema comparison across versions.
+
 Data Contracts
 
 A possible future extension is support for explicit data contracts.
@@ -231,9 +89,7 @@ quality expectations
 compatibility requirements
 service-level expectations
 
-This would extend Structifact from metadata generation toward broader data reliability practices.
-
-However, contract management should only be introduced after the core metadata model and validation framework are mature.
+This would extend Structifact from metadata generation toward broader data reliability practices. Worth noting: the Data Quality Framework (quality.py, see ROADMAP.md) already covers a meaningful slice of "quality expectations" — required fields, ranges, patterns, accepted values, and cross-dataset relationships are all real, checkable rules now. A formal "data contract" concept, if pursued, would likely sit on top of what already exists rather than replace it — packaging an existing dataset's rules plus ownership/SLA metadata into one reviewable unit, not reinventing rule-checking from scratch.
 
 Lineage and Dependency Intelligence
 
@@ -259,78 +115,32 @@ customer_summary model
        v
 dashboard dataset
 
-The existing IR architecture provides a potential foundation for these capabilities.
-
-Documentation and Knowledge Generation
-
-Future generators could produce documentation artifacts from metadata.
-
-Current Status
-
-This has been prioritized as near-term work (see ROADMAP.md, Phase
-5), ahead of several other items in this document, given the concrete
-value of a `structifact docs` command for demonstrating the framework
-— it requires no new inference or data ingestion, only rendering
-metadata Structifact already holds.
-
-Possible outputs:
-
-dataset documentation
-schema references
-column dictionaries
-ownership documentation
-metadata catalogs
-
-Example:
-
-customers.md
-
-Dataset:
-Customer master information
-
-Fields:
-
-customer_id
-Unique customer identifier
-
-email
-Customer email address
-
-The generated documentation should remain human-readable and inspectable.
+The existing IR architecture provides a foundation for this — DatasetSpec now has real, structural knowledge of a dataset's sources (SourceRef/JoinSpec) and, separately, of foreign-key relationships between datasets (ConstraintSpec's target_table/target_column, now actually meaningful since Phase 6 v3 resolves and checks them against real data). Neither of those was designed as a lineage feature, but both are exactly the kind of structural information a future lineage capability would need — worth revisiting this section once there's a concrete lineage use case, rather than designing it in the abstract now.
 
 Plugin Architecture
 
 As Structifact grows, a plugin architecture may become valuable.
 
-Possible extension points:
+Possible extension points: input adapters (JSON, database schemas, API definitions, cloud storage metadata), generators (lineage, warehouse-specific models, testing frameworks), validation providers (custom business rules, external validation engines, organization-specific standards).
 
-Input Adapters
+A plugin architecture should only be introduced when existing extension patterns become insufficient. The current adapter and generator registries remain the preferred mechanism, and have proven sufficient for every extension so far — six generators and three adapters have all fit the existing registry pattern without needing anything more elaborate.
 
-Examples:
+IDE Integration: VS Code Extension (and Potentially Other Editors)
 
-JSON
-database schemas
-API definitions
-cloud storage metadata
-Generators
+A concrete idea, not yet started: package some of Structifact's capability as an editor extension — starting with VS Code, since that's the primary development environment — rather than (or alongside) a hosted web GUI.
 
-Examples:
+Potential capabilities, roughly in order of how self-contained each would be to build:
 
-documentation
-lineage
-warehouse-specific models
-testing frameworks
-Validation Providers
+syntax highlighting for the metadata YAML dialect
+inline validation — surface `structifact validate`'s errors as editor squiggles/diagnostics as the file is edited, not just on a manual CLI run
+command-palette actions to run `validate` / `generate` / `validate-data` against the open file without leaving the editor
+a webview panel previewing generated output (SQL, the transformation model, a quality report) without a separate terminal step
 
-Examples:
+The appeal, relative to the structifact.com/GUI idea below: meaningfully lower lift (no hosting, no auth, no backend service — it runs against the same local CLI that already exists), dogfoodable in the course of normal Structifact development itself (which would likely surface real UX gaps faster than a web GUI would), and arguably a stronger, more concrete portfolio artifact — a published extension is something a reviewer can install and try in under a minute, versus a hosted site that requires deploying and maintaining infrastructure.
 
-custom business rules
-external validation engines
-organization-specific standards
+If VS Code integration proves valuable, the same underlying capability (mostly just shelling out to the existing CLI and parsing its output) could reasonably extend to other editors later — JetBrains IDEs, Vim/Neovim via LSP, etc. — but that's explicitly a "later, if it makes sense" extension of the idea, not part of an initial scope.
 
-A plugin architecture should only be introduced when existing extension patterns become insufficient.
-
-The current adapter and generator registries should remain the preferred mechanism until then.
+Sequencing note: this idea and the structifact.com/GUI idea below are both explicitly deferred until the core engine has more maturity behind it (see ROADMAP.md's Immediate Development Focus / this document's Open Source and Community Direction section for the structifact.com framing). Between the two, the editor-extension idea is currently favored as very likely the better first move if/when this category of work is picked up — lower lift, faster feedback loop, stronger portfolio signal for the effort involved — but no commitment has been made to build either yet.
 
 Web Interface Exploration
 
@@ -338,122 +148,35 @@ A future interface could provide visibility into Structifact projects.
 
 Potential capabilities:
 
-Metadata Browser
+Metadata Browser — explore datasets, fields, descriptions, constraints, relationships
+Lineage Visualization — display source → dataset → generated artifact → downstream consumer
+Validation Dashboard — display validation results, quality trends, failed checks, metadata history (this would have real data to draw on now, given quality.py's structured QualityResult output — previously this section was purely hypothetical since there was no data-quality checking at all to visualize)
 
-Explore:
+The web interface should remain separate from the core framework. Structifact should remain usable as a Python library, a command-line tool, and an automation component regardless of whether this is ever built.
 
-datasets
-fields
-descriptions
-constraints
-relationships
-Lineage Visualization
+See the IDE Integration section above for the current thinking on which of these two directions (editor extension vs. web interface) is the more likely near-term move, if either is picked up before the engine matures further.
 
-Display:
-
-Source
- |
- v
-Dataset
- |
- v
-Generated Artifact
- |
- v
-Downstream Consumer
-Validation Dashboard
-
-Display:
-
-validation results
-quality trends
-failed checks
-metadata history
-
-The web interface should remain separate from the core framework.
-
-Structifact should remain usable as:
-
-a Python library
-a command-line tool
-an automation component
 Data Catalog Integration
 
 Structifact metadata could eventually integrate with broader governance systems.
 
-Potential integrations:
-
-data catalogs
-governance platforms
-business glossaries
-documentation systems
+Potential integrations: data catalogs, governance platforms, business glossaries, documentation systems.
 
 The core metadata model should remain platform-independent.
 
 Warehouse and Platform Integrations
 
-Future exploration may include:
-
-Snowflake
-BigQuery
-Databricks
-PostgreSQL
-DuckDB
-cloud object storage
+Future exploration may include: Snowflake, BigQuery, Databricks, PostgreSQL, DuckDB, cloud object storage.
 
 These should be implemented through adapters or generators rather than embedded into the core framework.
 
-The architectural principle:
+The architectural principle: Structifact defines intent. Platform-specific components implement execution details.
 
-Structifact defines intent.
+Transformation Framework — Remaining Scope
 
-Platform-specific components implement execution details.
+Status: a meaningful first slice of this is now real — see ROADMAP.md for full detail. A single computed field can be represented and actually emitted as executable SQL (ModelGenerator), and a dataset can be built from multiple sources including the same physical table joined in multiple times under different roles with priority-based deduplication (SourceRef/JoinSpec/DedupRule).
 
-Transformation Framework
-
-A future direction could extend Structifact from schema definition toward declarative transformations.
-
-Current Status
-
-This gap is no longer purely abstract. Real scoping work — a
-synthetic requirements-document example and the now-implemented
-`discover --requirements --ai` (see ROADMAP.md, Phase 10) — surfaced
-a concrete, recurring case the IR cannot represent: a field computed
-from other fields via a conditional expression, and datasets that
-depend on other datasets via a join. `discover --requirements --ai`
-currently flags such fields as `computed: true` and preserves the raw
-logic as text rather than attempting to generate SQL for it. A
-deliberately small first step — just enough IR support to represent a
-single computed field, not the full framework below — is now planned
-as near-term work (see ROADMAP.md, Phase 7), since it is the one
-remaining piece that blocks turning a raw requirements document into
-real, generated SQL/YAML/catalog output rather than a draft with
-logic flagged for manual implementation.
-
-A second, harder synthetic example (`examples/workorder_demo`,
-modeled on real complexity from an actual SAP-shaped requirements
-sheet) surfaced two further gaps this framework will eventually need
-to address, neither yet designed (see ROADMAP.md, Phase 7, "Two
-Further Gaps Found"):
-
-* the same source table referenced multiple times under different
-  roles within one dataset's generation logic (e.g. a shared partner
-  table joined separately for requested-by/billed-to/site-contact) —
-  the IR currently has no way to represent source-level joins at all,
-  only a dataset's output columns
-* priority-based row deduplication (picking one "current" row per key
-  via a tiebreak rule) — a row-selection concern, meaningfully
-  different in kind from a computed field's value-transformation
-  `expression`
-
-Potential capabilities:
-
-transformation definitions
-dataset dependencies
-model generation
-dependency ordering
-
-Example:
+What remains genuinely future, and was the original scope of this section: cross-*dataset* dependency tracking — one dataset's model depending on another dataset (not just one dataset joining in raw sources), with dependency graphs and execution ordering across that dependency chain. Example of the still-unbuilt shape:
 
 model:
   name: customer_summary
@@ -462,37 +185,21 @@ depends_on:
   - customers
   - transactions
 
-This should only occur after the metadata and IR foundations are mature.
+This is a different concern from the sources/joins work that's already done: sources/joins describe how *one* dataset is assembled from underlying tables; this describes how *multiple Structifact-defined datasets* relate to and depend on each other. Should only be scoped once there's a concrete example that needs it, matching how every other IR addition in this project has been grounded — not designed abstractly in advance.
 
 Streaming and Event Data
 
-Although current development focuses on structured datasets, future exploration could include event-driven systems.
+Although current development focuses on structured, batch-oriented datasets, future exploration could include event-driven systems.
 
-Potential areas:
+Potential areas: event schemas, streaming contracts, schema registry integration, real-time validation.
 
-event schemas
-streaming contracts
-schema registry integration
-real-time validation
-
-Possible technologies:
-
-Kafka
-Spark Structured Streaming
-cloud streaming platforms
+Possible technologies: Kafka, Spark Structured Streaming, cloud streaming platforms.
 
 This should not influence the current batch-oriented metadata model until there is a clear need.
 
 Enterprise Capabilities
 
-If Structifact evolves into a production platform, future capabilities could include:
-
-approval workflows
-audit history
-environment management
-access controls
-governance policies
-deployment workflows
+If Structifact evolves into a production platform, future capabilities could include: approval workflows, audit history, environment management, access controls, governance policies, deployment workflows.
 
 These are long-term possibilities and not current development priorities.
 
@@ -500,43 +207,16 @@ Open Source and Community Direction
 
 Structifact is designed with open-source engineering practices in mind.
 
-Possible future efforts:
+Possible future efforts: a public documentation site, expanded examples, contributor documentation, a plugin ecosystem, community extensions.
 
-public documentation site
-expanded examples
-contributor documentation
-plugin ecosystem
-community extensions
-
-The registered domain:
-
-structifact.com
-
-provides future flexibility for:
-
-documentation
-demonstrations
-project resources
-
-It does not imply a current hosted product or commercial offering.
+The registered domain, structifact.com, provides future flexibility for documentation, demonstrations, and project resources. It does not imply a current hosted product or commercial offering, and deployment is deliberately deferred — the current strategic framing (see PROJECT_CONTEXT.md / DECISION_HISTORY.md) treats Structifact primarily as a portfolio/credibility asset supporting consulting opportunities, not a product to launch, and holds off on a GUI or public-facing site until well past the current engine maturity. See the IDE Integration section above for the currently-favored alternative if/when this category of work is picked up.
 
 Educational Value
 
-Structifact may also serve as an educational example of:
+Structifact may also serve as an educational example of: metadata-driven architecture, data engineering design, Python package development, validation frameworks, testing practices, software architecture.
 
-metadata-driven architecture
-data engineering design
-Python package development
-validation frameworks
-testing practices
-software architecture
+Potential educational materials: architecture walkthroughs, tutorials, example projects, implementation guides.
 
-Potential educational materials:
-
-architecture walkthroughs
-tutorials
-example projects
-implementation guides
 Guiding Principle
 
 Future expansion should continue following the central philosophy:

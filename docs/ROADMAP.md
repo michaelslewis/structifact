@@ -36,19 +36,18 @@ The guiding progression is:
 The following items were previously described below as planned work.
 They are now implemented, tested, and covered by CI:
 
-* **Type-aware SQL generation** (Phase 4) — the SQL generator now maps
+* **Type-aware SQL generation** (Phase 4) — the SQL generator maps
   normalized types to real SQL types (`INTEGER`, `TIMESTAMP`,
   `DECIMAL(precision,scale)`, etc.) instead of emitting `TEXT` for
   every column.
-* **`structifact validate` command** (Phase 2 / Phase 3) — implemented
-  exactly as shown in the Phase 2 example below: loads metadata,
-  validates schema and constraints, and reports the documented
+* **`structifact validate` command** (Phase 2 / Phase 3) — loads
+  metadata, validates schema and constraints, reports the documented
   checkmark output.
 * **CSV/Excel adapters normalize types** the same way the YAML adapter
-  does, via `types.parse_type()`, instead of expecting pre-normalized
-  input.
-* **Continuous integration** — the test suite now runs automatically
-  via GitHub Actions on every push and pull request against `main`.
+  does, via `types.parse_type()`.
+* **Continuous integration** — the test suite runs automatically via
+  GitHub Actions on every push and pull request against `main`
+  (Python 3.11 and 3.12; 279 tests as of this writing).
 * **A golden-path example** (`examples/customers/`) shows the full
   input → output flow end to end for a new reader.
 * **`structifact discover`** (Phase 10, deterministic half) — infers
@@ -63,8 +62,12 @@ They are now implemented, tested, and covered by CI:
   explicitly invoked. A provider-agnostic `LLMClient` interface
   (`structifact/llm.py`) shows a cost estimate and requires explicit
   confirmation (or `-y`) before any real request; declining makes
-  genuinely zero API calls. AI-suggested descriptions are clearly
-  marked distinct from deterministic ones in the draft output.
+  genuinely zero API calls. Bring-your-own-key via `ANTHROPIC_API_KEY`
+  (never hardcoded); `AnthropicLLMClient` implements `LLMClient`
+  without locking the interface to one provider; `FakeLLMClient`
+  lets the test suite exercise this logic with no real network/API
+  key. AI-suggested descriptions are clearly marked distinct from
+  deterministic ones in the draft output.
 * **`structifact discover --requirements <file> --ai`** (Phase 10,
   LLM-assisted requirements-document extraction) — extracts a draft
   field list from a raw requirements document (`.md`/`.txt`) of
@@ -75,76 +78,103 @@ They are now implemented, tested, and covered by CI:
   whose value is derived from other fields (a "Logic" column, inline
   math, or logic described in prose) are flagged `computed: true`
   with the raw logic preserved as text rather than translated to SQL
-  — see the computed-field IR support below. Anything structurally
-  unplaceable — join keys/relationships between tables, cross-field
-  business rules, deprioritization or confirmation-status notes — is
-  surfaced in an `unresolved_notes` list rather than silently dropped.
+  automatically. Anything structurally unplaceable — join keys/
+  relationships between tables, cross-field business rules,
+  deprioritization or confirmation-status notes — is surfaced in an
+  `unresolved_notes` list rather than silently dropped.
 * **Field `role` classification** — `FieldSpec.role` (dimension |
-  measure) is now actually populated: the YAML adapter accepts an
-  optional `role:` key per field, and `validation.py` checks it's a
-  supported value when present.
-* **Catalog generation** — two generators now exist:
-  `CatalogCSVGenerator` (name/description/role/type/length, run by
-  default alongside SQL/dbt) and `ExtendedCatalogCSVGenerator` (a
-  richer column set matching a specific downstream tool's format,
-  including a configurable `changed_by` and a real generation
-  timestamp — deliberately **not** run by default, since Structifact
-  has no way to know which catalog shape, if any, a given user needs).
+  measure) is populated by the YAML adapter, and `validation.py`
+  checks it's a supported value when present.
+* **Catalog generation** — two generators: `CatalogCSVGenerator`
+  (name/description/role/type/length, run by default alongside SQL/
+  dbt) and `ExtendedCatalogCSVGenerator` (a richer column set
+  matching a specific downstream tool's format, including a
+  configurable `changed_by` and a real generation timestamp —
+  deliberately **not** run by default).
 * **`DocsGenerator`** (Phase 5 — Documentation Generation) — renders
   human-readable Markdown from a dataset's actual metadata (name,
   type with length/precision-scale, raw declared type, role,
   nullable, accepted_values, description, computed-field details, and
   constraints), per field and dataset-level. Never fabricates a value
-  a field doesn't have. Wired into the generator registry as optional
-  (`generate -g docs`), not run by default.
-* **Minimal computed-field support in the IR** (Phase 7, first step)
-  — `FieldSpec` gained `computed`, `expression`, and `depends_on`.
+  a field doesn't have. Opt-in (`generate -g docs`), not run by
+  default.
+* **Computed-field support in the IR** (Phase 7, first step) —
+  `FieldSpec` gained `computed`, `expression`, and `depends_on`.
   `expression` is assumed-valid SQL meant to be inlined as-is by a
   generator — deliberately NOT the same thing as the freeform
   business-logic text `discover --requirements --ai` extracts (e.g.
   "if order_type in ('RET','CRM') then -1 else 1" is pseudocode, not
   valid SQL as written). Promoting a discovery draft's raw logic into
-  a real `expression` is a human decision, not automatic. The YAML
-  adapter parses all three keys; validation checks well-formedness
-  only (computed requires expression, expression requires
-  computed: true, depends_on entries must reference real fields in
-  the same dataset, forward references allowed, no self-reference).
-* **Generator selection** — `structifact generate` now accepts
-  `-g/--generators` to explicitly choose which generators run;
-  omitting it keeps the previous default behavior unchanged.
-* **Validation expansion (Phase 6, well-formedness level)** —
-  `FieldSpec.accepted_values` lets a field declare a domain of
-  allowed values; validation rejects an empty list or duplicate
-  entries within it. Validation also rejects more than one
-  `primary_key` constraint per dataset. These check the metadata
-  definition itself, not real data — Structifact still doesn't
-  ingest actual data rows, so this isn't data-quality validation
-  yet, just catching malformed declarations earlier.
-* **SQL generation now emits `NOT NULL`, `PRIMARY KEY`, and `UNIQUE`**
-  for fields/constraints where the IR has enough information to do
-  so correctly. Fixed a real bug in the process: the YAML adapter
-  never parsed `nullable:` from field metadata at all, so
-  `FieldSpec.nullable` always defaulted to `True` regardless of what
-  a user wrote — `SQLGenerator` honoring it would have been silently
-  ineffective without that fix. Computed fields (see above) get a SQL
-  comment documenting their expression, not executable derivation
-  syntax — `SQLGenerator` produces `CREATE TABLE` DDL, not a
-  transformation query, and emitting vendor-specific
-  `GENERATED ALWAYS AS` syntax would lock generated output to one SQL
-  dialect before Structifact has any platform integrations (Phase 8).
-  `foreign_key` and `check` constraint types are still accepted by
-  `validation.py` as valid types, but deliberately not emitted by
-  `SQLGenerator` — see "Status" under ConstraintSpec Foundation
-  below; this is a tracked gap, not a silent omission.
+  a real `expression` is a human decision, not automatic. All three
+  adapters parse it; validation checks well-formedness only.
+* **Generator selection** — `structifact generate` accepts
+  `-g/--generators` to explicitly choose which generators run.
+* **`ConstraintSpec` foreign_key/check** (Phase 1, closing the
+  previously-tracked gap) — `ConstraintSpec` gained `target_table`/
+  `target_column` (foreign_key, single-column only — composite FK
+  deliberately deferred) and `expression` (check). `validation.py`
+  checks well-formedness (foreign_key requires exactly one column
+  plus non-blank target_table/target_column; check requires a
+  non-blank expression). `SQLGenerator` now emits `FOREIGN KEY (...)
+  REFERENCES ...` and `CHECK (...)` DDL. A real bug was found and
+  fixed in the process: `yaml.py`'s constraint parsing had never
+  actually read `target_table`/`target_column`/`expression` from a
+  YAML file (only `type`/`columns`) — meaning this feature, though
+  correct in the IR/validation/generator layer and fully covered by
+  unit tests, was silently unusable via any real YAML file until the
+  fix. Found by running the real CLI against a real file during
+  Phase 6 v3 verification, not by the existing test suite. See
+  `DECISION_HISTORY.md`.
+* **`SELECT`-based transformation-model generator** (`ModelGenerator`,
+  Phase 7 second step) — emits a real, executable `SELECT` for a
+  dataset's computed fields, distinct from `SQLGenerator`'s
+  schema-only DDL. `Generator.generate()` may now return `None` to
+  mean "nothing to generate for this dataset" (this generator returns
+  `None` for a dataset with no computed fields and no sources/joins);
+  `cli.py`'s `generate` loop was updated to skip writing in that
+  case. Added `DatasetSpec.source_table` (falls back to the dataset's
+  own name when unset). Opt-in (`-g model`).
+* **Sources/joins/dedup IR** (Phase 7, "Two Further Gaps" closed) —
+  `SourceRef`, `JoinSpec`, `DedupRule`, plus `FieldSpec.source`/
+  `source_column` and `DatasetSpec.sources`/`joins`. A dataset can now
+  be assembled from more than one source, including the same physical
+  table joined in multiple times under different roles (e.g. a shared
+  partner table joined separately for requested-by/billed-to/site-
+  contact), each with its own filter and a priority-based
+  deduplication rule (`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY
+  ...) = 1`, matching the reference SQL this was scoped against).
+  `ModelGenerator` now qualifies every column reference by its source
+  alias — a deliberate output change from its earlier unqualified
+  form. `validation.py` checks the metadata *relationships* (unique
+  source names, joins/fields resolve to declared sources, dedup rules
+  non-empty, supported join types) without parsing the raw SQL
+  fragments (`filter`/`on`/`order_by`), matching the existing
+  `expression` trust model.
+* **Data Quality Framework** (Phase 6, all three planned increments —
+  see the dedicated Phase 6 section below for full detail) — a new
+  `structifact validate-data` command and `structifact/quality.py`
+  subsystem check real CSV data against a schema's already-declared
+  rules: required fields, uniqueness, accepted values (v1); numeric
+  range and regex pattern (v2); and foreign-key/relationship
+  validation against a second dataset's real data via `--ref` (v3).
+  Not a `Generator` — a deliberately separate subsystem, since
+  checking real data needs two inputs (schema + data) where every
+  generator only ever needed one. Structured `QualityIssue`/
+  `QualityResult` output, formatted into human-readable text entirely
+  in `cli.py`, never inside the checking logic itself.
+* **Documentation refresh** — this document and its siblings
+  (`CURRENT_STATE.md`, `CURRENT_IMPLEMENTATION.md`,
+  `PROJECT_CONTEXT.md`, `EXAMPLES.md`, `DECISION_HISTORY.md`,
+  `DESIGN_PRINCIPLES.md`, `ARCHITECTURE.md`, `README.md`) were
+  substantially out of date relative to the codebase (several
+  predated all of the work described above) and were rewritten
+  against the actual current implementation rather than left
+  drifting further.
 
-The phase sections below are left as originally written for planning
-context, but should not be read as "not yet done" for the specific
-items called out above. Phases are organized by capability maturity,
-not a strict execution order — Phase 10 (AI-assistance) advanced well
-ahead of Phases 5–9 because it built directly on already-completed
-foundations (the deterministic `discover` command and the IR), not
-because of a change in priority for the other phases. See "Current
-Status" under Phase 10 below for what remains there.
+The phase sections below are left largely as originally written for
+planning context, but should not be read as "not yet done" for the
+specific items called out above. Phases are organized by capability
+maturity, not a strict execution order.
 
 ---
 
@@ -152,95 +182,11 @@ Status" under Phase 10 below for what remains there.
 
 ## Established Foundation
 
-Structifact has established its initial architectural foundation.
-
-Current capabilities include:
-
----
-
-## Metadata Layer
-
-Implemented:
-
-* YAML-based metadata definitions
-* dataset definitions
-* field definitions
-* type information
-* metadata parsing
-
-The metadata model is evolving toward a stronger v1 contract based around:
-
-```text
-DatasetSpec
-    |
-    +-- FieldSpec
-    |
-    +-- ConstraintSpec
-```
-
----
-
-## Adapter Architecture
-
-Implemented adapters include:
-
-* YAML
-* CSV
-* Excel
-
-The adapter architecture provides a foundation for future input formats.
-
----
-
-## Intermediate Representation
-
-Structifact contains an internal representation layer separating:
-
-* input formats
-* framework logic
-* generated outputs
-
-The next evolution of the IR introduces:
-
-* DatasetSpec as the canonical dataset model
-* FieldSpec for intrinsic field properties
-* ConstraintSpec for relational and business rules
-
----
-
-## Validation Foundation
-
-Current validation provides:
-
-* metadata validation
-* schema checks
-* supported type validation
-* framework correctness checks
-
-Future work will expand validation into a first-class capability.
-
----
-
-## Generator Framework
-
-Current generators produce:
-
-* SQL output
-* dbt-compatible YAML output
-
-The generator architecture provides a foundation for additional artifact types.
-
----
-
-## Development Infrastructure
-
-Established:
-
-* Python package structure
-* CLI foundation
-* automated tests
-* repository organization
-* engineering documentation
+Structifact's architectural foundation, described in earlier drafts
+of this document as a set of goals, is now a set of completed,
+tested capabilities. See "Recently Completed" above and
+`docs/CURRENT_STATE.md` / `docs/CURRENT_IMPLEMENTATION.md` for the
+authoritative current snapshot.
 
 ---
 
@@ -250,79 +196,21 @@ Established:
 
 Create a stable and extensible metadata foundation.
 
-This phase establishes the contracts that future Structifact capabilities will depend on.
+## Status
 
----
-
-# Planned Work
-
-## DatasetSpec Introduction
-
-Introduce DatasetSpec as the canonical IR concept.
-
-Goals:
-
-* move away from table-specific terminology
-* represent logical datasets
-* support future dataset categories
-* establish a stable framework boundary
-
-Migration approach:
-
-1. Introduce DatasetSpec.
-2. Preserve TableSpec compatibility temporarily.
-3. Update internal consumers.
-4. Remove deprecated concepts only after migration is complete.
-
----
-
-## FieldSpec Refinement
-
-Define FieldSpec around intrinsic field characteristics.
-
-Supported concepts:
-
-* name
-* type
-* description
-* nullable
-* type parameters
-
-Avoid expanding FieldSpec into a collection of unrelated flags.
-
----
+**Done.** `DatasetSpec` is the canonical IR concept (`TableSpec`
+remains a plain alias). `FieldSpec` covers intrinsic field
+characteristics without having grown into an unmanageable flag
+collection — see `DECISION_HISTORY.md` for how that line was held
+even as real value-level rules (Phase 6 v2) were added.
 
 ## ConstraintSpec Foundation
 
-Introduce a separate constraint model.
-
-Initial direction:
-
-```text
-ConstraintSpec
-
-type:
-    primary_key
-    unique
-    foreign_key
-    check
-
-fields:
-    related fields
-```
-
-The initial implementation should establish the structure without prematurely building a complete rule engine.
-
-**Status**: `primary_key` and `unique` are fully supported end-to-end
-today — validated, and emitted in generated SQL. `foreign_key` and
-`check` are accepted as valid constraint *types* by `validation.py`,
-but `ConstraintSpec` doesn't yet carry what either needs to generate
-correctly: a `foreign_key` needs a target table and column to
-reference; a `check` needs its own expression to check. Neither
-exists on `ConstraintSpec` (`type` and `columns` only) as of this
-writing. Closing this gap means growing `ConstraintSpec`, which
-deserves its own scoping conversation rather than being guessed at —
-see "Recently Completed" above for the SQL-generation side of this.
+**Status: fully done.** `primary_key`, `unique`, `foreign_key`, and
+`check` are all validated and emitted in generated SQL — see
+"Recently Completed" above. `foreign_key` supports single-column
+references only; composite FK remains deliberately deferred until a
+real example needs it.
 
 ---
 
@@ -332,32 +220,13 @@ see "Recently Completed" above for the SQL-generation side of this.
 
 Make metadata validation a core Structifact capability.
 
----
+## Status
 
-## Planned Work
-
-Improve validation to support:
-
-* richer schema checks
-* constraint validation
-* better error messages
-* validation reporting
-* clearer CLI output
-
-Example future workflow:
-
-```bash
-structifact validate customers.yml
-```
-
-Output:
-
-```text
-✓ Loaded metadata
-✓ Parsed 5 fields
-✓ Valid schema
-✓ No constraint violations
-```
+**Done**, and expanded well beyond the original scope. Validation now
+covers not just schema/constraint structure but genuinely checkable
+*rule content* — a `pattern` must compile as valid regex, `min_value`
+must not exceed `max_value`, sources/joins relationships must
+resolve. See `docs/ARCHITECTURE.md`'s Validation Framework section.
 
 ---
 
@@ -367,47 +236,25 @@ Output:
 
 Make Structifact immediately usable and demonstrate the architecture.
 
----
+## Status
 
-## Decision
-
-CLI basics are intentionally moved earlier than originally planned.
-
-The CLI is not only a convenience feature.
-
-It is the primary user-facing boundary between:
-
-* metadata
-* framework behavior
-* generated results
-
----
-
-## Planned Commands
-
-Initial workflows:
+**Done.** Four commands now exist: `validate`, `generate`, `discover`,
+and `validate-data` — each added only once the underlying capability
+existed to expose.
 
 ```bash
 structifact validate customers.yml
-
 structifact generate customers.yml
+structifact discover data.csv
+structifact validate-data schema.yml data.csv
 ```
-
-Future commands:
-
-```bash
-structifact inspect customers.yml
-
-structifact docs customers.yml
-
-structifact lineage customers.yml
-```
-
----
 
 ## Success Criteria
 
-A reviewer should be able to clone the repository and understand the framework through simple commands.
+A reviewer should be able to clone the repository and understand the
+framework through simple commands. This has been demonstrated
+directly, including in `docs/EXAMPLES.md`, which shows every command
+above run against real files in the repo.
 
 ---
 
@@ -417,33 +264,13 @@ A reviewer should be able to clone the repository and understand the framework t
 
 Increase the value generated from metadata.
 
----
-
-## Planned Work
-
-Improve SQL generation:
-
-* use normalized types
-* support nullable behavior
-* support constraints
-* improve formatting
-* support configurable templates
-
-Improve metadata generation:
-
-* richer dbt YAML output
-* improved generated documentation metadata
-
----
-
 ## Status
 
-Normalized types, nullable behavior, and constraints (`primary_key`/
-`unique`) are done — see "Recently Completed" above. `foreign_key`/
-`check` constraints remain open, blocked on `ConstraintSpec` (see
-Phase 1's ConstraintSpec Foundation status). Configurable templates
-are not started and remain genuinely optional — nothing currently
-depends on them.
+**Done**, except one explicitly-optional item. Normalized types,
+nullable behavior, and all four constraint types (`primary_key`/
+`unique`/`foreign_key`/`check`) are emitted in generated SQL.
+Configurable templates remain unstarted and genuinely optional —
+nothing currently depends on them.
 
 ---
 
@@ -453,37 +280,12 @@ depends on them.
 
 Make metadata useful for human understanding.
 
----
-
 ## Status
 
 **Done, first version.** `DocsGenerator` (see "Recently Completed"
 above) renders dataset- and field-level Markdown documentation,
 including computed-field details. Not yet covered: cross-dataset
-views, relationship/lineage documentation (that's Phase 9 territory).
-
----
-
-## Planned Work
-
-Generate:
-
-* dataset documentation
-* schema references
-* column descriptions
-* metadata summaries
-
-Potential future workflow:
-
-```text
-Metadata
-    |
-    v
-Documentation Generator
-    |
-    v
-Human-readable Data Documentation
-```
+views, relationship/lineage documentation (Phase 9 territory).
 
 ---
 
@@ -493,39 +295,60 @@ Human-readable Data Documentation
 
 Make data reliability a first-class capability.
 
----
+## Status
 
-## Planned Work
+**Done — v1, v2, and v3, matching the original planned scope below.**
+Built in three separately-verified increments, each grounded in a
+real synthetic example (`examples/data_quality_demo/`) with the exact
+expected report output agreed before implementation:
 
-Support metadata-defined validation rules.
+* **v1** — required fields, uniqueness, accepted values. Reused
+  existing metadata (`nullable`, `primary_key`/`unique`,
+  `accepted_values`) rather than inventing new IR concepts — the
+  only genuinely new capability was reading real data rows at all,
+  which Structifact had never done before this.
+* **v2** — range (`min_value`/`max_value`, inclusive, `Decimal`-
+  based) and pattern (regex, fullmatch semantics) validation. Unlike
+  most raw-fragment fields elsewhere in the IR, these ARE validated
+  at metadata-validation time, since a regex's compilability and a
+  range's ordering are both genuinely checkable without data.
+* **v3** — foreign-key/relationship validation against a second
+  dataset's real data, via `--ref alias=schema.yml:data.csv`.
+  Schema-aware (the referenced schema is loaded and validated, its
+  declared name must match the `--ref` alias, `target_column` must
+  be a real declared field — never inferred from a bare CSV header).
+  A missing/misconfigured `--ref` is a hard configuration error,
+  never a silent "no issues found." Existence/membership only — a
+  duplicate value on the *target* side is that dataset's own
+  uniqueness concern, not this check's.
 
-Examples:
+Per the project's own YAGNI discipline (and explicit advice received
+during scoping), Phase 6 is considered a complete milestone at this
+point, matching its originally planned rule concepts below — not a
+foundation for an automatically-continuing v4/v5/etc. Future
+data-quality work should come from a concrete, real need, the same
+way v1/v2/v3 each did, not from expanding scope for its own sake.
 
-```yaml
-fields:
+## Originally Planned Work (for reference — now realized as above)
 
-  - name: customer_id
-    type: integer
-```
+Future rule concepts, as originally listed:
 
-Future rule concepts:
+* required fields — done (v1)
+* uniqueness — done (v1)
+* accepted values — done (v1)
+* regex validation — done (v2, as `pattern`)
+* range validation — done (v2)
+* relationships — done (v3, as `foreign_key` checking)
 
-* required fields
-* uniqueness
-* accepted values
-* regex validation
-* range validation
-* relationships
-
----
+Every originally-planned rule concept in this phase is now
+implemented.
 
 ## Validation Philosophy
 
-Validation should remain:
-
-* deterministic
-* explainable
-* metadata-driven
+Validation should remain deterministic, explainable, and
+metadata-driven. This held up directly: `structifact validate-data`
+produces the same report for the same schema and data every time, and
+every reported issue traces to a specific, named metadata rule.
 
 ---
 
@@ -535,72 +358,25 @@ Validation should remain:
 
 Move from describing datasets toward describing data workflows.
 
----
-
 ## Status
 
-A deliberately small first step is done: `FieldSpec` can now
-represent a single computed field (an `expression` and its
-`depends_on` fields — see "Recently Completed" above), and
-`SQLGenerator` documents it as a comment. What remains, genuinely
-larger and not started: actually *emitting* a computed field's logic
-as executable output. The natural next artifact for that is a
-`SELECT`-based transformation-model generator (closer to a dbt
-model), not a change to `SQLGenerator`'s `CREATE TABLE` DDL — that's
-a distinct generator, not a tweak to an existing one, and deserves
-its own scoping session. Dependency graphs and execution ordering
-(below) remain fully unstarted.
+**Substantially done, one real piece remaining.** Three things are
+now real: a single computed field can be represented and actually
+emitted as executable SQL (`ModelGenerator`, not just documented as a
+comment); a dataset can be assembled from multiple sources, including
+the same physical table joined in multiple times under different
+roles, each independently filtered and deduplicated (`SourceRef`/
+`JoinSpec`/`DedupRule` — see "Recently Completed" above for the full
+detail on this, which closes the "Two Further Gaps Found" section
+that used to live here).
 
----
-
-## Two Further Gaps Found (via examples/workorder_demo)
-
-Testing `discover --requirements --ai` against a second, harder
-synthetic example (`examples/workorder_demo`, modeled on real
-complexity from an actual SAP-shaped requirements sheet) surfaced two
-additional gaps neither the coffee example nor the computed-field
-work above touch at all. Both are concretely scoped from a real
-example (`REQUIREMENTS_workorder.md` → `work_order_source.sql`), not
-abstract planning:
-
-* **Same source table referenced multiple times under different
-  roles.** `work_order_source.sql`'s reference implementation joins
-  `PARTNER_ROLE` three separate times — once each for
-  requested-by/billed-to/site-contact — with a different filter and
-  alias each time (the real example this was modeled on does this
-  five times: shipped-to/sold-to/payer/etc. off one shared partner
-  table). Nothing in the IR represents source-level joins at all
-  today — `DatasetSpec`/`FieldSpec` describe a dataset's *output*
-  columns, not how to derive them from underlying source tables.
-  This is a deeper gap than "add a join list to `ConstraintSpec`": it
-  implies a genuinely new IR concept (something like a source
-  reference + join specification), not an extension of an existing
-  one.
-* **Priority-based row deduplication.** The reference SQL picks one
-  "current" contact per role using a tiebreak rule (prefer
-  `is_current = 'Y'`; fall back to the most recently updated row).
-  This is a *row-selection* rule, not a *column-value* rule — a
-  fundamentally different kind of logic than a computed field's
-  `expression`, which transforms values within a row, not chooses
-  which row wins. Nothing in `FieldSpec`/`ConstraintSpec` has any
-  place to hold this either.
-
-Both are real, but neither has a design yet — closing either would
-need its own scoping conversation, the same way the computed-field
-work above started from a scoping conversation before any code.
-
----
-
-## Planned Work
-
-Support metadata describing:
-
-* source datasets
-* dependencies
-* transformations
-* output models
-
-Example future concept:
+What remains genuinely unstarted: **cross-*dataset* dependency
+tracking** — one Structifact-defined dataset's model depending on
+another Structifact-defined dataset, with dependency graphs and
+execution ordering across that chain. This is a different concern
+from the sources/joins work already done (which is about how *one*
+dataset is assembled from underlying tables, not how *multiple
+datasets* relate to each other). Example of the still-unbuilt shape:
 
 ```yaml
 model:
@@ -611,15 +387,14 @@ depends_on:
   - transactions
 ```
 
----
+Should be scoped the same way every other piece of this phase was —
+against a real, concrete example — once one exists, rather than
+designed abstractly in advance.
 
-## Dependency Management
+## Dependency Management (still future)
 
-Potential capabilities:
-
-* dependency graphs
-* execution ordering
-* impact analysis
+Potential capabilities: dependency graphs, execution ordering, impact
+analysis.
 
 ---
 
@@ -629,33 +404,17 @@ Potential capabilities:
 
 Connect Structifact metadata with execution environments.
 
----
+## Status
 
-## Potential Integrations
-
-Future exploration:
-
-* DuckDB
-* Apache Parquet
-* dbt
-* Snowflake
-* BigQuery
-* Databricks
-* PostgreSQL
-
----
+Unstarted. Potential exploration: DuckDB, Apache Parquet, dbt (as an
+execution engine — Structifact currently generates dbt-shaped YAML,
+it doesn't run dbt), Snowflake, BigQuery, Databricks, PostgreSQL.
 
 ## Design Requirement
 
 Execution systems should remain separate from metadata definition.
-
-Structifact defines:
-
-> What should exist.
-
-Execution platforms define:
-
-> How and where it runs.
+Structifact defines what should exist; execution platforms define how
+and where it runs.
 
 ---
 
@@ -665,16 +424,21 @@ Execution platforms define:
 
 Improve understanding of data systems.
 
----
+## Status
+
+Unstarted, but with more real structural groundwork to build on than
+when this phase was first written: `DatasetSpec` now has genuine
+structural knowledge of a dataset's sources (`SourceRef`/`JoinSpec`)
+and, separately, of foreign-key relationships between datasets
+(`ConstraintSpec`'s `target_table`/`target_column`, now actually
+resolved and checked against real data by Phase 6 v3). Neither was
+built as a lineage feature, but both are exactly the kind of
+structural information a future lineage capability would need.
 
 ## Potential Capabilities
 
-Generate:
-
-* source-to-output lineage
-* dependency graphs
-* impact analysis
-* metadata relationships
+Generate: source-to-output lineage, dependency graphs, impact
+analysis, metadata relationships.
 
 ---
 
@@ -684,92 +448,29 @@ Generate:
 
 Explore AI as an engineering assistant.
 
-AI is intentionally a long-term capability.
+## Status
 
-It should not influence the core metadata architecture.
+**Substantially done.** Raw-CSV schema inference (deterministic),
+AI-assisted field descriptions for CSV input (`discover --ai`), and
+AI-assisted requirements-document extraction (`discover --requirements
+--ai`) are all implemented — see "Recently Completed" above for full
+detail, including the bring-your-own-key/provider-agnostic/cost-
+estimated/zero-calls-if-declined constraints, all verified in tests.
 
----
-
-## Current Status
-
-This phase advanced significantly earlier than the roadmap's original
-"long-term capability" framing suggested, because it built directly
-on the already-completed deterministic `discover` command rather than
-requiring new foundational work. As of the most recent commit:
-
-* **Implemented**: raw-CSV schema inference (deterministic), AI-assisted
-  field descriptions for CSV input (`discover --ai`), and AI-assisted
-  requirements-document extraction (`discover --requirements --ai`).
-  See "Recently Completed" above for full detail.
-* **Not yet built**: column classification beyond dimension/measure,
-  validation recommendations, transformation suggestions (blocked on
-  Phase 7), and documentation assistance beyond what `DocsGenerator`
-  already renders deterministically.
-
-The design requirements below were upheld throughout: every AI-assisted
-path writes a draft file for human review and is never auto-validated
-or auto-generated from; every AI request is opt-in, cost-estimated,
-and confirmed before it runs; declining makes zero API calls.
-
----
-
-## Future Concept
-
-The intended workflow:
-
-```text
-Unknown Dataset
-        |
-        v
-AI-Assisted Discovery
-        |
-        v
-Suggested Metadata Contract
-        |
-        v
-Human Review
-        |
-        v
-Structifact IR
-        |
-        v
-Validation + Generation
-```
-
----
-
-## Potential Capabilities
-
-Future exploration:
-
-* schema inference assistance — **implemented** (`discover`,
-  `discover --ai`, `discover --requirements --ai`)
-* column classification — future
-* candidate key detection — partially implemented (deterministic
-  `discover`'s "looks unique in this sample" hint)
-* validation recommendations — future
-* metadata generation — partially implemented (both `discover` paths
-  write draft YAML)
-* transformation suggestions — future, blocked on Phase 7
-* documentation assistance — partially implemented (`DocsGenerator`
-  is deterministic, not AI-assisted; an AI-assisted documentation
-  pass remains future work)
-
----
+**Not yet built**: column classification beyond dimension/measure,
+validation-*recommendations* (as distinct from the deterministic
+rule-checking `quality.py` already does), transformation suggestions
+(now unblocked in principle, since Phase 7's first steps are done —
+still not built), and AI-assisted documentation beyond what
+`DocsGenerator` already renders deterministically.
 
 ## Design Requirement
 
-AI should:
-
-* suggest
-* explain
-* assist
-
-AI should not:
-
-* replace metadata contracts
-* become the source of truth
-* hide engineering decisions
+AI should suggest, explain, and assist. AI should not replace
+metadata contracts, become the source of truth, or hide engineering
+decisions. This has held up through everything built so far — see
+`DECISION_HISTORY.md` for the specific accounting of how each
+constraint was upheld.
 
 ---
 
@@ -779,17 +480,21 @@ AI should not:
 
 Make Structifact easier to adopt and contribute to.
 
----
+## Status
+
+Unstarted as formal roadmap work, but one concrete idea is recorded
+in `FUTURE_WORK.md`: a VS Code extension (syntax highlighting, inline
+validation, command-palette actions running the existing CLI against
+the open file), potentially extending to other editors later —
+currently favored over a hosted web GUI as the more likely near-term
+move in this space, given lower lift and a faster feedback loop, but
+not yet started.
 
 ## Potential Improvements
 
-* project initialization
-* improved CLI workflows
-* configuration management
-* IDE support
-* metadata templates
-* richer examples
-* contributor documentation
+project initialization, improved CLI workflows, configuration
+management, IDE support, metadata templates, richer examples,
+contributor documentation.
 
 ---
 
@@ -801,8 +506,11 @@ The long-term goal is a metadata-driven engineering framework where:
 2. Structifact interprets metadata.
 3. Validation ensures reliability.
 4. Artifacts are generated consistently.
-5. Quality and lineage become easier to manage.
-6. Intelligent assistance reduces repetitive engineering effort.
+5. Real data is checked against the same declared rules.
+6. Quality and lineage become easier to manage.
+7. Intelligent assistance reduces repetitive engineering effort.
+
+Items 1 through 5 are now real, not aspirational.
 
 ---
 
@@ -816,6 +524,7 @@ Structifact succeeds if it enables engineers to:
 * understand system behavior
 * generate maintainable artifacts
 * create reusable engineering patterns
+* trust that real data actually conforms to what was declared
 
 ---
 
