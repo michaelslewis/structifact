@@ -46,3 +46,7 @@ fields:
 constraints:
   - type: primary_key
     columns: ["order_id"]
+  - type: foreign_key
+    columns: ["customer_id"]
+    target_table: dq_customers
+    target_column: customer_id
