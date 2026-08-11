@@ -59,6 +59,8 @@ def _format_quality_report(result):
     required = [i for i in result.issues if i.rule == "required"]
     uniqueness = [i for i in result.issues if i.rule == "uniqueness"]
     accepted_values = [i for i in result.issues if i.rule == "accepted_values"]
+    range_issues = [i for i in result.issues if i.rule == "range"]
+    pattern_issues = [i for i in result.issues if i.rule == "pattern"]
 
     if required:
         print("\nRequired-field violations:")
@@ -78,6 +80,24 @@ def _format_quality_report(result):
             print(
                 f"  - {issue.field} '{issue.value}' at {row_label} "
                 f"{_join_rows(issue.rows)} not in the accepted set"
+            )
+
+    if range_issues:
+        print("\nRange violations:")
+        for issue in range_issues:
+            row_label = "data row" if len(issue.rows) == 1 else "data rows"
+            print(
+                f"  - {issue.field} '{issue.value}' at {row_label} "
+                f"{_join_rows(issue.rows)} out of range"
+            )
+
+    if pattern_issues:
+        print("\nPattern violations:")
+        for issue in pattern_issues:
+            row_label = "data row" if len(issue.rows) == 1 else "data rows"
+            print(
+                f"  - {issue.field} '{issue.value}' at {row_label} "
+                f"{_join_rows(issue.rows)} does not match the expected pattern"
             )
 
 
