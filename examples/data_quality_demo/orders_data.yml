@@ -1,0 +1,53 @@
+# SYNTHETIC EXAMPLE (fictional data) — scoping material for
+# Phase 6 (Data Quality Framework). Deliberately uses ONLY metadata
+# concepts that already exist in the IR today (nullable,
+# accepted_values, primary_key) — no new FieldSpec/ConstraintSpec
+# fields required for this schema to be meaningful. The point is to
+# test whether checking real data rows against *already-expressible*
+# rules is a sufficient, well-scoped first slice of Phase 6, before
+# considering genuinely new rule types (regex, range, relationships).
+
+dataset:
+  name: orders_data
+  description: >
+    Small synthetic order dataset with intentional data-quality
+    violations, for scoping Phase 6 (Data Quality Framework).
+
+fields:
+  - name: order_id
+    type: string
+    nullable: false
+
+  - name: customer_id
+    type: string
+    nullable: false
+
+  - name: order_type
+    type: string
+    nullable: false
+    accepted_values: ["STD", "RET", "CRM"]
+
+  - name: quantity
+    type: integer
+    nullable: false
+
+  - name: unit_price
+    type: decimal
+    precision: 9
+    scale: 2
+    nullable: false
+
+  - name: discount_pct
+    type: decimal
+    precision: 5
+    scale: 4
+    nullable: true
+    # No range validation exists yet — 0.0-1.0 is the intended
+    # domain, but nothing in the IR can express "between 0 and 1"
+    # today. One deliberately out-of-scope violation in the data
+    # below tests whether that gap actually matters for a first
+    # useful version, or can genuinely wait.
+
+constraints:
+  - type: primary_key
+    columns: ["order_id"]
