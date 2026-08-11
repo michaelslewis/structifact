@@ -5,7 +5,7 @@ from .adapters.registry import load_spec
 from .utils import write_file
 from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
-from .quality import load_data_rows, check_data
+from .quality import load_data_rows, check_data, resolve_references
 from .discover import (
     discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
     build_requirements_prompt, parse_requirements_draft,
@@ -39,14 +39,21 @@ def _join_rows(rows):
     return ", ".join(strs[:-1]) + f", and {strs[-1]}"
 
 
-def _format_quality_report(result):
+def _format_quality_report(result, fk_target_labels=None):
     """
     Formats a QualityResult into the human-readable report. Kept
     entirely separate from quality.py's check_data() — the core
     checker returns structured data and never prints, so a future
     --format json (or any other presentation) doesn't require
     touching the checking logic at all.
+
+    fk_target_labels maps a foreign_key source field name to a
+    display string like "dq_customers.customer_id", purely for a
+    friendlier report line — check_data()/QualityIssue itself has no
+    concept of "target_table.target_column" display formatting.
     """
+    fk_target_labels = fk_target_labels or {}
+
     print(f"✓ Loaded data: {result.rows_checked} rows")
     print()
 
@@ -61,6 +68,7 @@ def _format_quality_report(result):
     accepted_values = [i for i in result.issues if i.rule == "accepted_values"]
     range_issues = [i for i in result.issues if i.rule == "range"]
     pattern_issues = [i for i in result.issues if i.rule == "pattern"]
+    foreign_key_issues = [i for i in result.issues if i.rule == "foreign_key"]
 
     if required:
         print("\nRequired-field violations:")
@@ -100,6 +108,35 @@ def _format_quality_report(result):
                 f"{_join_rows(issue.rows)} does not match the expected pattern"
             )
 
+    if foreign_key_issues:
+        print("\nForeign-key violations:")
+        for issue in foreign_key_issues:
+            target = fk_target_labels.get(issue.field, "the referenced dataset")
+            row_label = "data row" if len(issue.rows) == 1 else "data rows"
+            print(
+                f"  - {issue.field} '{issue.value}' at {row_label} "
+                f"{_join_rows(issue.rows)} not found in {target}"
+            )
+
+
+def _parse_ref_args(ref_args):
+    """
+    Parses --ref alias=schema.yml:data.csv into
+    {alias: (schema_path, data_path)}. Raises a clear error on a
+    malformed --ref rather than an obscure downstream failure.
+    """
+    refs = {}
+    for raw in ref_args or []:
+        if "=" not in raw or ":" not in raw.split("=", 1)[1]:
+            raise ValueError(
+                f"Invalid --ref '{raw}' — expected format: "
+                f"alias=schema.yml:data.csv"
+            )
+        alias, rest = raw.split("=", 1)
+        schema_path, data_path = rest.split(":", 1)
+        refs[alias] = (schema_path, data_path)
+    return refs
+
 
 def validate_data(args):
     try:
@@ -113,10 +150,35 @@ def validate_data(args):
 
     print(f"✓ Loaded schema: {table.name}")
 
-    rows = load_data_rows(args.data)
-    result = check_data(table, rows)
+    try:
+        ref_paths = _parse_ref_args(getattr(args, "ref", None))
 
-    _format_quality_report(result)
+        loaded_refs = {}
+        for alias, (schema_path, data_path) in ref_paths.items():
+            ref_schema = load_spec(schema_path)
+            validate_table(ref_schema)
+            ref_rows = load_data_rows(data_path)
+            loaded_refs[alias] = (ref_schema, ref_rows)
+
+        referenced_values = resolve_references(table, loaded_refs)
+
+    except ValueError as e:
+        print("\nForeign-key configuration error:\n")
+        print(e)
+        return
+
+    fk_target_labels = {}
+    for constraint in table.constraints:
+        if constraint.type == "foreign_key":
+            source_column = constraint.columns[0]
+            fk_target_labels[source_column] = (
+                f"{constraint.target_table}.{constraint.target_column}"
+            )
+
+    rows = load_data_rows(args.data)
+    result = check_data(table, rows, referenced_values=referenced_values)
+
+    _format_quality_report(result, fk_target_labels=fk_target_labels)
 
 
 def discover(args, ai_client=None):
@@ -329,6 +391,19 @@ def main():
 
     validate_data_parser.add_argument("spec")
     validate_data_parser.add_argument("data")
+
+    validate_data_parser.add_argument(
+        "--ref", action="append", default=None,
+        help=(
+            "Reference another dataset for foreign-key checking: "
+            "alias=schema.yml:data.csv, where alias matches a "
+            "foreign_key constraint's target_table. Repeatable for "
+            "multiple references. Required if the schema declares "
+            "any foreign_key constraints — running without a needed "
+            "--ref is a configuration error, not a silently-skipped "
+            "check."
+        ),
+    )
 
     validate_data_parser.set_defaults(func=validate_data)
 

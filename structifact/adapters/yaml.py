@@ -83,6 +83,9 @@ def load_yaml(path: str) -> DatasetSpec:
         ConstraintSpec(
             type=constraint["type"],
             columns=constraint["columns"],
+            target_table=constraint.get("target_table"),
+            target_column=constraint.get("target_column"),
+            expression=constraint.get("expression"),
         )
         for constraint in data.get("constraints", [])
     ]

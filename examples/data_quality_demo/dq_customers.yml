@@ -1,0 +1,23 @@
+# SYNTHETIC EXAMPLE (fictional data) — Phase 6 v3 scoping. Small
+# customer master dataset that orders_data.customer_id should
+# reference, used to design foreign-key/relationship validation.
+
+dataset:
+  name: dq_customers
+  description: >
+    Small synthetic customer master dataset, referenced by
+    orders_data.customer_id — Phase 6 v3 (relationship validation)
+    scoping material.
+
+fields:
+  - name: customer_id
+    type: string
+    nullable: false
+
+  - name: customer_name
+    type: string
+    nullable: false
+
+constraints:
+  - type: primary_key
+    columns: ["customer_id"]

@@ -1,5 +1,6 @@
 import math
 import os
+from decimal import Decimal
 
 from ..ir import DatasetSpec, FieldSpec
 from ..types import parse_type, parse_bool, parse_list
@@ -27,6 +28,23 @@ def _cell(row: dict, key: str):
         return None
 
     return value
+
+
+def _parse_bound(raw):
+    """
+    Converts a min_value/max_value Excel cell into a Decimal. `raw`
+    has already passed through _cell, so it's either None (blank
+    cell) or a real value — pandas typically hands back a Python
+    float for a numeric-formatted cell. Routing through str() before
+    Decimal(), not Decimal(raw) directly, avoids preserving that
+    float's exact binary representation instead of the clean decimal
+    value the person actually entered — same reasoning as yaml.py's
+    _parse_bound (see ir.py's FieldSpec.min_value/max_value
+    docstring for the full explanation).
+    """
+    if raw is None:
+        return None
+    return Decimal(str(raw))
 
 
 def load_excel(path: str) -> DatasetSpec:
@@ -67,6 +85,10 @@ def load_excel(path: str) -> DatasetSpec:
                 ),
                 expression=_cell(row, "expression"),
                 depends_on=parse_list(_cell(row, "depends_on")),
+
+                min_value=_parse_bound(_cell(row, "min_value")),
+                max_value=_parse_bound(_cell(row, "max_value")),
+                pattern=_cell(row, "pattern"),
             )
         )
 
