@@ -5,27 +5,17 @@
 **Project:** Structifact
 **Subtitle:** Schema-Driven Data Engineering Framework
 
-**Repository:** GitHub project repository
+**Repository:** github.com/michaelslewis/structifact
 **Domain:** structifact.com
 
-Structifact is an experimental metadata-driven data engineering framework exploring how declarative definitions can be transformed into reliable, repeatable, and maintainable engineering workflows.
+Structifact is a metadata-driven data engineering framework exploring how declarative definitions can be transformed into reliable, repeatable, and maintainable engineering workflows — and, as of more recent work, into real checks against actual data, not just generated artifacts.
 
 The project is being developed as both:
 
 1. A serious engineering exploration of metadata-driven data systems.
 2. A professional portfolio project demonstrating modern software and data engineering practices.
 
-The registration of `structifact.com` reflects the long-term intention for Structifact to become a recognizable standalone engineering project rather than simply a collection of portfolio code.
-
-Future uses may include:
-
-* project documentation
-* examples
-* technical articles
-* public demonstrations
-* community resources
-
-The domain does not imply that these resources currently exist; it represents future project direction.
+The registration of `structifact.com` reflects the long-term intention for Structifact to become a recognizable standalone engineering project. The domain is deliberately not deployed yet — see "Current Development Phase" below for why.
 
 ---
 
@@ -35,90 +25,59 @@ Structifact explores a fundamental question:
 
 > How can metadata become the foundation for building reliable data engineering workflows?
 
-Many data pipelines evolve into collections of custom scripts where each dataset requires:
+Many data pipelines evolve into collections of custom scripts where each dataset requires handwritten ingestion logic, duplicated validation rules, repeated transformation code, and manually maintained documentation. This creates systems that become difficult to understand and maintain.
 
-* handwritten ingestion logic
-* duplicated validation rules
-* repeated transformation code
-* manually maintained documentation
-
-This creates systems that become difficult to understand and maintain.
-
-Structifact explores an alternative approach:
+Structifact explores an alternative:
 
 * define structure once through metadata
 * interpret metadata through a reusable framework
-* generate consistent artifacts
-* enforce reliability through validation
+* generate consistent artifacts from it
+* validate the metadata's own well-formedness
+* — and now, check whether real data actually conforms to what the metadata declares
 
-The long-term vision is a framework where onboarding a new dataset requires primarily metadata definition rather than large amounts of custom pipeline development.
+That last point is a meaningful expansion of the original vision, not just an implementation detail: for most of this project's life, "validation" meant checking that a YAML file was internally consistent. Structifact now also checks real CSV data rows against a schema's declared rules — including relationships between two separate datasets. See "Current Repository State" below.
 
 ---
 
 # Core Concept
 
-The central idea behind Structifact is:
+The central idea behind Structifact remains:
 
 > Define structure once. Generate reliable systems from it.
 
-Metadata should describe:
-
-* datasets
-* fields
-* types
-* constraints
-* relationships
-* transformation intent
-
-The framework should use that metadata to produce useful engineering outputs.
+Metadata describes datasets, fields, types, constraints, and — as of recent work — how a dataset is built from one or more underlying sources, and what a real row of that dataset's data is required to look like.
 
 ---
 
 # Current Repository State
 
-Structifact has progressed beyond initial conceptual design and contains an early working framework implementation.
-
-The current repository contains:
+Structifact has moved well past initial framework scaffolding. The core pipeline (adapters → IR → validation → generators) is fully implemented and tested, and two further capability areas are now complete alongside it: schema/requirements discovery (deterministic and AI-assisted) and real-data quality checking.
 
 ```text
-Structifact/
-
-├── examples/
-│   ├── types.yml
-│   ├── customers.csv
-│   └── customers.yml
+structifact/
 │
-├── output/
-│   ├── customers.sql
-│   ├── transactions.sql
-│   ├── customers.yml
-│   └── transactions.yml
+├── examples/
+│   ├── customers/            golden-path example
+│   ├── enterprise_demo/      synthetic wholesale-order example
+│   ├── workorder_demo/       synthetic work-order example (multi-role joins, dedup)
+│   └── data_quality_demo/    Phase 6 example (orders + a referenced customers dataset)
 │
 ├── structifact/
-│   ├── adapters/
-│   │   ├── csv.py
-│   │   ├── excel.py
-│   │   ├── yaml.py
-│   │   └── registry.py
-│   │
-│   ├── generators/
-│   │   ├── sql.py
-│   │   ├── dbt_yaml.py
-│   │   └── registry.py
-│   │
-│   ├── cli.py
-│   ├── parser.py
-│   ├── ir.py
+│   ├── cli.py                 validate / generate / discover / validate-data
+│   ├── ir.py                  DatasetSpec / FieldSpec / ConstraintSpec /
+│   │                          SourceRef / JoinSpec / DedupRule
+│   ├── validation.py          metadata well-formedness + relationship checks
+│   ├── quality.py             real-data checking against that metadata
+│   ├── discover.py            schema/requirements inference
+│   ├── llm.py                 provider-agnostic LLM client
 │   ├── types.py
-│   └── validation.py
+│   │
+│   ├── adapters/               yaml.py (canonical) / csv.py / excel.py
+│   └── generators/             sql.py / dbt_yaml.py / catalog.py /
+│                               catalog_extended.py / docs.py / model.py
 │
-├── tests/
-│   ├── test_validation.py
-│   ├── test_csv_adapter.py
-│   ├── test_yaml_adapter.py
-│   ├── test_generators.py
-│   └── test_types.py
-│
+├── tests/                      279 tests
+├── docs/
 └── pyproject.toml
 ```
 
@@ -128,34 +87,13 @@ Structifact/
 
 ## Metadata Handling
 
-Current capabilities include:
-
-* YAML metadata definitions
-* metadata parsing
-* schema representation
-* internal framework objects
-
----
+A dataset's metadata can now express far more than the original name/fields/types shape: field-level role classification, an accepted-value domain, computed/derived fields with their own expression, value-level rules (range, regex pattern), which source (of possibly several) a field actually comes from, and dataset-level relationships to other sources — including the same physical table joined in multiple times under different roles, each with its own filter and a priority-based deduplication rule.
 
 ## Adapter Architecture
 
-Structifact contains an adapter system for handling different input formats.
-
-Current adapters:
-
-* YAML
-* CSV
-* Excel
-
-The adapter architecture allows future input formats to be added without modifying the core framework.
-
----
+YAML (canonical), CSV, and Excel — all three kept at parity on field-level attributes, including the newer value-level rules.
 
 ## Intermediate Representation
-
-The Intermediate Representation (IR) is a central architectural component.
-
-The current flow is:
 
 ```text
 Input Metadata
@@ -164,10 +102,7 @@ Input Metadata
     Adapter
        |
        v
-    Parser
-       |
-       v
- Intermediate Representation
+Intermediate Representation
        |
        +------------+
        |            |
@@ -175,157 +110,51 @@ Input Metadata
  Validation    Generators
 ```
 
-The IR provides a stable internal model between inputs and outputs.
-
-This is one of the most important architectural decisions in Structifact because it prevents the framework from becoming tightly coupled to specific formats or outputs.
-
----
+The IR remains the central architectural decision preventing the framework from becoming tightly coupled to specific formats or outputs. It has grown substantially since the project's early stages — see `ARCHITECTURE.md` for the full current shape.
 
 ## Validation Framework
 
-Current validation capabilities focus on framework correctness.
+Validates the IR's own well-formedness: schema structure, constraint relationships, and (a newer addition) genuinely checkable rule *content* — a declared regex pattern must actually compile, a declared min/max range must be internally consistent, a declared relationship between sources must actually resolve. This remains distinct from checking real data, which is `quality.py`'s job.
 
-Future expansion may include:
+## Data Quality Framework
 
-* data quality rules
-* schema compatibility checks
-* generated validation suites
-* quality reporting
-
----
+A dataset's declared rules can now be checked against real CSV data — required fields, uniqueness, an accepted-values domain, numeric ranges, regex patterns, and (checking across two datasets at once) whether a foreign-key relationship's values actually exist in the referenced dataset's real data. This is implemented as its own subsystem (`quality.py`), not bolted onto the existing `Generator` framework, since checking real data needs two inputs (a schema and a data file) where every generator only ever needed one.
 
 ## Generators
 
-Current generators produce artifacts from metadata.
+Six generators now exist: SQL DDL, dbt-style YAML, two catalog formats (a minimal default and a richer opt-in variant), Markdown documentation, and — the newest — a generator that emits real, executable `SELECT` SQL for a dataset's computed fields and joined-in sources, distinct from the SQL generator's schema-only DDL.
 
-Current outputs include:
+## Discovery
 
-* SQL
-* dbt-style YAML
+Beyond the original "infer types from a CSV sample" capability, Structifact can now extract a draft schema from a freeform requirements document (tables, prose, or a mix) with optional LLM assistance — always opt-in, always cost-estimated and confirmed before any real request, always producing a draft for human review rather than anything auto-applied.
 
-The generator architecture provides the foundation for future outputs.
+## CLI
 
----
-
-## CLI Foundation
-
-Structifact includes a command-line foundation:
-
-```text
-structifact/cli.py
-structifact/__main__.py
-```
-
-The CLI will expand as the framework matures.
+Four commands: `validate`, `generate`, `discover`, and `validate-data` — the last of these new, exposing the data quality framework.
 
 ---
 
 # Current Development Phase
 
-Structifact is currently in the transition between:
-
-## Phase 1: Architectural Foundation
-
-Completed:
-
-* project structure
-* metadata concepts
-* adapter architecture
-* parser
-* IR
-* validation foundation
-* generator framework
-* automated tests
-* documentation foundation
-
----
-
-## Phase 2: Framework Expansion
-
-Current focus:
-
-* strengthen metadata definitions
-* improve developer experience
-* expand validation
-* improve examples
-* refine generated artifacts
-* establish clearer workflows
+Structifact has moved past the original two-phase framing ("architectural foundation" then "framework expansion") into a phase better described as **capability completion**: several major areas (generation, discovery, data quality) are now genuinely complete first versions, not scaffolding. The project continues to follow the same discipline that got it here — ground each new capability in a real example, agree a minimal contract before writing code, then implement with tests verified end-to-end — rather than expanding scope for its own sake. Phase 6 (Data Quality Framework), for instance, was deliberately built in three small, separately-verified increments (required/uniqueness/accepted-values, then range/pattern, then cross-dataset relationships) rather than attempted all at once, and was declared complete once it matched its original planned scope rather than continuing to grow indefinitely.
 
 ---
 
 # What Structifact Is Not Currently
 
-It is important not to confuse future direction with current implementation.
-
-Structifact currently is not:
-
-* a full ETL execution engine
-* a production orchestration platform
-* a warehouse platform
-* a replacement for dbt
-* an AI pipeline generator
-* a dashboard application
-
-Those are possible future directions, not current capabilities.
+Still true, and still worth stating plainly: Structifact is not a full ETL execution engine, a production orchestration platform, a warehouse platform, a replacement for dbt (it generates dbt-shaped YAML; it doesn't run dbt), an AI pipeline generator, or a dashboard application. Also not yet built: a GUI, a hosted product at structifact.com, or a documentation *site* (only per-dataset generated Markdown). These are possible future directions, deliberately deferred — see `FUTURE_WORK.md`.
 
 ---
 
 # Long-Term Vision
 
-The long-term goal is a complete metadata-driven analytics engineering framework.
-
-Potential capabilities include:
-
-## Data Quality
-
-* metadata-defined rules
-* automated validation
-* quality reporting
-* anomaly detection
+Unchanged in spirit: a complete metadata-driven analytics engineering framework, where quality, documentation, and (eventually) lineage and platform integrations all derive from the same metadata contract rather than being maintained separately by hand. What's different from earlier versions of this document is that "data quality" is no longer purely aspirational — the first real version of it now exists and works end to end, described above. What remains aspirational: cross-dataset dependency graphs and execution ordering (Phase 7's remainder), lineage, and any platform/warehouse execution layer.
 
 ---
 
-## Transformation Workflows
+# AI-Assisted Vision — Current vs. Future
 
-* declarative transformations
-* dependency management
-* generated SQL
-* reusable models
-
----
-
-## Documentation and Lineage
-
-* automatic documentation
-* dataset catalogs
-* lineage graphs
-* impact analysis
-
----
-
-## Platform Integrations
-
-Future integrations may include:
-
-* DuckDB
-* Apache Parquet
-* dbt
-* Snowflake
-* BigQuery
-* Databricks
-* orchestration systems
-
-These should remain extensions rather than hard dependencies.
-
----
-
-# AI-Assisted Future Vision
-
-A major future exploration area is AI-assisted data engineering.
-
-The long-term idea is that Structifact could help users work with unfamiliar datasets.
-
-A potential workflow:
+The originally-envisioned workflow:
 
 ```text
 User provides unknown data file
@@ -343,74 +172,41 @@ User reviews or modifies suggestions
 Structifact generates workflows and artifacts
 ```
 
-Potential capabilities:
+is now real for two input shapes: raw CSV sample data, and freeform requirements documents. Both remain strictly opt-in, cost-estimated, confirmed before any request, and produce a draft for human review — never auto-applied. AI assistance is bring-your-own-key (an `ANTHROPIC_API_KEY` environment variable, never hardcoded into the project) and built behind a provider-agnostic client interface, not locked to one vendor by design. Declining a cost-estimate confirmation makes zero API calls — verified in tests, not just documented. What remains future work: column classification beyond dimension/measure, validation-rule *recommendations* (as opposed to the deterministic rule-checking that already exists), and AI-assisted documentation (the existing `DocsGenerator` is fully deterministic).
 
-* detect file structure
-* infer likely column meanings
-* suggest data types
-* recommend validation rules
-* propose transformations
-* generate documentation
-* assist workflow creation
-
-The important architectural principle:
-
-AI should assist the metadata-driven framework, not replace it.
-
-The deterministic Structifact core should remain understandable, testable, and reproducible.
+The architectural principle is unchanged: AI assists the metadata-driven framework; it does not replace it. The deterministic Structifact core remains fully functional with zero AI involvement.
 
 ---
 
 # Engineering Principles
 
-Future development should preserve these principles:
+Unchanged from earlier versions of this document, and now with a real track record behind each one:
 
 ## Metadata First
 
-Metadata remains the source of truth.
-
----
+Metadata remains the source of truth — now including the newer rule types (range, pattern, cross-source relationships), not just the original name/type/description shape.
 
 ## Declarative Over Imperative
 
-Users describe intent.
-
-The framework determines implementation details.
-
----
+Users describe intent; the framework determines implementation. This extended naturally to data-quality checking: a person declares `min_value: 0` / `max_value: 1`, not a Python function that checks it.
 
 ## Explicit Over Magical
 
-Generated artifacts should remain inspectable.
-
----
+Generated artifacts and quality reports both stay inspectable. A `validate-data` run never silently skips a check it was actually supposed to perform — a missing or misconfigured `--ref` for a declared foreign-key relationship is a loud, explicit configuration error, never a quietly-incomplete "no issues found."
 
 ## Reliability Before Complexity
 
-Predictable systems are preferred over unnecessary abstraction.
-
----
+Every new IR concept this project has added went through the same real-example-first, paper-contract-before-code discipline — see `DECISION_HISTORY.md` for specific instances.
 
 ## Documentation as Engineering
 
-Architectural decisions should be documented, not lost.
+This document itself is an example: kept out of sync for a period, then deliberately refreshed against the actual shipped state rather than left stale indefinitely.
 
 ---
 
 # Current Success Criteria
 
-Structifact succeeds if it helps engineers:
-
-* define datasets clearly
-* reduce repetitive pipeline development
-* improve data reliability
-* generate consistent artifacts
-* understand data systems more easily
-* maintain analytics workflows more effectively
-
-The ultimate goal is not replacing engineers.
-
-The goal is increasing engineering leverage.
+Unchanged: Structifact succeeds if it helps engineers define datasets clearly, reduce repetitive pipeline development, improve data reliability, generate consistent artifacts, and maintain analytics workflows more effectively — not by replacing engineering judgment, but by increasing engineering leverage.
 
 ---
 
