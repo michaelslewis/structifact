@@ -5,6 +5,7 @@ from .adapters.registry import load_spec
 from .utils import write_file
 from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
+from .quality import load_data_rows, check_data
 from .discover import (
     discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
     build_requirements_prompt, parse_requirements_draft,
@@ -25,6 +26,77 @@ def validate(args):
     print(f"✓ Parsed {len(table.fields)} fields")
     print(f"✓ Valid schema")
     print(f"✓ No constraint violations")
+
+
+def _join_rows(rows):
+    """Renders a row-number list the way the approved contract reads:
+    'appears in data rows 2 and 5', or '2, 5, and 9' for 3+."""
+    strs = [str(r) for r in rows]
+    if len(strs) == 1:
+        return strs[0]
+    if len(strs) == 2:
+        return f"{strs[0]} and {strs[1]}"
+    return ", ".join(strs[:-1]) + f", and {strs[-1]}"
+
+
+def _format_quality_report(result):
+    """
+    Formats a QualityResult into the human-readable report. Kept
+    entirely separate from quality.py's check_data() — the core
+    checker returns structured data and never prints, so a future
+    --format json (or any other presentation) doesn't require
+    touching the checking logic at all.
+    """
+    print(f"✓ Loaded data: {result.rows_checked} rows")
+    print()
+
+    if result.is_valid:
+        print("✓ No data-quality issues found")
+        return
+
+    print(f"✗ {len(result.issues)} issue(s) found")
+
+    required = [i for i in result.issues if i.rule == "required"]
+    uniqueness = [i for i in result.issues if i.rule == "uniqueness"]
+    accepted_values = [i for i in result.issues if i.rule == "accepted_values"]
+
+    if required:
+        print("\nRequired-field violations:")
+        for issue in required:
+            for row in issue.rows:
+                print(f"  - {issue.field} is blank at data row {row}")
+
+    if uniqueness:
+        print("\nUniqueness violations:")
+        for issue in uniqueness:
+            print(f"  - {issue.field} '{issue.value}' appears in data rows {_join_rows(issue.rows)}")
+
+    if accepted_values:
+        print("\naccepted_values violations:")
+        for issue in accepted_values:
+            row_label = "data row" if len(issue.rows) == 1 else "data rows"
+            print(
+                f"  - {issue.field} '{issue.value}' at {row_label} "
+                f"{_join_rows(issue.rows)} not in the accepted set"
+            )
+
+
+def validate_data(args):
+    try:
+        table = load_spec(args.spec)
+        validate_table(table)
+
+    except ValueError as e:
+        print("\nSchema validation failed:\n")
+        print(e)
+        return
+
+    print(f"✓ Loaded schema: {table.name}")
+
+    rows = load_data_rows(args.data)
+    result = check_data(table, rows)
+
+    _format_quality_report(result)
 
 
 def discover(args, ai_client=None):
@@ -224,6 +296,21 @@ def main():
     validate_parser.add_argument("spec")
 
     validate_parser.set_defaults(func=validate)
+
+    validate_data_parser = subparsers.add_parser(
+        "validate-data",
+        help=(
+            "Check real data rows against a dataset's already-declared "
+            "metadata rules (nullable, accepted_values, primary_key/"
+            "unique). v1: no range/regex validation, no type coercion "
+            "— comparisons are on raw CSV string values."
+        ),
+    )
+
+    validate_data_parser.add_argument("spec")
+    validate_data_parser.add_argument("data")
+
+    validate_data_parser.set_defaults(func=validate_data)
 
     generate_parser = subparsers.add_parser("generate")
 
