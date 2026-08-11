@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Optional, List
 
 
@@ -69,6 +70,35 @@ class FieldSpec:
     source: Optional[str] = None
     source_column: Optional[str] = None
 
+    # Value-level data-quality rules (Phase 6 v2). Unlike v1's
+    # required/uniqueness/accepted_values (all reused from metadata
+    # that already existed for other reasons), these three fields
+    # exist purely to support structifact/quality.py's check_data() —
+    # they have no other purpose in the IR.
+    #
+    # min_value / max_value are inclusive bounds, either may be set
+    # independently. Stored as Decimal, NOT float: adapters must
+    # convert via Decimal(str(v)) rather than Decimal(v) directly —
+    # PyYAML parses a YAML numeric literal into a Python float before
+    # Structifact ever sees it, and Decimal(some_float) preserves
+    # that float's exact (and often ugly) binary representation
+    # rather than the clean decimal value the person actually wrote.
+    # Routing through str() first recovers that, since Python's
+    # float-to-str conversion is round-trip-safe for ordinary decimal
+    # literals. Only meaningful on integer/decimal fields — checked
+    # in validation.py, not here.
+    #
+    # `pattern` is a raw regex, checked with fullmatch semantics (the
+    # entire field value must match, not merely contain a match) —
+    # matched against real data in quality.py, and also checked for
+    # basic compilability in validation.py, since (unlike `expression`
+    # or the sources/joins milestone's raw SQL fragments) a regex
+    # pattern actually CAN be meaningfully validated without running
+    # anything. Only meaningful on string fields.
+    min_value: Optional[Decimal] = None
+    max_value: Optional[Decimal] = None
+    pattern: Optional[str] = None
+
 
 @dataclass
 class ConstraintSpec:
@@ -91,12 +121,13 @@ class ConstraintSpec:
     type == "foreign_key". Both are free-text strings, not validated
     against another known dataset — Structifact validates one
     dataset at a time today and has no cross-dataset resolution
-    anywhere in the IR yet (that's closer to Phase 7/9 "dataset
-    dependency" territory, a separate and larger concern). Only
-    single-column foreign keys are supported; `columns` must contain
-    exactly one entry for a foreign_key constraint. Composite FKs
-    are deliberately out of scope until a real example needs them,
-    matching how computed-field `expression` support was scoped.
+    anywhere in the IR yet (that's Phase 6 v3 territory — relationship
+    validation is expected to be the milestone that finally gives
+    these fields real meaning at the data level). Only single-column
+    foreign keys are supported; `columns` must contain exactly one
+    entry for a foreign_key constraint. Composite FKs are deliberately
+    out of scope until a real example needs them, matching how
+    computed-field `expression` support was scoped.
 
     `expression` is used only when type == "check". Like
     FieldSpec.expression, it is assumed-valid SQL, inlined as-is by

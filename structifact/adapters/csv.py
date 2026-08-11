@@ -1,8 +1,24 @@
 import csv
 import os
+from decimal import Decimal
 
 from ..ir import DatasetSpec, FieldSpec
 from ..types import parse_type, parse_bool, parse_list
+
+
+def _parse_bound(raw):
+    """
+    Converts a metadata-CSV cell into a Decimal. Unlike yaml.py's
+    _parse_bound, there's no float-precision concern to route around
+    here — the CSV adapter never sees a Python float in the first
+    place, just the raw string cell, so Decimal(raw.strip()) is
+    already exact. See ir.py's FieldSpec.min_value/max_value
+    docstring for the full explanation of why Decimal (not float) is
+    used at all.
+    """
+    if not raw:
+        return None
+    return Decimal(raw.strip())
 
 
 def load_csv(path: str) -> DatasetSpec:
@@ -42,6 +58,10 @@ def load_csv(path: str) -> DatasetSpec:
                     ),
                     expression=row.get("expression") or None,
                     depends_on=parse_list(row.get("depends_on")),
+
+                    min_value=_parse_bound(row.get("min_value")),
+                    max_value=_parse_bound(row.get("max_value")),
+                    pattern=row.get("pattern") or None,
                 )
             )
 

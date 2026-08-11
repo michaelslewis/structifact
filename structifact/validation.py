@@ -1,3 +1,5 @@
+import re
+
 from .ir import DatasetSpec
 
 
@@ -25,6 +27,11 @@ SUPPORTED_JOIN_TYPES = {
     "left",
     "inner",
 }
+
+# Phase 6 v2. min_value/max_value only make sense for numeric types;
+# pattern only for string.
+NUMERIC_RANGE_TYPES = {"integer", "decimal"}
+PATTERN_TYPES = {"string"}
 
 
 def validate_table(table: DatasetSpec):
@@ -86,6 +93,54 @@ def validate_table(table: DatasetSpec):
                         f"for field '{field.name}'"
                     )
                 seen_values.add(value)
+
+        # Range/pattern well-formedness (Phase 6 v2). Unlike the raw
+        # SQL fragments elsewhere in the IR (expression, on, filter),
+        # a regex pattern can actually be checked for validity here —
+        # re.compile either succeeds or it doesn't, no data required.
+        # min_value/max_value ordering is likewise checkable without
+        # any data. This is the "bad rule -> metadata validation
+        # error" half of the v2 contract; "good rule + bad data ->
+        # data-quality error" is quality.py's job, not this file's.
+        if field.min_value is not None and field.type not in NUMERIC_RANGE_TYPES:
+            errors.append(
+                f"Field '{field.name}' has min_value but type "
+                f"'{field.type}' does not support range validation "
+                f"(only integer/decimal fields do)"
+            )
+
+        if field.max_value is not None and field.type not in NUMERIC_RANGE_TYPES:
+            errors.append(
+                f"Field '{field.name}' has max_value but type "
+                f"'{field.type}' does not support range validation "
+                f"(only integer/decimal fields do)"
+            )
+
+        if (
+            field.min_value is not None
+            and field.max_value is not None
+            and field.min_value > field.max_value
+        ):
+            errors.append(
+                f"Field '{field.name}' has min_value ({field.min_value}) "
+                f"greater than max_value ({field.max_value})"
+            )
+
+        if field.pattern is not None:
+            if field.type not in PATTERN_TYPES:
+                errors.append(
+                    f"Field '{field.name}' has pattern but type "
+                    f"'{field.type}' does not support pattern "
+                    f"validation (only string fields do)"
+                )
+
+            try:
+                re.compile(field.pattern)
+            except re.error as e:
+                errors.append(
+                    f"Field '{field.name}' has an invalid pattern "
+                    f"'{field.pattern}': {e}"
+                )
 
     # Computed-field well-formedness (Phase 7, first minimal step).
     # This only checks that the metadata is internally consistent —
