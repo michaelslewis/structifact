@@ -1,4 +1,5 @@
 Structifact Architecture
+
 Overview
 
 Structifact is a metadata-driven data engineering framework designed to convert declarative dataset definitions into validated internal models, reusable engineering artifacts, and — as of more recent work — real checks against actual data.
@@ -34,6 +35,16 @@ Structured Quality Result
        v
 CLI Report Formatting
 
+A third, separate pattern resolves how multiple datasets relate to each other:
+
+Multiple Schemas (each independently valid)
+       |
+       v
+Dependency Resolution Engine (structifact/dependencies.py)
+       |
+       v
+Deterministic Execution Order (or a dependency error)
+
 The architecture separates:
 
 how metadata enters the system
@@ -41,6 +52,7 @@ how datasets are represented internally
 how rules are applied to metadata
 how artifacts are generated
 how real data is checked against metadata
+how multiple datasets relate to and depend on each other
 
 This separation allows Structifact to evolve without tightly coupling individual components.
 
@@ -62,7 +74,7 @@ fields
 data types
 descriptions
 constraints
-relationships (including cross-dataset foreign keys, and a dataset's own upstream sources/joins)
+relationships (including cross-dataset foreign keys, a dataset's own upstream sources/joins, and a dataset's dependencies on other Structifact-defined datasets)
 validation rules (including value-level rules — range, pattern)
 generation inputs
 
@@ -101,10 +113,11 @@ what artifacts were generated
 why validation succeeded or failed
 where generated behavior originated
 why a data-quality check passed or failed, and against what rule
+why a dependency resolution succeeded, failed, or reported a cycle
 
 Generated outputs should remain human-readable.
 
-Structifact should automate repetitive engineering work without hiding engineering decisions. This is also why `structifact discover` — the schema-inference command — always writes a clearly-labeled draft for human review rather than treating any inferred value as real metadata, why catalog generators never fabricate values (like a `pii` flag or `changed_by` name) that the IR has no actual way of knowing, and why `structifact validate-data` treats a missing or misconfigured `--ref` for a declared foreign-key relationship as a loud configuration error rather than a silently-skipped check — a quiet "no issues found" would be exactly the kind of hidden behavior this principle exists to prevent.
+Structifact should automate repetitive engineering work without hiding engineering decisions. This is also why `structifact discover` — the schema-inference command — always writes a clearly-labeled draft for human review rather than treating any inferred value as real metadata, why catalog generators never fabricate values (like a `pii` flag or `changed_by` name) that the IR has no actual way of knowing, why `structifact validate-data` treats a missing or misconfigured `--ref` for a declared foreign-key relationship as a loud configuration error rather than a silently-skipped check, and why `structifact deps` reports the complete cycle in its error message (`dataset_a -> dataset_b -> dataset_c -> dataset_a`) rather than a bare "circular dependency exists" — a quiet or vague failure would be exactly the kind of hidden behavior this principle exists to prevent.
 
 Reliability Before Cleverness
 
@@ -118,7 +131,7 @@ inspectable outputs
 simple abstractions
 maintainable implementations
 
-A smaller reliable framework is preferred over a larger framework with opaque behavior. This is why `structifact/quality.py`'s range-checking deliberately does not attempt to interpret a value that fails to parse as a number — that's treated as a distinct, not-yet-built type-validation concern, not folded silently into range logic that wasn't designed for it.
+A smaller reliable framework is preferred over a larger framework with opaque behavior. This is why `structifact/quality.py`'s range-checking deliberately does not attempt to interpret a value that fails to parse as a number — that's treated as a distinct, not-yet-built type-validation concern, not folded silently into range logic that wasn't designed for it. The same instinct shaped `structifact/dependencies.py`: execution order is deterministic (stable given the same input), but the framework deliberately does NOT claim the relative order of two mutually-independent datasets is semantically meaningful — overclaiming precision here would be its own kind of unreliability.
 
 Separation of Concerns
 
@@ -138,10 +151,11 @@ Intermediate Representation
 Validation (metadata well-formedness)
       |
       v
-Generators                      Data Quality Engine
-      |                               |
-      v                               v
-Output Artifacts              Quality Report (against real data)
+Generators          Data Quality Engine     Dependency Resolution Engine
+      |                     |                          |
+      v                     v                          v
+Output Artifacts    Quality Report              Execution Order
+                  (against real data)         (across a collection)
 
 Components should collaborate through stable interfaces rather than depending on implementation details.
 
@@ -162,11 +176,11 @@ isolating format-specific behavior
 
 Current adapters:
 
-YAML (`structifact/adapters/yaml.py`) — the primary/canonical format; supports the canonical `dataset:` contract, the legacy `table:` format, per-field `role`, value-level rules (`min_value`/`max_value`/`pattern`), cross-source attribution (`source`/`source_column`), dataset-level `sources`/`joins`, and constraints including `foreign_key`'s `target_table`/`target_column` and `check`'s `expression`
-CSV (`structifact/adapters/csv.py`) — a field-grid format; does not represent dataset-level `constraints`/`sources`/`joins`, since a flat one-row-per-field CSV has no natural place for them
+YAML (`structifact/adapters/yaml.py`) — the primary/canonical format; supports the canonical `dataset:` contract, the legacy `table:` format, per-field `role`, value-level rules (`min_value`/`max_value`/`pattern`), cross-source attribution (`source`/`source_column`), dataset-level `sources`/`joins`/`depends_on`, and constraints including `foreign_key`'s `target_table`/`target_column` and `check`'s `expression`
+CSV (`structifact/adapters/csv.py`) — a field-grid format; does not represent dataset-level `constraints`/`sources`/`joins`/`depends_on`, since a flat one-row-per-field CSV has no natural place for them
 Excel (`structifact/adapters/excel.py`) — same field-grid shape as CSV, via `pandas`; normalizes pandas' blank-cell `NaN` representation to `None`
 
-All three adapters normalize raw type strings through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping logic, and are kept at parity on field-level attributes (CSV/Excel do not yet support dataset-level `sources`/`joins`/`constraints`, which remain YAML-only).
+All three adapters normalize raw type strings through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping logic, and are kept at parity on field-level attributes (CSV/Excel do not yet support dataset-level `sources`/`joins`/`constraints`/`depends_on`, which remain YAML-only).
 
 Future adapters may include: JSON, database metadata sources, cloud storage formats, API-based metadata sources.
 
@@ -193,6 +207,7 @@ DatasetSpec
     +-- source_table
     +-- sources: SourceRef[]
     +-- joins: JoinSpec[]
+    +-- depends_on: str[]
 
 The IR separates:
 
@@ -200,8 +215,9 @@ external metadata formats
 framework processing
 generated artifacts
 real-data checking
+cross-dataset dependency relationships
 
-This allows adapters, generators, and the data quality engine to evolve independently.
+This allows adapters, generators, the data quality engine, and the dependency resolution engine to evolve independently.
 
 ## Semantic Model vs Artifact Model
 
@@ -226,6 +242,11 @@ The data quality model describes a third thing — neither semantic definition n
 
 QualityIssue / QualityResult
 
+The dependency resolution model describes a fourth thing — not a property of any single dataset, but a *relationship* across a collection of them:
+
+execution order (a list of dataset names)
+a dependency-resolution error (unresolved reference, duplicate name, or a named cycle)
+
 The IR should represent intent rather than implementation details.
 
 For example:
@@ -241,7 +262,7 @@ DatasetSpec
 
 DatasetSpec is the canonical representation of a dataset definition.
 
-A dataset represents a logical data object that Structifact can validate, generate artifacts from, and check real data against.
+A dataset represents a logical data object that Structifact can validate, generate artifacts from, check real data against, and relate to other datasets.
 
 Conceptually:
 
@@ -255,6 +276,7 @@ constraints[]
 source_table
 sources[]
 joins[]
+depends_on[]
 
 Responsibilities:
 
@@ -262,7 +284,8 @@ represent dataset identity
 contain field definitions
 contain dataset-level rules
 contain (optionally) the sources this dataset is assembled from, and the joins connecting them
-provide the primary object passed through validation, generation, and quality-checking workflows
+contain (optionally) the names of other Structifact-defined datasets this one depends on
+provide the primary object passed through validation, generation, quality-checking, and dependency-resolution workflows
 
 Dataset Classification
 
@@ -322,7 +345,7 @@ support validation, generation, and data-quality checking
 
 `accepted_values` (a list of strings) is likewise optional. Validation checks the declaration itself is well-formed (non-empty, no duplicates) — separately, `structifact validate-data` checks a field's actual data values against this list (Phase 6 v1). This resolved the deviation noted in earlier drafts of this document, where `accepted_values` was treated as a field property rather than a constraint by implementation — now that real data-row checking exists, keeping it on `FieldSpec` (rather than moving it to `ConstraintSpec`) reads as the right call: it's a property of the field's valid domain, evaluated per-field, not a relationship between fields or datasets.
 
-`computed`/`expression`/`depends_on` represent a field whose value is derived from other fields. `expression` is assumed-valid SQL, inlined as-is by `ModelGenerator` (see below) — deliberately not the same thing as freeform business-logic text `discover --requirements --ai` extracts, which may be pseudocode rather than valid SQL as written.
+`computed`/`expression`/`depends_on` represent a field whose value is derived from other fields. `expression` is assumed-valid SQL, inlined as-is by `ModelGenerator` (see below) — deliberately not the same thing as freeform business-logic text `discover --requirements --ai` extracts, which may be pseudocode rather than valid SQL as written. This field-level `depends_on` — a field's dependency on other *fields within the same dataset* — is a different concept from `DatasetSpec.depends_on` (see below), a dataset's dependency on other *datasets*. The two occupy different, unambiguous nesting positions in the YAML (inside a `fields:` entry vs. top-level), so the shared name doesn't create real ambiguity in practice.
 
 `source`/`source_column` (Phase 7 — sources/joins milestone) represent cross-source attribution: which of a dataset's `sources` (if any) a field actually comes from, and under what column name there. Both default to `None`, meaning "the dataset's own primary source, same-name column" — the existing single-source behavior, unaffected for any dataset that doesn't use `sources`/`joins`.
 
@@ -330,9 +353,9 @@ support validation, generation, and data-quality checking
 
 FieldSpec should remain focused on characteristics inherent to the field itself.
 
-Field Characteristics vs Constraints
+Field Characteristics vs Constraints vs Dataset-Level Relationships
 
-Structifact intentionally separates field properties from rules.
+Structifact intentionally separates field properties from rules, and separates both from relationships between whole datasets.
 
 Field properties:
 
@@ -347,14 +370,18 @@ source / source_column
 min_value / max_value
 pattern
 
-Constraints:
+Constraints (relationships involving fields, within or across datasets):
 
 primary key
 unique
 foreign key
 check
 
-This avoids allowing FieldSpec to grow into an unmanageable collection of flags. The line has held through every addition so far — every property above genuinely describes something intrinsic to that field (what it is, what it may hold, where it comes from); everything describing a *relationship* (to another field, another dataset) went to `ConstraintSpec` or the new `SourceRef`/`JoinSpec` concepts instead.
+Dataset-level relationships (relationships between whole datasets, not individual fields):
+
+depends_on
+
+This avoids allowing FieldSpec to grow into an unmanageable collection of flags. The line has held through every addition so far — every field property above genuinely describes something intrinsic to that field (what it is, what it may hold, where it comes from); everything describing a *relationship* went to `ConstraintSpec`, the new `SourceRef`/`JoinSpec` concepts, or (for the newest case — one dataset depending on another) directly onto `DatasetSpec` as `depends_on`, rather than being folded into `FieldSpec`.
 
 ConstraintSpec
 
@@ -422,6 +449,20 @@ The `SourceRef.name` vs `.table` distinction is the reason this exists as three 
 
 Like `expression` and `JoinSpec.on`, `SourceRef.filter` and `DedupRule.order_by` are raw SQL fragments — trusted as-is, not parsed or validated. What validation.py *does* check about `sources`/`joins`: `SourceRef.name` values are unique within a dataset, every `JoinSpec.source` resolves to a declared source, every `DedupRule` has non-empty `partition_by`/`order_by`, and `JoinSpec.type` is one of the currently-supported types (`left`/`inner`).
 
+Important distinction: `sources`/`joins` describe how *one* dataset is physically assembled from underlying tables. `depends_on` (below) describes how *multiple Structifact-defined datasets* relate to each other. These look superficially similar (both are about "where does this dataset's data come from") but answer genuinely different questions — one is about raw table assembly within a dataset; the other is about ordering and relationships between whole datasets.
+
+depends_on
+
+Location: `structifact/ir.py` (Phase 7 remainder — dataset dependency tracking)
+
+A plain `List[str]` on `DatasetSpec`, naming other Structifact-defined datasets this one depends on.
+
+```text
+DatasetSpec.depends_on: List[str]
+```
+
+Deliberately NOT a new dataclass (unlike `SourceRef`/`JoinSpec`/`DedupRule`) — no real example has yet shown a need for dependency-level metadata beyond a name; a bare list matches exactly what real examples and the original roadmap sketch both called for. Declaration only: says nothing about *how* this dataset obtains the other's data, only that the other must be processed first. See the Dependency Resolution Engine section below for what operates on this field.
+
 TableSpec Compatibility Strategy
 
 Historically, Structifact used:
@@ -482,7 +523,7 @@ Location:
 
 structifact/validation.py
 
-Validation operates against the IR — checking metadata well-formedness, never real data (that's the Data Quality Engine, below).
+Validation operates against a single dataset's IR — checking metadata well-formedness, never real data (that's the Data Quality Engine, below) and never a whole collection of datasets against each other (that's the Dependency Resolution Engine, further below).
 
 Current responsibilities:
 
@@ -494,6 +535,7 @@ computed-field well-formedness (`computed` requires `expression`; `depends_on` e
 value-level rule well-formedness (Phase 6 v2): `pattern` must compile as valid regex; `min_value` must not exceed `max_value`; `min_value`/`max_value` only apply to `integer`/`decimal` fields, `pattern` only to `string` fields
 constraint validation, including `foreign_key` (exactly one column, non-blank `target_table`/`target_column`) and `check` (non-blank `expression`)
 sources/joins relationship validation (Phase 7): unique source names, joins/fields resolve to declared sources, dedup rules are well-formed, join types are supported
+dataset-level `depends_on` well-formedness (Phase 7 remainder): no blank entries, no duplicates, no self-reference — whether a referenced dataset actually *exists* is a collection-level question, deliberately left to the Dependency Resolution Engine, since answering it requires seeing more than one dataset at once
 meaningful error reporting
 
 Future validation capabilities may include:
@@ -510,7 +552,7 @@ structifact/quality.py
 
 A genuinely separate subsystem from validation and generation — checking real data, which nothing else in Structifact does. Not a `Generator`: every `Generator` takes one input (a `DatasetSpec`) and returns one `Artifact`; checking real data needs a schema *and* a data file, and produces a structured result, not a written artifact.
 
-Exposed via a fourth CLI command, `structifact validate-data`.
+Exposed via a CLI command, `structifact validate-data`.
 
 ```text
 QualityIssue(rule, field, rows, value=None)
@@ -542,6 +584,39 @@ Schema A (+ real data)         Schema B (+ real data), via --ref
 ```
 
 All formatting of `QualityResult` into human-readable text lives in `cli.py` — `check_data`/`resolve_references` never call `print()`, keeping the door open for a future `--format json` without touching the checking logic.
+
+Dependency Resolution Engine
+
+Location:
+
+structifact/dependencies.py
+
+A third genuinely separate subsystem, following the same precedent as the Data Quality Engine above: it operates on a *collection* of `DatasetSpec`s, which is a different question from either single-dataset validation or single-dataset-plus-data-file quality checking. Not a `Generator`, and not part of `validation.py`.
+
+Exposed via a CLI command, `structifact deps`.
+
+`build_dependency_graph(datasets)` builds a `{name: [depends_on names]}` mapping from a collection. Raises `ValueError`, listing every problem found (not just the first), if two datasets share a name, or if any `depends_on` entry doesn't resolve to a dataset in the collection.
+
+`execution_order(datasets)` returns a deterministic list of dataset names, ordered so every dataset appears after all of its dependencies — using a DFS-based topological sort, tie-broken by input order among datasets with no dependency relationship to each other. That relative order is explicitly NOT claimed to be semantically meaningful, only kept stable so output doesn't vary run-to-run (see "Reliability Before Cleverness" above). Raises `ValueError` (never a partial order) on anything `build_dependency_graph` would raise, or on a circular dependency — the message names the complete cycle.
+
+```text
+Multiple Schemas (each independently valid)
+        |
+        v
+  build_dependency_graph()
+   (duplicate names, unresolved
+    references -> ValueError)
+        |
+        v
+     execution_order()
+   (cycle detection -> ValueError;
+    otherwise a deterministic order)
+        |
+        v
+  CLI report formatting
+```
+
+Deliberately scoped to declaration and ordering only. Does NOT resolve what value a dependent dataset actually obtains from its dependency, and does NOT generate any SQL expressing that relationship — see "Transformation Framework — Remaining Scope" below for why that's explicitly separate, still-future work rather than part of this engine.
 
 Generator Framework
 
@@ -627,6 +702,10 @@ structifact validate-data schema.yml data.csv [--ref alias=schema.yml:data.csv .
 
 Checks real data against the schema's declared rules — see Data Quality Engine above. `--ref` is repeatable, for schemas with more than one `foreign_key` target. A missing `--ref` for a declared `foreign_key` constraint is a hard configuration error, printed distinctly from the data-quality report.
 
+structifact deps schema_a.yml schema_b.yml [schema_c.yml ...]
+
+Loads and validates each dataset file individually, then resolves them as a collection — see Dependency Resolution Engine above. Prints a deterministic execution order, or a dependency-resolution error (unresolved reference, duplicate dataset name, or a named circular dependency). Accepts explicit file paths only, matching every other command's convention — no directory/glob scanning in v1.
+
 The CLI should expose framework capabilities without hiding underlying behavior.
 
 Current Data Flow
@@ -635,7 +714,7 @@ A Structifact schema/generation workflow follows:
 
 1. Metadata Definition
 2. Adapter Loading
-3. IR Construction (DatasetSpec + FieldSpec[] + ConstraintSpec[], and where applicable SourceRef[]/JoinSpec[])
+3. IR Construction (DatasetSpec + FieldSpec[] + ConstraintSpec[], and where applicable SourceRef[]/JoinSpec[]/depends_on)
 4. Validation (metadata well-formedness)
 5. Generation
 
@@ -664,7 +743,23 @@ DatasetSpec (validated)  +  Real Data (CSV)  [+ --ref dataset(s), for FK checks]
   CLI Report Formatting
 ```
 
-A third, separate flow exists for schema discovery from raw data or a requirements document with no existing metadata:
+A third, separate flow resolves how multiple already-validated schemas relate to each other:
+
+```text
+Multiple DatasetSpecs (each validated as above)
+        |
+        v
+  Dependency Resolution Engine
+        |
+        v
+Deterministic Execution Order
+  (or a dependency error)
+        |
+        v
+  CLI Report Formatting
+```
+
+A fourth, separate flow exists for schema discovery from raw data or a requirements document with no existing metadata:
 
 ```text
 Raw Sample Data (CSV) or a Requirements Document
@@ -686,11 +781,11 @@ Testing Architecture
 
 Testing is a core design requirement.
 
-Current test areas include type system behavior, adapter behavior (per format), IR construction, validation rules (both well-formedness and sources/joins/constraint relationships), each generator, the data quality engine (`quality.py` — all three Phase 6 increments, including deliberately-not-flagged edge cases like unparseable numeric values), `discover`'s inference logic (deterministic and AI-assisted, via `FakeLLMClient`), and CLI command behavior — 279 tests across `tests/` as of this writing, CI-enforced on Python 3.11 and 3.12.
+Current test areas include type system behavior, adapter behavior (per format), IR construction, validation rules (both well-formedness and sources/joins/constraint/depends_on relationships), each generator, the data quality engine (`quality.py` — all three Phase 6 increments, including deliberately-not-flagged edge cases like unparseable numeric values), the dependency resolution engine (`dependencies.py` — per-dataset validation, collection-level graph building, cycle detection, deterministic ordering, and CLI-level behavior), `discover`'s inference logic (deterministic and AI-assisted, via `FakeLLMClient`), and CLI command behavior — 307 tests across `tests/` as of this writing, CI-enforced on Python 3.11 and 3.12.
 
 A design that is difficult to test is considered a design problem.
 
-One process lesson worth recording here: a passing unit test suite once proved the `foreign_key`/`check` constraint logic was correct in `ir.py`/`validation.py`/`sql.py`, while a real bug meant it was silently unusable via any actual YAML file — `yaml.py`'s constraint parsing never read `target_table`/`target_column`/`expression` from a file, only from directly-constructed `ConstraintSpec` objects in tests. The bug was only found by running the real CLI against a real file, not by the test suite. See `DECISION_HISTORY.md` for the full account — the practical takeaway is that end-to-end verification against a real file remains part of "done," not optional once unit tests pass.
+One process lesson worth recording here: a passing unit test suite once proved the `foreign_key`/`check` constraint logic was correct in `ir.py`/`validation.py`/`sql.py`, while a real bug meant it was silently unusable via any actual YAML file — `yaml.py`'s constraint parsing never read `target_table`/`target_column`/`expression` from a file, only from directly-constructed `ConstraintSpec` objects in tests. The bug was only found by running the real CLI against a real file, not by the test suite. A related lesson surfaced again during dependency-tracking development: a cyclic test fixture's own comments claimed a specific 3-node cycle shape that its actual `depends_on` edges didn't encode — caught by re-examining test output against its own stated intent, not by the test passing or failing. See `DECISION_HISTORY.md` for both full accounts — the practical takeaway is that end-to-end verification against real files, and real scrutiny of what a test actually asserts, both remain part of "done," not optional once unit tests pass.
 
 Future Architectural Direction
 
@@ -728,9 +823,9 @@ AI should create suggestions, not replace the metadata contract. The approved me
 
 Transformation Framework — Remaining Scope
 
-A meaningful first slice is done: a single computed field can be represented and actually emitted as executable SQL (`ModelGenerator`), and a dataset can be assembled from multiple sources — including the same physical table joined in multiple times under different roles with priority-based deduplication (`SourceRef`/`JoinSpec`/`DedupRule`).
+Done, matching the phase's originally planned scope. A single computed field can be represented and actually emitted as executable SQL (`ModelGenerator`); a dataset can be assembled from multiple sources — including the same physical table joined in multiple times under different roles with priority-based deduplication (`SourceRef`/`JoinSpec`/`DedupRule`); and a dataset can declare dependencies on other Structifact-defined datasets, resolved into a deterministic execution order with cycle detection (`DatasetSpec.depends_on`, the Dependency Resolution Engine above).
 
-What remains: cross-*dataset* dependency tracking — one Structifact-defined dataset's model depending on another Structifact-defined dataset (not just one dataset joining in raw underlying tables), with dependency graphs and execution ordering across that chain. This is a different concern from the sources/joins work already done, and — consistent with how every other IR addition in this project has been scoped — should wait for a concrete example that needs it rather than being designed abstractly in advance. See `ROADMAP.md`/`FUTURE_WORK.md`.
+What remains, deliberately kept separate from this milestone: cross-dataset *value resolution* — one dataset actually consuming another's computed/resolved value (not just knowing it must run after it), e.g. joining a lookup dataset with conditional-fallback logic. Two real synthetic examples (`examples/enterprise_demo`, `examples/workorder_demo`) both motivate this via an FX-rate-lookup pattern, which is real evidence it recurs — but consistent with how every other IR addition in this project has been scoped, it should wait for a decision to expand scope deliberately (or a differently-shaped example) rather than being folded in just because compelling evidence exists. See `ROADMAP.md`/`FUTURE_WORK.md`/`DECISION_HISTORY.md`.
 
 Execution and Orchestration
 
@@ -749,7 +844,7 @@ Execution Layer
         v
 Data Pipeline
 
-Execution should remain separate from metadata interpretation.
+Execution should remain separate from metadata interpretation. Worth noting: the Dependency Resolution Engine's `execution_order()` produces an *ordering*, not execution itself — it tells a future execution layer what order to run things in, but doesn't run anything. That boundary is deliberate, matching this principle directly.
 
 Potential integrations:
 
@@ -770,7 +865,7 @@ These should be implemented through adapters and generators rather than changing
 
 IDE Integration
 
-A concrete idea, not yet started: a VS Code extension (syntax highlighting, inline validation diagnostics, command-palette actions running `validate`/`generate`/`validate-data` against the open file) — potentially extending to other editors later. See `FUTURE_WORK.md` for the full reasoning, including why this is currently favored over a hosted web GUI as the more likely near-term move, if either is picked up before the engine matures further.
+A concrete idea, not yet started: a VS Code extension (syntax highlighting, inline validation diagnostics, command-palette actions running `validate`/`generate`/`validate-data`/`deps` against the open file(s)) — potentially extending to other editors later. See `FUTURE_WORK.md` for the full reasoning, including why this is currently favored over a hosted web GUI as the more likely near-term move, if either is picked up before the engine matures further.
 
 Architectural Summary
 
@@ -783,8 +878,10 @@ The current Structifact architecture:
                      |
                      v
               DatasetSpec IR
-          (+ SourceRef/JoinSpec for
-             multi-source datasets)
+       (+ SourceRef/JoinSpec for
+          multi-source datasets,
+          + depends_on for cross-
+          dataset relationships)
                      |
           +----------+----------+
           |                     |
@@ -803,6 +900,16 @@ A parallel path checks real data:
                      |
                      v
               Quality Report
+
+A third parallel path resolves relationships across datasets:
+
+     Multiple DatasetSpecs (validated)
+                     |
+                     v
+        Dependency Resolution Engine
+                     |
+                     v
+           Execution Order or Error
 
 The architecture is designed to grow deliberately.
 
