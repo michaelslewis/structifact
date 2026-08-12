@@ -25,7 +25,8 @@ dataset's structure and intent exactly once, in a single declarative
 metadata file, and generated everything else — SQL, dbt metadata,
 documentation, and even real executable transformation SQL — from
 that one definition? And what if that same definition could also
-check whether your actual data conforms to it?
+check whether your actual data conforms to it, and how it relates to
+other datasets you've defined the same way?
 
 ```yaml
 dataset:
@@ -49,9 +50,9 @@ constraints:
 ```
 
 One file. Everything downstream — the schema, the documentation
-metadata, the validation, and (if you point it at real data) a
-data-quality report — derives from it instead of being maintained by
-hand in parallel.
+metadata, the validation, a data-quality report against real data,
+and its place in a larger dependency graph — derives from it instead
+of being maintained by hand in parallel.
 
 ## See It In Action
 
@@ -110,13 +111,31 @@ Required-field violations:
 ...
 ```
 
+Resolve how multiple datasets depend on each other into a safe processing order:
+
+```bash
+$ structifact deps examples/dependency_demo/customers.yml examples/dependency_demo/transactions.yml examples/dependency_demo/customer_summary.yml examples/dependency_demo/daily_report.yml
+✓ Loaded 4 dataset(s)
+
+--- EXECUTION ORDER ---
+
+1. customers
+2. transactions
+3. customer_summary
+4. daily_report
+```
+
 One definition, several independently-correct outcomes — generated
-artifacts and real-data validation both — with no duplicated column
-descriptions or rules to keep in sync by hand. See
+artifacts, real-data validation, and dependency resolution, all from
+the same source — with no duplicated column descriptions or rules to
+keep in sync by hand. See
 [`examples/customers/`](examples/customers/) for the generation
-walkthrough and [`examples/data_quality_demo/`](examples/data_quality_demo/)
-for the data-quality walkthrough, including checking a foreign-key
-relationship against a second dataset.
+walkthrough, [`examples/data_quality_demo/`](examples/data_quality_demo/)
+for the data-quality walkthrough (including checking a foreign-key
+relationship against a second dataset), and
+[`examples/dependency_demo/`](examples/dependency_demo/) for the
+dependency-resolution walkthrough (including a deliberately-broken
+cyclic example).
 
 ---
 
@@ -132,7 +151,8 @@ Input Metadata (YAML / CSV / Excel)
    Intermediate Representation
       (DatasetSpec / FieldSpec / ConstraintSpec,
        + SourceRef / JoinSpec / DedupRule for
-       multi-source datasets)
+       multi-source datasets,
+       + depends_on for cross-dataset relationships)
               |
       +-------+-------+
       |               |
@@ -155,6 +175,18 @@ Metadata (validated as above)  +  Real Data (CSV)
               |
               v
        Data-Quality Report
+```
+
+A third flow resolves how multiple datasets relate to each other:
+
+```text
+Multiple Metadata Files (each validated as above)
+              |
+              v
+         structifact deps
+              |
+              v
+   Execution Order (or a dependency error)
 ```
 
 The Intermediate Representation (IR) is the architectural core: every
@@ -201,9 +233,13 @@ reasoning behind these choices.
   schema's declared rules: required fields, uniqueness, accepted
   values, numeric ranges, regex patterns, and foreign-key
   relationships against a second dataset's real data (`--ref`)
-* A four-command CLI (`validate`, `generate`, `discover`,
-  `validate-data`)
-* Continuous integration running the full test suite (279 tests) on
+* **`structifact deps`** — declares and resolves dependencies between
+  Structifact-defined datasets into a safe execution order, with cycle
+  detection (a hard error naming the full cycle) and clear errors for
+  unresolved references or duplicate dataset names
+* A five-command CLI (`validate`, `generate`, `discover`,
+  `validate-data`, `deps`)
+* Continuous integration running the full test suite (307 tests) on
   every push, across Python 3.11 and 3.12
 
 ## Technology Stack
@@ -228,8 +264,10 @@ Structifact/
 │   ├── customers/          golden-path example (start here)
 │   ├── enterprise_demo/    synthetic wholesale-order example
 │   ├── workorder_demo/     multi-role joins + dedup example
-│   └── data_quality_demo/  validate-data example, incl. a
-│                            foreign-key reference dataset
+│   ├── data_quality_demo/  validate-data example, incl. a
+│   │                        foreign-key reference dataset
+│   └── dependency_demo/    deps example, incl. a deliberately
+│                            cyclic variant
 │
 ├── structifact/
 │   ├── adapters/            input format integrations
@@ -238,11 +276,12 @@ Structifact/
 │   │                         SourceRef / JoinSpec / DedupRule
 │   ├── validation.py         metadata well-formedness
 │   ├── quality.py            real-data checking (validate-data)
+│   ├── dependencies.py       dependency resolution (deps)
 │   ├── discover.py           schema/requirements inference
 │   ├── llm.py                 provider-agnostic AI client
 │   └── cli.py
 │
-├── tests/                  automated test suite (279 tests)
+├── tests/                  automated test suite (307 tests)
 ├── docs/                   architecture and design documentation
 ├── AGENTS.md                working rules for AI assistants in this repo
 └── pyproject.toml
@@ -257,7 +296,7 @@ Structifact/
 * [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) / [`docs/CURRENT_IMPLEMENTATION.md`](docs/CURRENT_IMPLEMENTATION.md) — snapshot of what's actually implemented
 * [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned development, with completed work marked as such
 * [`docs/FUTURE_WORK.md`](docs/FUTURE_WORK.md) — longer-term exploratory ideas
-* [`docs/EXAMPLES.md`](docs/EXAMPLES.md) — additional usage examples, including the full `validate-data` walkthrough
+* [`docs/EXAMPLES.md`](docs/EXAMPLES.md) — additional usage examples, including the full `validate-data` and `deps` walkthroughs
 
 ---
 
@@ -269,7 +308,8 @@ demonstrating modern software and data engineering practices. The
 core pipeline — adapters, IR, validation, and generation — is
 implemented, tested, and covered by CI, alongside a complete
 real-data quality framework (required fields through cross-dataset
-foreign-key checking) and AI-assisted schema/requirements discovery.
-See `docs/ROADMAP.md` for what's next.
+foreign-key checking), cross-dataset dependency resolution (execution
+ordering with cycle detection), and AI-assisted schema/requirements
+discovery. See `docs/ROADMAP.md` for what's next.
 
 > Define structure once. Generate reliable systems from it.

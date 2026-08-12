@@ -23,7 +23,7 @@ Most of these principles were written early in the project and have since been t
 
 Metadata should define dataset structure and intent whenever possible.
 
-This now extends beyond structure to *rules*: a field's required-ness, its accepted value domain, its numeric range, its format pattern, and even a dataset's relationship to another dataset are all metadata, checked by the framework — not custom validation code a user would otherwise have to write and maintain separately.
+This now extends beyond structure to *rules*: a field's required-ness, its accepted value domain, its numeric range, its format pattern, and even a dataset's relationship to another dataset are all metadata, checked by the framework — not custom validation code a user would otherwise have to write and maintain separately. That last one is no longer aspirational phrasing: `DatasetSpec.depends_on` makes a dataset's dependency on another dataset a literal, validated metadata declaration.
 
 ---
 
@@ -61,7 +61,7 @@ The Intermediate Representation (IR) is one of Structifact's most important arch
 Input Metadata → Adapter → Parser → IR → { Validation, Generators }
 ```
 
-The IR has grown considerably (see `ARCHITECTURE.md` for the current full shape) but every addition — computed fields, sources/joins, value-level quality rules — was added *to* the IR, not by working around it.
+The IR has grown considerably (see `ARCHITECTURE.md` for the current full shape) but every addition — computed fields, sources/joins, value-level quality rules, dataset-level dependency declarations — was added *to* the IR, not by working around it.
 
 ---
 
@@ -74,7 +74,7 @@ Primary Key            Foreign Key
 customer_id             orders.customer_id references customers.customer_id
 ```
 
-This prevented `FieldSpec` from becoming an ever-growing collection of unrelated flags even as real value-level rules (range, pattern) were added to it — those are genuinely intrinsic to a field ("what values may this hold"), while relationships (primary key, foreign key) stayed on `ConstraintSpec` exactly as designed.
+This prevented `FieldSpec` from becoming an ever-growing collection of unrelated flags even as real value-level rules (range, pattern) were added to it — those are genuinely intrinsic to a field ("what values may this hold"), while relationships (primary key, foreign key) stayed on `ConstraintSpec` exactly as designed. The same discipline extended one level up when dataset-to-dataset dependencies arrived: `depends_on` went directly on `DatasetSpec`, not `FieldSpec`, since it describes a relationship between whole datasets, not a field.
 
 ---
 
@@ -82,7 +82,7 @@ This prevented `FieldSpec` from becoming an ever-growing collection of unrelated
 
 Automation should never become mysterious. Users should understand what Structifact generated, why, where information came from, and how to modify behavior.
 
-This principle directly shaped the data quality framework's error handling: when a schema declares a `foreign_key` relationship but the person running `validate-data` doesn't supply the `--ref` needed to check it, Structifact refuses to silently report "no issues found" — it fails loudly with a specific, actionable error, because a silent skip would be exactly the kind of hidden behavior this principle exists to prevent.
+This principle directly shaped the data quality framework's error handling: when a schema declares a `foreign_key` relationship but the person running `validate-data` doesn't supply the `--ref` needed to check it, Structifact refuses to silently report "no issues found" — it fails loudly with a specific, actionable error, because a silent skip would be exactly the kind of hidden behavior this principle exists to prevent. Dataset dependency resolution follows the same pattern: a circular dependency is a hard error that names the complete cycle, not a vague failure or a silently-truncated result.
 
 Generated artifacts also remain readable:
 
@@ -98,7 +98,7 @@ CREATE TABLE customers (
 
 Structifact should prioritize predictable behavior over impressive but fragile automation.
 
-A concrete instance: range checking on a numeric field deliberately does *not* attempt to be clever about a value that fails to parse as a number — it's simply not reported as a range violation, on the principle that a genuinely different, not-yet-built rule (type validation) should own that case rather than range-checking silently overreaching into territory it wasn't designed for.
+A concrete instance: range checking on a numeric field deliberately does *not* attempt to be clever about a value that fails to parse as a number — it's simply not reported as a range violation, on the principle that a genuinely different, not-yet-built rule (type validation) should own that case rather than range-checking silently overreaching into territory it wasn't designed for. Dependency resolution shows the same restraint from the other direction: execution order is genuinely deterministic, but Structifact doesn't overclaim precision it doesn't have — the relative order of two mutually-independent datasets is explicitly documented as not semantically meaningful, even though the output happens to be stable.
 
 ---
 
@@ -106,7 +106,7 @@ A concrete instance: range checking on a numeric field deliberately does *not* a
 
 Each component has a clearly defined purpose: adapters handle external formats, the IR holds framework-level concepts, validation enforces metadata rules, generators produce artifacts.
 
-A newer, sharper instance of this principle: `structifact/quality.py` — real-data checking — was deliberately built as its own subsystem rather than extended from `validation.py` or squeezed into the `Generator` interface, because it answers a genuinely different question ("does this data conform?" vs. "is this schema well-formed?" or "what artifact does this schema produce?"). See `DECISION_HISTORY.md` for the full reasoning.
+A newer, sharper instance of this principle: `structifact/quality.py` — real-data checking — was deliberately built as its own subsystem rather than extended from `validation.py` or squeezed into the `Generator` interface, because it answers a genuinely different question ("does this data conform?" vs. "is this schema well-formed?" or "what artifact does this schema produce?"). `structifact/dependencies.py` followed the same reasoning for a third distinct question ("how does this *collection* of datasets relate to each other?"), rather than stretching `validation.py` to cover a multi-dataset concern it was never designed for. See `DECISION_HISTORY.md` for the full reasoning.
 
 ---
 
@@ -127,7 +127,7 @@ Six generators and three adapters have now been added through the same registry 
 
 Structifact should evolve incrementally, only introducing capabilities the underlying architecture can support naturally.
 
-This principle is why `foreign_key` constraints supported only single-column references for a long stretch (composite FK support was explicitly deferred, and remains deferred, until a real example needs it), and why the data quality framework's foreign-key checking assumes the whole referenced dataset fits in memory rather than building streaming/chunked processing nobody has needed yet.
+This principle is why `foreign_key` constraints supported only single-column references for a long stretch (composite FK support was explicitly deferred, and remains deferred, until a real example needs it), and why the data quality framework's foreign-key checking assumes the whole referenced dataset fits in memory rather than building streaming/chunked processing nobody has needed yet. It's also why dataset dependency tracking stopped at declaration and execution ordering rather than also solving cross-dataset value resolution — real evidence that the latter is needed (two synthetic examples both showing the same FX-lookup pattern) existed, but the decision to expand scope was deliberately deferred rather than made automatically.
 
 ---
 
@@ -135,7 +135,7 @@ This principle is why `foreign_key` constraints supported only single-column ref
 
 Given the same metadata, the same input data, and the same framework version, Structifact should produce predictable results.
 
-The data quality framework extends this into new territory: given the same schema and the same CSV, `validate-data` reports the exact same issues, in the same grouping, every time — deterministic even though the underlying check now involves things (regex matching, numeric parsing, cross-dataset membership tests) that didn't exist when this principle was first written.
+The data quality framework extends this into new territory: given the same schema and the same CSV, `validate-data` reports the exact same issues, in the same grouping, every time — deterministic even though the underlying check now involves things (regex matching, numeric parsing, cross-dataset membership tests) that didn't exist when this principle was first written. Dependency resolution extends it further still: `structifact deps` against the same collection of datasets always returns the same execution order, and a circular dependency always produces the same named-cycle error.
 
 ---
 
@@ -143,7 +143,7 @@ The data quality framework extends this into new territory: given the same schem
 
 Validation is not an optional enhancement — metadata-driven systems depend on trust in their definitions.
 
-Worth being precise about scope here, since the project itself learned this distinction the hard way: "validation" in Structifact has always meant checking the *metadata's* well-formedness. Checking real *data* against that metadata is a related but distinct capability (`quality.py`), added later, deliberately kept separate rather than folded into `validation.py` — see `DECISION_HISTORY.md`.
+Worth being precise about scope here, since the project itself learned this distinction the hard way: "validation" in Structifact has always meant checking the *metadata's* well-formedness. Checking real *data* against that metadata is a related but distinct capability (`quality.py`), added later, deliberately kept separate rather than folded into `validation.py`. Resolving a *collection* of datasets against each other is a third distinct capability (`dependencies.py`), for the same reason — see `DECISION_HISTORY.md`.
 
 ---
 
@@ -151,7 +151,7 @@ Worth being precise about scope here, since the project itself learned this dist
 
 Generated artifacts should be understandable without requiring Structifact itself.
 
-This extends naturally to the data quality report format — `validate-data`'s output reads as plain English ("customer_id 'CUST-004' appears in data rows 2 and 5"), not a machine-oriented error code, even though the underlying `QualityIssue`/`QualityResult` data is fully structured for a future machine-readable format if one's ever needed.
+This extends naturally to the data quality report format — `validate-data`'s output reads as plain English ("customer_id 'CUST-004' appears in data rows 2 and 5"), not a machine-oriented error code, even though the underlying `QualityIssue`/`QualityResult` data is fully structured for a future machine-readable format if one's ever needed. `structifact deps` follows the same pattern: a numbered execution order, or a plain-English error naming the complete dependency cycle.
 
 ---
 
@@ -167,7 +167,7 @@ $ structifact validate customers.yml
 ✓ No constraint violations
 ```
 
-Now four commands, not two: `validate`, `generate`, `discover`, and `validate-data`. Each was added only once there was a real capability behind it to expose — the CLI followed capability, rather than driving it.
+Now five commands, not two: `validate`, `generate`, `discover`, `validate-data`, and `deps`. Each was added only once there was a real capability behind it to expose — the CLI followed capability, rather than driving it.
 
 ---
 
@@ -200,7 +200,7 @@ This principle was tested directly: several of these documents drifted out of sy
 
 Structifact is both a framework exploration and a demonstration of engineering capability — clean architecture, thoughtful tradeoffs, maintainable Python, meaningful tests, professional documentation, realistic engineering decisions.
 
-The project's 279-test, CI-enforced suite and its consistent real-example-first design discipline (see `DECISION_HISTORY.md`) are the concrete evidence behind this principle, not just a stated aspiration.
+The project's 307-test, CI-enforced suite and its consistent real-example-first design discipline (see `DECISION_HISTORY.md`) are the concrete evidence behind this principle, not just a stated aspiration.
 
 ---
 
@@ -208,7 +208,7 @@ The project's 279-test, CI-enforced suite and its consistent real-example-first 
 
 > Build the foundation that makes future features easy.
 
-Strong foundations: stable metadata models, clear internal representations, modular architecture, reliable validation, predictable generation. Features should be added because they strengthen the framework, not simply because they're possible — which is also why Phase 6 (the data quality framework) was declared complete once it matched its originally planned scope, rather than continuing to accumulate new rule types indefinitely just because more were conceivable.
+Strong foundations: stable metadata models, clear internal representations, modular architecture, reliable validation, predictable generation. Features should be added because they strengthen the framework, not simply because they're possible — which is also why Phase 6 (the data quality framework) was declared complete once it matched its originally planned scope, rather than continuing to accumulate new rule types indefinitely just because more were conceivable. Phase 7's dependency-tracking remainder followed the same discipline: declared complete at its documented scope (declaration, validation, ordering), with cross-dataset value resolution explicitly named as separate future work rather than absorbed into this milestone just because real examples motivated it.
 
 ---
 
