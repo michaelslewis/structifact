@@ -1,0 +1,17 @@
+# customers.yml (SYNTHETIC EXAMPLE — Phase 7 dependency-tracking paper contract)
+#
+# No dependencies — a base dataset.
+
+dataset:
+  name: customers
+
+fields:
+  - name: customer_id
+    type: varchar(10)
+    role: dimension
+  - name: customer_name
+    type: varchar(60)
+    role: dimension
+  - name: region_code
+    type: varchar(4)
+    role: dimension

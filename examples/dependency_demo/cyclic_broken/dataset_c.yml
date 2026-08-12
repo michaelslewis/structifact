@@ -1,0 +1,15 @@
+# dataset_c.yml (SYNTHETIC EXAMPLE — deliberately broken)
+#
+# Part of a 3-node cycle: dataset_a -> dataset_b -> dataset_c -> dataset_a
+# dataset_c depends on dataset_a, closing the cycle.
+
+dataset:
+  name: dataset_c
+
+depends_on:
+  - dataset_a
+
+fields:
+  - name: id
+    type: varchar(10)
+    role: dimension

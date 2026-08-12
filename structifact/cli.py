@@ -6,6 +6,7 @@ from .utils import write_file
 from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
 from .quality import load_data_rows, check_data, resolve_references
+from .dependencies import execution_order
 from .discover import (
     discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
     build_requirements_prompt, parse_requirements_draft,
@@ -44,8 +45,8 @@ def _format_quality_report(result, fk_target_labels=None):
     Formats a QualityResult into the human-readable report. Kept
     entirely separate from quality.py's check_data() — the core
     checker returns structured data and never prints, so a future
-    --format json (or any other presentation) doesn't require
-    touching the checking logic at all.
+    --format json (not yet built) doesn't require touching the
+    checking logic at all.
 
     fk_target_labels maps a foreign_key source field name to a
     display string like "dq_customers.customer_id", purely for a
@@ -179,6 +180,45 @@ def validate_data(args):
     result = check_data(table, rows, referenced_values=referenced_values)
 
     _format_quality_report(result, fk_target_labels=fk_target_labels)
+
+
+def deps(args):
+    """
+    Phase 7 remainder — dataset dependency tracking. Loads and
+    validates multiple dataset YAML files together, then reports a
+    safe processing order (or a clear error: schema validation
+    failure, unresolved dependency reference, duplicate dataset
+    name, or circular dependency).
+
+    Declaration/ordering only — see dependencies.py's module
+    docstring for the explicit scope boundary. This command does not
+    resolve or generate anything about HOW one dataset obtains
+    another's data.
+    """
+    tables = []
+
+    for path in args.paths:
+        try:
+            table = load_spec(path)
+            validate_table(table)
+        except ValueError as e:
+            print(f"\nValidation failed for {path}:\n")
+            print(e)
+            return
+        tables.append(table)
+
+    print(f"✓ Loaded {len(tables)} dataset(s)")
+
+    try:
+        order = execution_order(tables)
+    except ValueError as e:
+        print("\nDependency resolution failed:\n")
+        print(e)
+        return
+
+    print("\n--- EXECUTION ORDER ---\n")
+    for i, name in enumerate(order, start=1):
+        print(f"{i}. {name}")
 
 
 def discover(args, ai_client=None):
@@ -424,6 +464,24 @@ def main():
     )
 
     generate_parser.set_defaults(func=generate)
+
+    deps_parser = subparsers.add_parser(
+        "deps",
+        help=(
+            "Resolve dataset dependencies across multiple metadata "
+            "files and report a safe execution order (or a circular-"
+            "dependency error). Declaration/ordering only — does not "
+            "resolve or generate anything about how one dataset "
+            "obtains another's data."
+        ),
+    )
+
+    deps_parser.add_argument(
+        "paths", nargs="+",
+        help="One or more dataset YAML files to resolve together.",
+    )
+
+    deps_parser.set_defaults(func=deps)
 
     discover_parser = subparsers.add_parser("discover")
 

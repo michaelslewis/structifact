@@ -1,0 +1,25 @@
+# customer_summary.yml (SYNTHETIC EXAMPLE — Phase 7 dependency-tracking paper contract)
+#
+# Depends on two datasets (fan-in). Deliberately does NOT attempt any
+# cross-dataset field resolution/lookup logic — that's out of scope
+# for this Phase 7 increment. This dataset's own fields are plain
+# fields; depends_on here is declaring a relationship for the
+# dependency graph/execution-order feature only.
+
+dataset:
+  name: customer_summary
+
+depends_on:
+  - customers
+  - transactions
+
+fields:
+  - name: customer_id
+    type: varchar(10)
+    role: dimension
+  - name: total_amount
+    type: decimal(15,2)
+    role: measure
+  - name: transaction_count
+    type: integer
+    role: measure

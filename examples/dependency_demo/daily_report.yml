@@ -1,0 +1,24 @@
+# daily_report.yml (SYNTHETIC EXAMPLE — Phase 7 dependency-tracking paper contract)
+#
+# Depends on customer_summary, which itself depends on customers and
+# transactions — this is what makes the example a genuine two-level
+# chain, not just a single fan-in. Proves the graph/execution-order
+# logic must go beyond "immediate dependencies" and produce a full
+# topological order across the whole chain.
+
+dataset:
+  name: daily_report
+
+depends_on:
+  - customer_summary
+
+fields:
+  - name: report_date
+    type: date
+    role: dimension
+  - name: total_customers
+    type: integer
+    role: measure
+  - name: total_revenue
+    type: decimal(15,2)
+    role: measure
