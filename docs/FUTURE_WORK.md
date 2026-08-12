@@ -115,7 +115,7 @@ customer_summary model
        v
 dashboard dataset
 
-The existing IR architecture provides a foundation for this — DatasetSpec now has real, structural knowledge of a dataset's sources (SourceRef/JoinSpec) and, separately, of foreign-key relationships between datasets (ConstraintSpec's target_table/target_column, now actually meaningful since Phase 6 v3 resolves and checks them against real data). Neither of those was designed as a lineage feature, but both are exactly the kind of structural information a future lineage capability would need — worth revisiting this section once there's a concrete lineage use case, rather than designing it in the abstract now.
+The existing IR architecture provides a foundation for this — DatasetSpec has real, structural knowledge of a dataset's sources (SourceRef/JoinSpec), of foreign-key relationships between datasets (ConstraintSpec's target_table/target_column, now actually meaningful since Phase 6 v3 resolves and checks them against real data), and, as of the Phase 7 remainder, an explicit, validated dependency graph between Structifact-defined datasets themselves (DatasetSpec.depends_on, structifact/dependencies.py). None of these three was designed as a lineage feature, but all are exactly the kind of structural information a future lineage capability would need — the dependency graph in particular is close to lineage-ready as a data structure. What's still genuinely future: a rendered lineage *view*, and impact-analysis queries ("what depends on X?") built on top of that graph. Worth revisiting this section once there's a concrete lineage use case, rather than designing it in the abstract now.
 
 Plugin Architecture
 
@@ -133,8 +133,8 @@ Potential capabilities, roughly in order of how self-contained each would be to 
 
 syntax highlighting for the metadata YAML dialect
 inline validation — surface `structifact validate`'s errors as editor squiggles/diagnostics as the file is edited, not just on a manual CLI run
-command-palette actions to run `validate` / `generate` / `validate-data` against the open file without leaving the editor
-a webview panel previewing generated output (SQL, the transformation model, a quality report) without a separate terminal step
+command-palette actions to run `validate` / `generate` / `validate-data` / `deps` against the open file(s) without leaving the editor
+a webview panel previewing generated output (SQL, the transformation model, a quality report, a dependency execution order) without a separate terminal step
 
 The appeal, relative to the structifact.com/GUI idea below: meaningfully lower lift (no hosting, no auth, no backend service — it runs against the same local CLI that already exists), dogfoodable in the course of normal Structifact development itself (which would likely surface real UX gaps faster than a web GUI would), and arguably a stronger, more concrete portfolio artifact — a published extension is something a reviewer can install and try in under a minute, versus a hosted site that requires deploying and maintaining infrastructure.
 
@@ -148,8 +148,8 @@ A future interface could provide visibility into Structifact projects.
 
 Potential capabilities:
 
-Metadata Browser — explore datasets, fields, descriptions, constraints, relationships
-Lineage Visualization — display source → dataset → generated artifact → downstream consumer
+Metadata Browser — explore datasets, fields, descriptions, constraints, relationships, and dependencies
+Lineage Visualization — display source → dataset → generated artifact → downstream consumer, and the dataset-to-dataset dependency graph now available from structifact/dependencies.py
 Validation Dashboard — display validation results, quality trends, failed checks, metadata history (this would have real data to draw on now, given quality.py's structured QualityResult output — previously this section was purely hypothetical since there was no data-quality checking at all to visualize)
 
 The web interface should remain separate from the core framework. Structifact should remain usable as a Python library, a command-line tool, and an automation component regardless of whether this is ever built.
@@ -174,18 +174,9 @@ The architectural principle: Structifact defines intent. Platform-specific compo
 
 Transformation Framework — Remaining Scope
 
-Status: a meaningful first slice of this is now real — see ROADMAP.md for full detail. A single computed field can be represented and actually emitted as executable SQL (ModelGenerator), and a dataset can be built from multiple sources including the same physical table joined in multiple times under different roles with priority-based deduplication (SourceRef/JoinSpec/DedupRule).
+Status: complete as originally scoped. A single computed field can be represented and emitted as executable SQL (ModelGenerator), a dataset can be built from multiple sources including the same physical table joined in multiple times under different roles with priority-based deduplication (SourceRef/JoinSpec/DedupRule), and dataset-level dependencies can be declared, validated as a collection, and resolved into a deterministic execution order with cycle detection (DatasetSpec.depends_on, structifact/dependencies.py, the `structifact deps` command). See ROADMAP.md for full detail and DECISION_HISTORY.md for the scoping process.
 
-What remains genuinely future, and was the original scope of this section: cross-*dataset* dependency tracking — one dataset's model depending on another dataset (not just one dataset joining in raw sources), with dependency graphs and execution ordering across that dependency chain. Example of the still-unbuilt shape:
-
-model:
-  name: customer_summary
-
-depends_on:
-  - customers
-  - transactions
-
-This is a different concern from the sources/joins work that's already done: sources/joins describe how *one* dataset is assembled from underlying tables; this describes how *multiple Structifact-defined datasets* relate to and depend on each other. Should only be scoped once there's a concrete example that needs it, matching how every other IR addition in this project has been grounded — not designed abstractly in advance.
+What remains genuinely future: cross-dataset value resolution — one dataset consuming another's computed/resolved value (e.g. joining a lookup dataset with conditional-fallback logic and making the resolved value available to downstream computed fields). Two real synthetic examples (examples/enterprise_demo, examples/workorder_demo) both exercise this exact pattern via an FX-rate lookup, which is real evidence it recurs — but it was deliberately kept out of this milestone's scope, since dependency *declaration* and cross-dataset *value resolution* are different concerns (see DECISION_HISTORY.md). Should only be scoped once a differently-shaped example justifies the abstraction, matching how every other IR addition in this project has been grounded — not designed abstractly in advance.
 
 Streaming and Event Data
 
@@ -209,7 +200,7 @@ Structifact is designed with open-source engineering practices in mind.
 
 Possible future efforts: a public documentation site, expanded examples, contributor documentation, a plugin ecosystem, community extensions.
 
-The registered domain, structifact.com, provides future flexibility for documentation, demonstrations, and project resources. It does not imply a current hosted product or commercial offering, and deployment is deliberately deferred — the current strategic framing (see PROJECT_CONTEXT.md / DECISION_HISTORY.md) treats Structifact primarily as a portfolio/credibility asset supporting consulting opportunities, not a product to launch, and holds off on a GUI or public-facing site until well past the current engine maturity. See the IDE Integration section above for the currently-favored alternative if/when this category of work is picked up.
+The registered domain, structifact.com, provides future flexibility for documentation, demonstrations, and project resources. It does not imply a current hosted product or commercial offering, and deployment is deliberately deferred — the current strategic framing (see PROJECT_CONTEXT.md / DECISION_HISTORY.md) treats Structifact primarily as a portfolio/credibility asset supporting consulting opportunities, not a product to launch, and holds off on a GUI or public-facing site until well past current engine maturity. See the IDE Integration section above for the currently-favored alternative if/when this category of work is picked up.
 
 Educational Value
 
