@@ -102,7 +102,7 @@ A model that keeps adding arbitrary flags (`primary_key=True`, `regex="..."`, `m
 
 ## Resulting Principle, and How It Actually Held Up
 
-This principle was tested repeatedly as real work accumulated, and the line was drawn consistently: `FieldSpec` grew to include `role`, `accepted_values`, `computed`/`expression`/`depends_on`, `source`/`source_column`, and `min_value`/`max_value`/`pattern` — but every one of these describes something genuinely intrinsic to *that field* (what it is, what values it may hold, where it comes from). Anything describing a *relationship* between fields or datasets — primary keys, uniqueness, foreign keys, checks — went to `ConstraintSpec` instead, exactly as originally intended. Cross-source joins went to their own new concepts (`SourceRef`/`JoinSpec`) rather than being crammed into `FieldSpec`, for the same reason.
+This principle was tested repeatedly as real work accumulated, and the line was drawn consistently: `FieldSpec` grew to include `role`, `accepted_values`, `computed`/`expression`/`depends_on`, `source`/`source_column`, and `min_value`/`max_value`/`pattern` — but every one of these describes something genuinely intrinsic to *that field* (what it is, what values it may hold, where it comes from). Anything describing a *relationship* between fields or datasets — primary keys, uniqueness, foreign keys, checks — went to `ConstraintSpec` instead, exactly as originally intended. Cross-source joins went to their own new concepts (`SourceRef`/`JoinSpec`) rather than being crammed into `FieldSpec`, for the same reason. Dataset-to-dataset dependencies (`DatasetSpec.depends_on` — see the dedicated decision below) followed this same line: a relationship between two datasets went on `DatasetSpec`, not into `FieldSpec`, even though the name `depends_on` is reused from the field-level concept.
 
 ---
 
@@ -134,7 +134,7 @@ The value of metadata depends on trust — reliable metadata enables reliable ge
 
 ## Extended Later: Validation Only Covers Metadata, Not Data
 
-This distinction became important as the project matured, and is worth recording explicitly: `validation.py`'s job is checking that the *metadata itself* is well-formed (a regex compiles, a constraint references a real field, bounds aren't reversed). It was never designed to check real data rows, and for most of the project's life didn't need to. When the need for real data-row checking arrived (see the Data Quality Framework decision below), that became a deliberately separate subsystem rather than an extension of `validation.py` — a different question ("is this data valid?" vs. "is this schema well-formed?") got a different answer, not the existing one stretched to cover both.
+This distinction became important as the project matured, and is worth recording explicitly: `validation.py`'s job is checking that the *metadata itself* is well-formed (a regex compiles, a constraint references a real field, bounds aren't reversed). It was never designed to check real data rows, and for most of the project's life didn't need to. When the need for real data-row checking arrived (see the Data Quality Framework decision below), that became a deliberately separate subsystem rather than an extension of `validation.py` — a different question ("is this data valid?" vs. "is this schema well-formed?") got a different answer, not the existing one stretched to cover both. The same pattern repeated again for dataset dependency tracking: resolving a *collection* of datasets against each other (duplicate names, unresolved references, cycles) is a third distinct question, and got its own module (`dependencies.py`) rather than further stretching `validation.py`.
 
 ---
 
@@ -150,7 +150,7 @@ Structifact is both an engineering framework and a portfolio demonstration proje
 
 ## How the CLI Actually Grew
 
-Started with `validate` and `generate`. Grew to four commands: `discover` (schema/requirements inference) and `validate-data` (the data quality framework) were each added only once the underlying capability existed to expose — the CLI itself was never the bottleneck or the thing driving new capability; it followed each capability's completion.
+Started with `validate` and `generate`. Grew to five commands: `discover` (schema/requirements inference), `validate-data` (the data quality framework), and `deps` (dataset dependency resolution) were each added only once the underlying capability existed to expose — the CLI itself was never the bottleneck or the thing driving new capability; it followed each capability's completion.
 
 ---
 
@@ -218,7 +218,7 @@ Frameworks can become overly complex before proving their core value.
 
 ## How This Actually Played Out — the Real-Example-First Discipline
 
-The originally-planned progression (metadata foundations → IR → validation → CLI → generators → quality/lineage/integrations) roughly happened, but the more important discipline that emerged in practice wasn't in the original plan: **every non-trivial IR addition started from a real, concrete example, not an abstract design.** Computed fields were scoped against a real (synthetic but realistic) requirements document before any code was written. The sources/joins/dedup design was scoped against `examples/workorder_demo`'s actual reference SQL. Each Phase 6 data-quality increment was scoped against a real CSV with deliberately-planted violations, with the exact expected report output agreed *before* implementation. This "prove the contract on paper against something real, then implement" pattern is now the de facto standard for any IR-level change to this project, and is worth explicitly preserving as future work is scoped — see `ROADMAP.md`/`FUTURE_WORK.md` for items still awaiting this treatment (e.g. cross-dataset dependency tracking).
+The originally-planned progression (metadata foundations → IR → validation → CLI → generators → quality/lineage/integrations) roughly happened, but the more important discipline that emerged in practice wasn't in the original plan: **every non-trivial IR addition started from a real, concrete example, not an abstract design.** Computed fields were scoped against a real (synthetic but realistic) requirements document before any code was written. The sources/joins/dedup design was scoped against `examples/workorder_demo`'s actual reference SQL. Each Phase 6 data-quality increment was scoped against a real CSV with deliberately-planted violations, with the exact expected report output agreed *before* implementation. Dataset dependency tracking (see the dedicated decision below) followed the same pattern, and additionally demonstrated what happens when two real examples exist but turn out to be the *same* shape — see that decision for how the project responded rather than assuming a second example automatically justified a new abstraction. This "prove the contract on paper against something real, then implement" pattern is now the de facto standard for any IR-level change to this project.
 
 ---
 
@@ -234,7 +234,7 @@ The project represents more than generated files — it demonstrates architectur
 
 ## Status
 
-Unchanged. The project's test suite (279 tests as of this writing, CI-enforced on two Python versions) and the real-example-first design discipline described above are both concrete evidence this held up in practice, not just in intention.
+Unchanged. The project's test suite (307 tests as of this writing, CI-enforced on two Python versions) and the real-example-first design discipline described above are both concrete evidence this held up in practice, not just in intention.
 
 ---
 
@@ -268,6 +268,27 @@ While verifying the Phase 6 v3 (foreign-key validation) work by actually running
 ## Why This Is Worth Recording as a Decision, Not Just a Bug Fix
 
 The lesson is about process, not just the specific bug: a passing test suite proved the IR/validation/generator logic was correct, but said nothing about whether a real user's YAML file could actually reach that logic. The fix — and the practice worth keeping — was running the real CLI against a real file as the last verification step before considering any feature genuinely done, not just running its unit tests. This gap had existed, undetected, since the constraint feature first shipped.
+
+---
+
+# Decision: Scoping Cross-Dataset Dependency Tracking — Evidence Over Imagination
+
+## What Happened
+
+Two real (synthetic) examples — `examples/enterprise_demo` and `examples/workorder_demo` — both surfaced the same cross-dataset pattern: a dataset needing a value resolved from another dataset via a join with conditional-fallback logic (an FX exchange rate lookup). The immediate temptation was to design IR support for resolving that value — a `resolved_fx_rate`-style computed field referencing another dataset.
+
+That temptation was deliberately resisted. Instead: `ROADMAP.md` and `FUTURE_WORK.md` were inspected directly to determine what "cross-dataset dependency tracking" actually meant when originally scoped, rather than letting the compelling example define the milestone. The documents were clear — the original scope was dependency *declaration*, graphs, and execution ordering (`depends_on: [...]`), explicitly distinct from *resolving* a dependency's value.
+
+## Why This Is Worth Recording
+
+Two real examples showing the same pattern is genuine evidence that the pattern recurs — but it is not, by itself, evidence that solving it belongs in the current milestone. Those are different questions. The FX-resolution problem, once actually decomposed, turned out to require several distinct future capabilities (cross-dataset field references, lookup/fallback semantics, cross-dataset SQL generation) — effectively a second major subsystem, not an extension of one field. Scoping strictly to what the roadmap actually specified, and explicitly documenting the FX examples as motivating evidence for separate future work rather than folding them in, kept this milestone the size it should have been.
+
+## Supporting Decisions, Made Along the Way
+
+* `DatasetSpec.depends_on` was kept as a plain `List[str]`, not a new `DependencySpec` type — no real example has yet shown a need for dependency-level metadata beyond a name, and `ROADMAP.md`'s own example uses a bare list.
+* Dataset-level `depends_on` and the existing field-level `FieldSpec.depends_on` intentionally share a name — they occupy different, unambiguous nesting positions in the YAML (top-level vs. inside a `fields:` entry), consistent with "Keep FieldSpec Focused on Intrinsic Field Properties": a dataset-to-dataset relationship is not an intrinsic field property, and got its own concept rather than being folded into an existing one.
+* Per-dataset well-formedness (blank/duplicate/self-reference entries) was kept in `validation.py`; collection-level concerns (duplicate dataset names, unresolved references, cycle detection) went to a new `structifact/dependencies.py` module — following the same precedent as `quality.py`: a question that requires more than one `DatasetSpec` is a genuinely different kind of check.
+* A real bug was caught late, not by the test suite itself but by re-examining test output against its own stated intent: a cyclic test fixture's `depends_on` edges didn't actually encode the 3-node cycle its own comments claimed. The fix reinforced the project's existing "verify end to end, don't just trust green tests" practice — a passing suite had briefly hidden a genuinely wrong fixture.
 
 ---
 

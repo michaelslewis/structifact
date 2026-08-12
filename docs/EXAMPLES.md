@@ -328,6 +328,56 @@ Fields whose value is described as derived from others are flagged `computed: tr
 
 ---
 
+# Example 10 — Resolving Dataset Dependencies
+
+Datasets can declare a dependency on other Structifact-defined datasets, not just on raw source tables:
+
+```yaml
+dataset:
+  name: customer_summary
+
+depends_on:
+  - customers
+  - transactions
+
+fields:
+  - name: customer_id
+    type: string
+  - name: total_amount
+    type: decimal
+    precision: 15
+    scale: 2
+```
+
+Given a collection of related dataset files, `structifact deps` resolves them into a safe processing order:
+
+```bash
+$ structifact deps examples/dependency_demo/customers.yml examples/dependency_demo/transactions.yml examples/dependency_demo/customer_summary.yml examples/dependency_demo/daily_report.yml
+✓ Loaded 4 dataset(s)
+
+--- EXECUTION ORDER ---
+
+1. customers
+2. transactions
+3. customer_summary
+4. daily_report
+```
+
+A circular dependency is a hard error, naming the full cycle:
+
+```bash
+$ structifact deps examples/dependency_demo/cyclic_broken/dataset_a.yml examples/dependency_demo/cyclic_broken/dataset_b.yml examples/dependency_demo/cyclic_broken/dataset_c.yml
+✓ Loaded 3 dataset(s)
+
+Dependency resolution failed:
+
+Circular dependency detected: dataset_a -> dataset_b -> dataset_c -> dataset_a
+```
+
+This is declaration and ordering only — `deps` doesn't know or generate anything about *how* `customer_summary` actually obtains data from `customers`/`transactions`. See `FUTURE_WORK.md` for the related, still-future cross-dataset value-resolution problem.
+
+---
+
 # Current Implementation Examples
 
 The current repository demonstrates all of the above, live, in its own example folders:
@@ -335,6 +385,7 @@ The current repository demonstrates all of the above, live, in its own example f
 * `examples/customers/` — the golden-path example (Examples 1–3)
 * `examples/enterprise_demo/` and `examples/workorder_demo/` — larger synthetic examples exercising computed fields, multi-role joins, and dedup (Examples 4–5, and the source material for Example 9)
 * `examples/data_quality_demo/` — the Phase 6 data-quality example, including a second referenced dataset for foreign-key checking (Examples 6–7)
+* `examples/dependency_demo/` — dataset dependency chain (fan-in + multi-level) plus a deliberately-broken cyclic variant (Example 10)
 
 ---
 
