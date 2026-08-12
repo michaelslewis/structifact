@@ -29,13 +29,15 @@ Structifact is a Python-based metadata-driven framework that converts declarativ
 The current implementation covers:
 
 * three input adapters (YAML, CSV, Excel), all normalizing through a shared type system
-* an internal representation (`DatasetSpec` / `FieldSpec` / `ConstraintSpec`, plus `SourceRef` / `JoinSpec` / `DedupRule` for multi-source datasets)
+* an internal representation (`DatasetSpec` / `FieldSpec` / `ConstraintSpec`, plus `SourceRef` / `JoinSpec` / `DedupRule` for multi-source datasets, and `DatasetSpec.depends_on` for cross-dataset dependencies)
 * metadata validation (schema well-formedness, constraint relationships, checkable rule content)
 * six generators (SQL, dbt YAML, two catalog variants, docs, a SELECT-based transformation model)
 * deterministic and AI-assisted schema/requirements discovery
 * real-data quality checking, including cross-dataset foreign-key validation
-* a four-command CLI
-* 279 automated tests, CI-enforced on every push
+* collection-level dependency resolution across multiple datasets — cycle
+  detection and deterministic execution ordering
+* a five-command CLI
+* 307 automated tests, CI-enforced on every push
 
 The core design principle remains:
 
@@ -52,7 +54,8 @@ structifact/                        (repo root)
 │   ├── customers/
 │   ├── enterprise_demo/
 │   ├── workorder_demo/
-│   └── data_quality_demo/
+│   ├── data_quality_demo/
+│   └── dependency_demo/
 │
 ├── structifact/
 │   ├── cli.py
@@ -62,6 +65,7 @@ structifact/                        (repo root)
 │   ├── utils.py
 │   ├── validation.py
 │   ├── quality.py
+│   ├── dependencies.py
 │   ├── discover.py
 │   ├── llm.py
 │   │
@@ -104,11 +108,11 @@ Location: `structifact/adapters/`
 
 ## YAML Adapter (`yaml.py`)
 
-The primary metadata ingestion path. Parses every `FieldSpec` attribute the IR supports — including `role`, `accepted_values`, `nullable`, computed-field fields (`computed`/`expression`/`depends_on`), Phase 6 v2 fields (`min_value`/`max_value`/`pattern`, converted via `Decimal(str(v))` rather than `Decimal(v)` directly, to avoid preserving a YAML-parsed float's exact binary representation instead of the clean value the user wrote), and cross-source attribution (`source`/`source_column`). Also parses dataset-level `source_table`, `sources`, and `joins`, and constraint-level `target_table`/`target_column`/`expression` (this last item was a real bug fix — see `DECISION_HISTORY.md`; earlier versions of `yaml.py` accepted these keys in `ConstraintSpec` but never actually read them from a YAML file).
+The primary metadata ingestion path. Parses every `FieldSpec` attribute the IR supports — including `role`, `accepted_values`, `nullable`, computed-field fields (`computed`/`expression`/`depends_on`), Phase 6 v2 fields (`min_value`/`max_value`/`pattern`, converted via `Decimal(str(v))` rather than `Decimal(v)` directly, to avoid preserving a YAML-parsed float's exact binary representation instead of the clean value the user wrote), and cross-source attribution (`source`/`source_column`). Also parses dataset-level `source_table`, `sources`, `joins`, and `depends_on` (this last one a top-level key, sibling to `dataset:`/`fields:`/`constraints:` — same placement as `constraints`), and constraint-level `target_table`/`target_column`/`expression` (this last item was a real bug fix — see `DECISION_HISTORY.md`; earlier versions of `yaml.py` accepted these keys in `ConstraintSpec` but never actually read them from a YAML file).
 
 ## CSV Adapter (`csv.py`)
 
-Reads a CSV-format field grid (one row per field: `column_name,type,description,...`) as an alternative to YAML. At parity with YAML on field-level attributes. Does not currently support dataset-level `constraints`, `sources`, or `joins` — those remain YAML-only, since a flat one-row-per-field CSV format has no natural place to represent dataset-level relationships without a different structure.
+Reads a CSV-format field grid (one row per field: `column_name,type,description,...`) as an alternative to YAML. At parity with YAML on field-level attributes. Does not currently support dataset-level `constraints`, `sources`, `joins`, or `depends_on` — those remain YAML-only, since a flat one-row-per-field CSV format has no natural place to represent dataset-level relationships without a different structure.
 
 ## Excel Adapter (`excel.py`)
 
@@ -136,6 +140,7 @@ DatasetSpec
     +-- source_table
     +-- sources: SourceRef[]     (name, table, filter, dedup)
     +-- joins: JoinSpec[]        (source, on, type)
+    +-- depends_on: str[]        (other dataset names — declaration only)
 ```
 
 ## DatasetSpec
@@ -154,6 +159,10 @@ Dataset-level rules, kept separate from `FieldSpec` for the same reason. `type` 
 
 Added for the sources/joins milestone (multi-source datasets, including the same physical table joined in multiple times under different roles). `SourceRef.name` (a logical alias for this joined-in instance) is deliberately distinct from `SourceRef.table` (the physical table) — that distinction is what lets one physical table be joined in several times under different roles, each with its own `filter` and `DedupRule`. `JoinSpec.on` is a single raw SQL condition (multiple join keys expressed with `AND` inside the one string, not a structured list). `DedupRule` represents priority-based row selection (`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) = 1`), not a uniqueness constraint.
 
+## depends_on (Phase 7 remainder)
+
+A plain `List[str]` on `DatasetSpec`, naming other Structifact-defined datasets this one depends on. Deliberately NOT a new dataclass — no real example has yet shown a need for dependency-level metadata beyond a name. Distinct from `FieldSpec.depends_on` (a computed field's dependency on other fields *within the same dataset*) — the two occupy different, unambiguous nesting positions in the YAML. Declaration only: says nothing about *how* this dataset obtains the other's data. See `structifact/dependencies.py` below for what operates on this field.
+
 ---
 
 # Type System
@@ -168,7 +177,7 @@ Location: `structifact/types.py`
 
 Location: `structifact/validation.py`
 
-Validates the IR's own well-formedness — this operates on *metadata*, not real data (that's `quality.py`'s job, described below). Current checks include:
+Validates the IR's own well-formedness — this operates on *metadata*, not real data (that's `quality.py`'s job, described below), and on a single dataset at a time (collection-level checks are `dependencies.py`'s job, also described below). Current checks include:
 
 * dataset/field name presence, duplicate field names, supported types, supported roles
 * `accepted_values` well-formedness (non-empty, no duplicates)
@@ -176,6 +185,7 @@ Validates the IR's own well-formedness — this operates on *metadata*, not real
 * `source_table` non-blank when set
 * `sources`/`joins` relationship checks: unique `SourceRef.name` values, every `JoinSpec.source` resolves to a declared source, every `DedupRule` has non-empty `partition_by`/`order_by`, `JoinSpec.type` is a supported join type (currently `left`/`inner`)
 * every `FieldSpec.source` (when set) resolves to a declared source
+* dataset-level `depends_on` well-formedness: no blank entries, no duplicates, no self-reference (whether a referenced dataset actually exists is a collection-level question — see `dependencies.py`)
 * constraint checks: at most one `primary_key` per dataset, columns reference real fields, `foreign_key` requires exactly one column plus non-blank `target_table`/`target_column`, `check` requires a non-blank `expression`
 * Phase 6 v2 additions: `pattern` must compile as valid regex; `min_value` must not exceed `max_value`; `min_value`/`max_value` only apply to `integer`/`decimal` fields, `pattern` only to `string` fields
 
@@ -225,6 +235,24 @@ All formatting of `QualityResult` into human-readable text lives in `cli.py`, no
 
 ---
 
+# Dataset Dependency Tracking (Phase 7 remainder)
+
+Location: `structifact/dependencies.py`
+
+A separate subsystem from `validation.py`, following the same precedent as `quality.py`: it operates on a *collection* of `DatasetSpec`s, which is a genuinely different question from single-dataset well-formedness.
+
+## `build_dependency_graph(datasets)`
+
+Builds a `{name: [depends_on names]}` mapping. Raises `ValueError` (message lists every problem found, not just the first) if two datasets share a name, or if any `depends_on` entry doesn't resolve to a dataset in the collection.
+
+## `execution_order(datasets)`
+
+Returns a deterministic list of dataset names, ordered so every dataset appears after all of its dependencies. Uses a DFS-based topological sort, tie-broken by input order among datasets with no dependency relationship to each other — that relative order is NOT semantically guaranteed, only kept stable so output doesn't vary run-to-run. Raises `ValueError` (no partial order ever returned) on anything `build_dependency_graph` would raise, or on a circular dependency — the message names the complete cycle, e.g. `Circular dependency detected: dataset_a -> dataset_b -> dataset_c -> dataset_a`.
+
+Per-dataset well-formedness (blank/duplicate/self-referencing `depends_on` entries) lives in `validation.py` instead, matching where every other per-dataset check lives — only collection-level concerns are in this module.
+
+---
+
 # Generators
 
 Location: `structifact/generators/`
@@ -256,22 +284,25 @@ Location: `structifact/discover.py`, `structifact/llm.py`
 
 Location: `structifact/cli.py`, `structifact/__main__.py`
 
-Four commands:
+Five commands:
 
 ```bash
 structifact validate <spec.yml>
 structifact generate <spec.yml> [-o output_dir] [-g generator_names]
 structifact discover <data.csv|requirements.md> [--ai] [--requirements] [-y] [-n sample_size] [-o output]
 structifact validate-data <spec.yml> <data.csv> [--ref alias=schema.yml:data.csv ...]
+structifact deps <spec.yml> [<spec.yml> ...]
 ```
 
 `validate-data`'s `--ref` flag is repeatable (multiple foreign-key targets can each get their own `--ref`). A missing `--ref` for a declared `foreign_key` constraint is a hard error, printed distinctly from the data-quality report — never silently skipped, never mixed into "issues found" output.
+
+`deps` accepts one or more explicit dataset file paths (no directory/glob scanning in v1, matching every other command's explicit-path convention), loads and validates each individually, then resolves them as a collection — printing either a deterministic execution order or a dependency-resolution error (missing reference, duplicate dataset name, or circular dependency).
 
 ---
 
 # Testing
 
-Location: `tests/` — 279 tests across 32 files, covering the type system, all three adapters, IR construction, validation (metadata well-formedness and relationship checks), every generator, `discover`'s inference logic (deterministic and AI-assisted, with `FakeLLMClient`), `quality.py` (all three Phase 6 increments, including deliberately-not-flagged edge cases like unparseable numeric values and missing-value ownership), and CLI command behavior end to end.
+Location: `tests/` — 307 tests across 34 files, covering the type system, all three adapters, IR construction, validation (metadata well-formedness and relationship checks), every generator, `discover`'s inference logic (deterministic and AI-assisted, with `FakeLLMClient`), `quality.py` (all three Phase 6 increments, including deliberately-not-flagged edge cases like unparseable numeric values and missing-value ownership), dataset dependency tracking (per-dataset validation, collection-level graph building, cycle detection, deterministic ordering, and CLI-level behavior), and CLI command behavior end to end.
 
 CI runs the full suite via GitHub Actions on Python 3.11 and 3.12 on every push/PR against `main`.
 
@@ -279,7 +310,7 @@ CI runs the full suite via GitHub Actions on Python 3.11 and 3.12 on every push/
 
 # Current Workflow
 
-Two independent flows now exist.
+Three independent flows now exist.
 
 **Metadata → artifacts** (the original flow):
 
@@ -302,7 +333,7 @@ Internal Representation
  Generated Artifacts (SQL, dbt YAML, catalog, docs, model SQL)
 ```
 
-**Schema + real data → quality report** (new — Phase 6):
+**Schema + real data → quality report** (Phase 6):
 
 ```text
 Schema (validated as above)  +  Real data (CSV)  [+ referenced dataset(s), for FK checks]
@@ -317,7 +348,21 @@ Schema (validated as above)  +  Real data (CSV)  [+ referenced dataset(s), for F
                      CLI report formatting
 ```
 
-A third, separate flow exists for bootstrapping metadata that doesn't exist yet:
+**Multiple schemas → execution order** (Phase 7 remainder):
+
+```text
+Multiple Schemas (each validated as above)
+        |
+        v
+  dependencies.py
+  (graph + cycle check)
+        |
+        v
+Deterministic Execution Order
+   (or a dependency error)
+```
+
+A fourth, separate flow exists for bootstrapping metadata that doesn't exist yet:
 
 ```text
 Raw Data (CSV) or a Requirements Document
@@ -347,8 +392,9 @@ Human Review
 ✓ Six generators (SQL, dbt YAML, 2 catalog variants, docs, transformation model)
 ✓ Deterministic and AI-assisted schema/requirements discovery
 ✓ Real-data quality checking (required, uniqueness, accepted values, range, pattern, foreign key)
-✓ Four-command CLI
-✓ 279 automated tests, CI-enforced
+✓ Cross-dataset dependency declaration, cycle detection, and execution ordering
+✓ Five-command CLI
+✓ 307 automated tests, CI-enforced
 
 ---
 
@@ -356,10 +402,10 @@ Human Review
 
 * Data-type validation (confirming a "decimal" field's actual values parse as numbers at all) — deliberately deferred; see `quality.py`'s range check
 * Composite (multi-column) foreign keys, or join/dedup shapes beyond what real examples have needed
-* Cross-*dataset* dependency graphs / execution ordering (Phase 7's remainder)
+* Cross-dataset value resolution — one dataset consuming another's computed/resolved value, e.g. an FX-rate lookup with conditional fallback (two real examples motivate this; deliberately kept out of Phase 7's dependency-tracking milestone — see `FUTURE_WORK.md`)
 * Data warehouse execution (Snowflake/BigQuery/Databricks/PostgreSQL)
 * Pipeline orchestration (Prefect/Airflow/Dagster)
-* Data lineage (graphs, dependency visualization, impact analysis)
+* Data lineage (rendered graphs/visualization, impact analysis) — though `dependencies.py`'s dependency graph is now real structural groundwork this could build on
 * A documentation *site* or metadata catalog beyond per-dataset Markdown
 * A plugin architecture beyond the existing adapter/generator registries
 * A GUI or hosted product at structifact.com
@@ -368,12 +414,12 @@ Human Review
 
 # Current Development Direction
 
-With Phase 6 (Data Quality Framework) now complete end to end, the next real work is expected to come from wherever a concrete need surfaces next — consistent with how every phase so far actually got scoped (a real example first, not a plan written in the abstract). See `ROADMAP.md`'s "Recently Completed" section for the full, current list of what's shipped, and `FUTURE_WORK.md` for longer-term exploratory ideas not yet scoped into any phase.
+With Phase 6 (Data Quality Framework) and Phase 7 (Transformation Framework, including its dependency-tracking remainder) both now complete end to end, the next real work is expected to come from wherever a concrete need surfaces next — consistent with how every phase so far actually got scoped (a real example first, not a plan written in the abstract). See `ROADMAP.md`'s "Recently Completed" section for the full, current list of what's shipped, and `FUTURE_WORK.md` for longer-term exploratory ideas not yet scoped into any phase.
 
 ---
 
 # Implementation Philosophy
 
-Unchanged: explicit abstractions, small composable components, stable interfaces, deterministic behavior, testability. What's different now is the track record — every significant IR addition (computed fields, FK/check constraints, sources/joins/dedup, each Phase 6 increment) went through the same real-example-first, paper-contract-before-code discipline, with cross-review and end-to-end verification before being called done. See `DECISION_HISTORY.md`.
+Unchanged: explicit abstractions, small composable components, stable interfaces, deterministic behavior, testability. What's different now is the track record — every significant IR addition (computed fields, FK/check constraints, sources/joins/dedup, each Phase 6 increment, dataset dependency tracking) went through the same real-example-first, paper-contract-before-code discipline, with cross-review and end-to-end verification before being called done. See `DECISION_HISTORY.md`.
 
 > Define structure once. Generate reliable systems from it.

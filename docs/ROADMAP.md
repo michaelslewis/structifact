@@ -47,7 +47,7 @@ They are now implemented, tested, and covered by CI:
   does, via `types.parse_type()`.
 * **Continuous integration** — the test suite runs automatically via
   GitHub Actions on every push and pull request against `main`
-  (Python 3.11 and 3.12; 279 tests as of this writing).
+  (Python 3.11 and 3.12; 307 tests as of this writing).
 * **A golden-path example** (`examples/customers/`) shows the full
   input → output flow end to end for a new reader.
 * **`structifact discover`** (Phase 10, deterministic half) — infers
@@ -162,6 +162,29 @@ They are now implemented, tested, and covered by CI:
   generator only ever needed one. Structured `QualityIssue`/
   `QualityResult` output, formatted into human-readable text entirely
   in `cli.py`, never inside the checking logic itself.
+* **Dataset dependency tracking** (Phase 7, closing the previously
+  "genuinely unstarted" remainder) — `DatasetSpec` gained `depends_on`
+  (a plain `List[str]`, distinct from the existing `FieldSpec.depends_on`,
+  which refers to fields within the same dataset). Per-dataset
+  validation catches blank/duplicate/self-referencing entries; a new
+  `structifact/dependencies.py` subsystem — following the same
+  precedent as `quality.py`, since resolving a collection of datasets
+  is a genuinely different question from validating one — handles
+  duplicate dataset names, unresolved dependency references, and
+  cycle detection (a hard error naming the full cycle), and derives a
+  deterministic execution order across a collection of datasets.
+  Dependency *ordering* is semantically guaranteed; the relative order
+  of two mutually-independent datasets is not, though output is still
+  deterministic run-to-run. Exposed via a new `structifact deps`
+  command. Declaration/ordering only — deliberately does NOT resolve
+  cross-dataset values or generate SQL for how one dataset obtains
+  another's data; see `FUTURE_WORK.md` for that still-future problem
+  and the two real examples (`enterprise_demo`, `workorder_demo`) that
+  motivate it. New `examples/dependency_demo/` (a four-dataset chain
+  plus a deliberately-broken cyclic variant) as the acceptance
+  fixtures. See `DECISION_HISTORY.md` for the scoping process,
+  including a real test-fixture bug caught by running the tests, not
+  by the tests themselves.
 * **Documentation refresh** — this document and its siblings
   (`CURRENT_STATE.md`, `CURRENT_IMPLEMENTATION.md`,
   `PROJECT_CONTEXT.md`, `EXAMPLES.md`, `DECISION_HISTORY.md`,
@@ -238,15 +261,16 @@ Make Structifact immediately usable and demonstrate the architecture.
 
 ## Status
 
-**Done.** Four commands now exist: `validate`, `generate`, `discover`,
-and `validate-data` — each added only once the underlying capability
-existed to expose.
+**Done.** Five commands now exist: `validate`, `generate`, `discover`,
+`validate-data`, and `deps` — each added only once the underlying
+capability existed to expose.
 
 ```bash
 structifact validate customers.yml
 structifact generate customers.yml
 structifact discover data.csv
 structifact validate-data schema.yml data.csv
+structifact deps schema_a.yml schema_b.yml
 ```
 
 ## Success Criteria
@@ -360,41 +384,43 @@ Move from describing datasets toward describing data workflows.
 
 ## Status
 
-**Substantially done, one real piece remaining.** Three things are
-now real: a single computed field can be represented and actually
-emitted as executable SQL (`ModelGenerator`, not just documented as a
-comment); a dataset can be assembled from multiple sources, including
-the same physical table joined in multiple times under different
-roles, each independently filtered and deduplicated (`SourceRef`/
-`JoinSpec`/`DedupRule` — see "Recently Completed" above for the full
-detail on this, which closes the "Two Further Gaps Found" section
-that used to live here).
+**Done, matching the phase's originally planned scope.** Four things
+are now real: a single computed field can be represented and emitted
+as executable SQL (`ModelGenerator`); a dataset can be assembled from
+multiple sources, including the same physical table joined in
+multiple times under different roles, each independently filtered and
+deduplicated (`SourceRef`/`JoinSpec`/`DedupRule`); and — closing what
+was previously this phase's one remaining piece — a dataset can
+declare dependencies on other Structifact-defined datasets, with the
+resulting collection validated (unresolved references, cycles) and
+resolved into a deterministic execution order (`DatasetSpec.depends_on`,
+`structifact/dependencies.py`, `structifact deps`). See "Recently
+Completed" above for full detail.
 
-What remains genuinely unstarted: **cross-*dataset* dependency
-tracking** — one Structifact-defined dataset's model depending on
-another Structifact-defined dataset, with dependency graphs and
-execution ordering across that chain. This is a different concern
-from the sources/joins work already done (which is about how *one*
-dataset is assembled from underlying tables, not how *multiple
-datasets* relate to each other). Example of the still-unbuilt shape:
+What was scoped as "dependency graphs, execution ordering" below is
+now done. **Impact analysis** — understanding what else is affected
+by a change to a given dataset — was named as a potential capability
+below but was never actually part of this phase's core definition; it
+remains future work, more naturally scoped under Phase 9 (Lineage and
+Observability) once a real need for it surfaces.
 
-```yaml
-model:
-  name: customer_summary
+Separately, and deliberately kept out of this phase: **cross-dataset
+value resolution** — one dataset actually consuming another's
+computed/resolved value (not just knowing it must run after it). Two
+real synthetic examples (`enterprise_demo`, `workorder_demo`) both
+motivate this via the same FX-rate-lookup pattern, which is real
+evidence it recurs, but it's a substantially different and larger
+problem (cross-dataset field references, lookup/fallback semantics,
+cross-dataset SQL generation) — see `FUTURE_WORK.md` and
+`DECISION_HISTORY.md` for the full reasoning on why this was kept
+separate rather than folded into this milestone.
 
-depends_on:
-  - customers
-  - transactions
-```
+## Dependency Management (now done — see above)
 
-Should be scoped the same way every other piece of this phase was —
-against a real, concrete example — once one exists, rather than
-designed abstractly in advance.
-
-## Dependency Management (still future)
-
-Potential capabilities: dependency graphs, execution ordering, impact
-analysis.
+Originally-listed potential capabilities: dependency graphs, execution
+ordering, impact analysis. Dependency graphs and execution ordering
+are now real (above); impact analysis was re-scoped to Phase 9, as
+noted above.
 
 ---
 
@@ -428,17 +454,23 @@ Improve understanding of data systems.
 
 Unstarted, but with more real structural groundwork to build on than
 when this phase was first written: `DatasetSpec` now has genuine
-structural knowledge of a dataset's sources (`SourceRef`/`JoinSpec`)
-and, separately, of foreign-key relationships between datasets
-(`ConstraintSpec`'s `target_table`/`target_column`, now actually
-resolved and checked against real data by Phase 6 v3). Neither was
-built as a lineage feature, but both are exactly the kind of
-structural information a future lineage capability would need.
+structural knowledge of a dataset's sources (`SourceRef`/`JoinSpec`),
+of foreign-key relationships between datasets (`ConstraintSpec`'s
+`target_table`/`target_column`, now actually resolved and checked
+against real data by Phase 6 v3), and, most directly relevant, of
+explicit dataset-to-dataset dependencies (`DatasetSpec.depends_on`,
+validated and resolved into a graph by Phase 7's `dependencies.py`).
+None of these three was built as a lineage feature, but all three are
+exactly the kind of structural information a future lineage capability
+would need — the dependency graph in particular is close to
+lineage-ready as a data structure, even though nothing here yet
+generates a lineage view or supports impact-analysis queries.
 
 ## Potential Capabilities
 
-Generate: source-to-output lineage, dependency graphs, impact
-analysis, metadata relationships.
+Generate: source-to-output lineage, dependency-graph visualization,
+impact analysis (what depends on a given dataset), metadata
+relationships.
 
 ---
 
