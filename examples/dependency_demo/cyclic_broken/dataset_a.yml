@@ -1,0 +1,16 @@
+# dataset_a.yml (SYNTHETIC EXAMPLE — deliberately broken)
+#
+# Part of a 3-node cycle: dataset_a -> dataset_b -> dataset_c -> dataset_a
+# This whole cyclic_broken/ folder exists purely to prove cycle
+# detection actually fires as a hard error, before we trust it.
+
+dataset:
+  name: dataset_a
+
+depends_on:
+  - dataset_b
+
+fields:
+  - name: id
+    type: varchar(10)
+    role: dimension

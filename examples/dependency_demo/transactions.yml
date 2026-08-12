@@ -1,0 +1,20 @@
+# transactions.yml (SYNTHETIC EXAMPLE — Phase 7 dependency-tracking paper contract)
+#
+# No dependencies — a base dataset.
+
+dataset:
+  name: transactions
+
+fields:
+  - name: transaction_id
+    type: varchar(10)
+    role: dimension
+  - name: customer_id
+    type: varchar(10)
+    role: dimension
+  - name: amount
+    type: decimal(12,2)
+    role: measure
+  - name: transaction_date
+    type: date
+    role: dimension

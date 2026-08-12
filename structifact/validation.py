@@ -185,6 +185,34 @@ def validate_table(table: DatasetSpec):
                         f"field '{dep}'"
                     )
 
+    # Dataset-level depends_on well-formedness (Phase 7 remainder —
+    # dataset dependency tracking). NOT the same thing as a computed
+    # field's depends_on (which references other fields in the same
+    # dataset — see the loop above). Only checks what's determinable
+    # from this one dataset in isolation: blank entries, duplicates,
+    # self-reference. Whether a referenced dataset actually exists,
+    # and whether the resulting graph is cycle-free, are
+    # collection-level questions this file can't answer on its own —
+    # see dependencies.py, which requires multiple DatasetSpecs.
+    seen_dataset_deps = set()
+    for dep in table.depends_on:
+        if not dep:
+            errors.append(
+                "depends_on contains a blank entry — remove it"
+            )
+            continue
+
+        if dep == table.name:
+            errors.append(
+                f"Dataset '{table.name}' cannot depend on itself"
+            )
+
+        if dep in seen_dataset_deps:
+            errors.append(
+                f"Duplicate entry in depends_on: '{dep}'"
+            )
+        seen_dataset_deps.add(dep)
+
     # source_table well-formedness (Phase 7 — ModelGenerator). Only
     # checks that an explicitly-set value isn't blank — None is
     # valid (falls back to dataset name), but an empty string is

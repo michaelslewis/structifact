@@ -267,6 +267,27 @@ class DatasetSpec:
     sources: List[SourceRef] = field(default_factory=list)
     joins: List[JoinSpec] = field(default_factory=list)
 
+    # Phase 7 remainder — dataset dependency tracking. Names of
+    # other Structifact-defined datasets this dataset depends on.
+    # NOT the same thing as a computed field's own depends_on (which
+    # refers to other fields within the SAME dataset — see
+    # FieldSpec.depends_on above); the two live at different nesting
+    # levels in the YAML and are unambiguous by context.
+    #
+    # Declaration only: this says "X must be processed before this
+    # dataset can be," and nothing about HOW this dataset obtains
+    # X's data. Cross-dataset value resolution, lookup/fallback
+    # logic, and SQL generation across dataset boundaries are all
+    # explicitly out of scope for this milestone — see
+    # structifact/dependencies.py for what this enables (collection-
+    # level graph validation, cycle detection, deterministic
+    # execution ordering) and what it deliberately does not.
+    #
+    # Empty list default means any existing dataset with no
+    # depends_on declared is completely unaffected — purely additive,
+    # same pattern as sources/joins above.
+    depends_on: List[str] = field(default_factory=list)
+
 
 # Backwards compatibility during migration.
 #

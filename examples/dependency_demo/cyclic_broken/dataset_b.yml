@@ -1,0 +1,14 @@
+# dataset_b.yml (SYNTHETIC EXAMPLE — deliberately broken)
+#
+# Part of a 3-node cycle: dataset_a -> dataset_b -> dataset_c -> dataset_a
+
+dataset:
+  name: dataset_b
+
+depends_on:
+  - dataset_c
+
+fields:
+  - name: id
+    type: varchar(10)
+    role: dimension

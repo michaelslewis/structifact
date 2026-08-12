@@ -90,9 +90,23 @@ def load_yaml(path: str) -> DatasetSpec:
         for constraint in data.get("constraints", [])
     ]
 
+    # Phase 7 remainder — dataset dependency tracking. Top-level key,
+    # sibling to `dataset:`/`fields:`/`constraints:` — same placement
+    # precedent as `constraints`, which is also parsed from the top
+    # level rather than nested inside `dataset:`. NOT the same thing
+    # as a field's own `depends_on` above (that's parsed per-field,
+    # inside `fields:`).
+    raw_dataset_depends_on = data.get("depends_on")
+    dataset_depends_on = (
+        [str(v) for v in raw_dataset_depends_on]
+        if raw_dataset_depends_on is not None
+        else []
+    )
+
     return DatasetSpec(
         name=name,
         description=description,
         fields=fields,
         constraints=constraints,
+        depends_on=dataset_depends_on,
     )
