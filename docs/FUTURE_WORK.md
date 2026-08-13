@@ -24,6 +24,28 @@ The guiding principle remains:
 
 Build the foundation that makes future capabilities possible.
 
+## Before a 1.0 Release
+
+Items deliberately scoped out of earlier phases for good reason (avoiding
+premature complexity, no real credentialed environment to test against yet)
+but that should be revisited before Structifact is called 1.0, since a 1.0
+implies the core promise — "generate reliable systems from metadata" — holds
+up beyond the narrowest proven case:
+
+* **Real Postgres/Snowflake Executor implementations** (Phase 8) — the
+  Executor interface is designed to support these without a redesign, but
+  only DuckDB is actually implemented/tested. A 1.0 claiming multi-engine
+  support should have at least one credentialed, real-warehouse-tested
+  implementation beyond DuckDB.
+* **Transaction management, connection pooling, retry logic** (Phase 8) —
+  the first Executor slice is a single connect/run/close per invocation,
+  fine for a local proof-of-concept, not for anything resembling
+  production use.
+* **Executing ModelGenerator's transformation SQL, not just SQLGenerator's
+  DDL** (Phase 8) — the first Executor slice only proves schema creation
+  works; proving a computed-field SELECT actually runs against real data
+  is a distinct, unproven claim until it's done.
+
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
 
 AI-Assisted Metadata Discovery
