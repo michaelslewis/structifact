@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 excel = [
     "pandas>=2.0",
+    "openpyxl>=3.1",
 ]
 
 ai = [
