@@ -47,7 +47,7 @@ They are now implemented, tested, and covered by CI:
   does, via `types.parse_type()`.
 * **Continuous integration** — the test suite runs automatically via
   GitHub Actions on every push and pull request against `main`
-  (Python 3.11 and 3.12; 307 tests as of this writing).
+  (Python 3.11 and 3.12; 322 tests as of this writing).
 * **A golden-path example** (`examples/customers/`) shows the full
   input → output flow end to end for a new reader.
 * **`structifact discover`** (Phase 10, deterministic half) — infers
@@ -185,6 +185,19 @@ They are now implemented, tested, and covered by CI:
   fixtures. See `DECISION_HISTORY.md` for the scoping process,
   including a real test-fixture bug caught by running the tests, not
   by the tests themselves.
+* **DuckDB Executor, first slice of Phase 8** — a new `Executor`
+  interface (`structifact/executors/`), following the same registry
+  pattern as adapters/generators, lets Structifact actually execute
+  its own generated DDL against a real database rather than only ever
+  producing SQL text. `DuckDBExecutor` is the first (and currently
+  only) real implementation — local, no credentials — proving the
+  interface works before a credentialed engine (Postgres, Snowflake)
+  is attempted. New `structifact execute` command, with `--data` and
+  `--drop-if-exists`. Deliberately does not yet execute
+  `ModelGenerator`'s transformation SQL, and has no transaction/
+  pooling/retry handling — see `FUTURE_WORK.md`'s "Before a 1.0
+  Release" section. See the dedicated Phase 8 section below for full
+  detail.
 * **Documentation refresh** — this document and its siblings
   (`CURRENT_STATE.md`, `CURRENT_IMPLEMENTATION.md`,
   `PROJECT_CONTEXT.md`, `EXAMPLES.md`, `DECISION_HISTORY.md`,
@@ -432,15 +445,50 @@ Connect Structifact metadata with execution environments.
 
 ## Status
 
-Unstarted. Potential exploration: DuckDB, Apache Parquet, dbt (as an
-execution engine — Structifact currently generates dbt-shaped YAML,
-it doesn't run dbt), Snowflake, BigQuery, Databricks, PostgreSQL.
+**First real slice done.** A new `Executor` interface
+(`structifact/executors/`) lets Structifact actually run its own
+generated DDL against a real database, not just produce SQL text —
+closing a real gap (nothing previously confirmed generated SQL was
+genuinely valid/executable). `DatasetSpec` → `SQLGenerator` →
+`Executor.execute_ddl()` is now a real, tested, end-to-end path.
+
+First and only real implementation: **DuckDB** (`DuckDBExecutor`,
+local file or in-memory, no credentials needed) — deliberately chosen
+first specifically because it needed no credentialed environment,
+letting the `Executor` interface itself get proven before a
+credentialed engine is attempted. Exposed via a new
+`structifact execute` command, with `--data` (load real CSV rows and
+run a verification query) and `--drop-if-exists` (added after a real
+run surfaced that re-running against an existing table fails loudly
+by default — an intentional choice, matching this project's explicit-
+over-magic principle, with an opt-in escape hatch rather than a
+silent overwrite).
+
+Deliberately, explicitly NOT done — see `FUTURE_WORK.md`'s "Before a
+1.0 Release" section:
+
+* Real Postgres/Snowflake (or any other engine) implementations —
+  the interface is designed to support them without a redesign, but
+  none exist yet
+* Transaction management, connection pooling, retry logic — a single
+  connect/run/close per invocation only
+* Executing `ModelGenerator`'s transformation SQL — only
+  `SQLGenerator`'s schema DDL is executed; proving a computed-field
+  `SELECT` runs against real data is a distinct, unproven capability
+
+This scope was chosen deliberately rather than from an external real-
+need example, an explicit, acknowledged exception to this project's
+usual real-example-first discipline — justified because DuckDB
+requires no setup and there was a genuine gap (unverified generated
+SQL) worth closing regardless.
 
 ## Design Requirement
 
 Execution systems should remain separate from metadata definition.
 Structifact defines what should exist; execution platforms define how
-and where it runs.
+and where it runs. Held up directly: `Executor.execute_ddl()` runs
+SQL `SQLGenerator` already produced — nothing about *what* SQL gets
+generated changed to accommodate execution.
 
 ---
 
