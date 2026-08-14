@@ -21,6 +21,10 @@ ai = [
     "anthropic>=0.40",
 ]
 
+duckdb = [
+    "duckdb>=0.10",
+]
+
 dev = [
     "pytest",
 ]

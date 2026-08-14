@@ -7,6 +7,8 @@ from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
 from .quality import load_data_rows, check_data, resolve_references
 from .dependencies import execution_order
+from .executors.registry import EXECUTORS
+from .generators.sql import SQLGenerator
 from .discover import (
     discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
     build_requirements_prompt, parse_requirements_draft,
@@ -219,6 +221,80 @@ def deps(args):
     print("\n--- EXECUTION ORDER ---\n")
     for i, name in enumerate(order, start=1):
         print(f"{i}. {name}")
+
+
+def execute(args):
+    """
+    Phase 8 — Execution and Platform Integrations, first slice.
+    Executes a dataset's generated DDL against a real database
+    engine (currently: DuckDB only — see executors/registry.py),
+    optionally loading real data and running a verification query.
+
+    Scope, explicit: DDL only, not ModelGenerator's transformation
+    SQL; a single connect/run/close per invocation, no transactions/
+    pooling/retry. Re-running against an existing table fails loudly
+    unless --drop-if-exists is passed — no silent overwrite/append.
+    See docs/FUTURE_WORK.md's "Before a 1.0 Release" section for
+    what's deliberately not here yet.
+    """
+    try:
+        table = load_spec(args.spec)
+        validate_table(table)
+    except ValueError as e:
+        print("\nValidation failed:\n")
+        print(e)
+        return
+
+    print(f"✓ Loaded schema: {table.name}")
+
+    executor_cls = EXECUTORS.get(args.engine)
+    if executor_cls is None:
+        print(f"\nUnknown engine '{args.engine}'")
+        print(f"Available: {', '.join(sorted(EXECUTORS.keys()))}")
+        return
+
+    executor = executor_cls()
+
+    connection_args = {}
+    if args.database:
+        connection_args["database"] = args.database
+
+    try:
+        executor.connect(**connection_args)
+    except Exception as e:
+        print("\nConnection failed:\n")
+        print(e)
+        return
+
+    database_label = f" ({args.database})" if args.database else " (in-memory)"
+    print(f"✓ Connected: {executor.name}{database_label}")
+
+    try:
+        if getattr(args, "drop_if_exists", False):
+            executor.execute_ddl(f"DROP TABLE IF EXISTS {table.name}")
+            print(f"✓ Dropped table '{table.name}' if it existed")
+
+        ddl_artifact = SQLGenerator().generate(table)
+        executor.execute_ddl(ddl_artifact.content)
+        print(f"✓ Executed DDL: CREATE TABLE {table.name} (...)")
+
+        if args.data:
+            rows = load_data_rows(args.data)
+            columns = [f.name for f in table.fields]
+            executor.load_rows(table.name, columns, rows)
+            print(f"✓ Loaded {len(rows)} rows")
+
+            result = executor.query(f"SELECT * FROM {table.name}")
+            print(f"✓ Verification query: {len(result)} rows in {table.name}")
+
+        outcome = "created and populated" if args.data else "created"
+        print(f"\nTable '{table.name}' {outcome} successfully.")
+
+    except Exception as e:
+        print("\nExecution failed:\n")
+        print(e)
+    finally:
+        executor.close()
 
 
 def discover(args, ai_client=None):
@@ -482,6 +558,51 @@ def main():
     )
 
     deps_parser.set_defaults(func=deps)
+
+    execute_parser = subparsers.add_parser(
+        "execute",
+        help=(
+            "Execute a dataset's generated DDL against a real database "
+            "engine, optionally loading real data and verifying it. "
+            "First real implementation: DuckDB (local file or in-memory, "
+            "no credentials needed). The Executor interface is designed "
+            "for other engines (Postgres, Snowflake, ...) to slot in "
+            "later without a redesign — see FUTURE_WORK.md's "
+            "'Before a 1.0 Release' section for what's not built yet."
+        ),
+    )
+
+    execute_parser.add_argument("spec")
+
+    execute_parser.add_argument(
+        "--engine", required=True,
+        help="Which Executor to use (e.g. 'duckdb'). Required — no default engine.",
+    )
+
+    execute_parser.add_argument(
+        "--database", default=None,
+        help=(
+            "Engine-specific connection target. For duckdb: a file "
+            "path, or omit for an in-memory database."
+        ),
+    )
+
+    execute_parser.add_argument(
+        "--data", default=None,
+        help="Optional CSV of real data rows to load and verify after DDL execution.",
+    )
+
+    execute_parser.add_argument(
+        "--drop-if-exists", action="store_true", dest="drop_if_exists",
+        help=(
+            "Drop the target table first, if it already exists, before "
+            "running CREATE TABLE. Off by default — re-running execute "
+            "against an existing table without this flag fails loudly "
+            "rather than silently overwriting or appending."
+        ),
+    )
+
+    execute_parser.set_defaults(func=execute)
 
     discover_parser = subparsers.add_parser("discover")
 
