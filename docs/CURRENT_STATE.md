@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (307 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (322 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -63,8 +63,11 @@ structifact/                        (repo root)
 ├── examples/
 │   ├── customers/                  golden-path example
 │   │   ├── customers.yml
-│   │   ├── customers.csv
-│   │   └── generated/
+│   │   ├── README.md
+│   │   └── generated/               (output of `structifact generate`;
+│   │                                 no input CSV — validate/generate
+│   │                                 only, no validate-data walkthrough
+│   │                                 here — see data_quality_demo/ for that)
 │   ├── enterprise_demo/            synthetic wholesale-order example
 │   │   (REQUIREMENTS.md, wholesale_order_source.sql/yml,
 │   │    int_fx_rate_lookup.sql/yml, catalog.csv)
@@ -90,6 +93,8 @@ structifact/                        (repo root)
 │   │                               not a Generator)
 │   ├── dependencies.py             Phase 7 remainder: cross-dataset dependency
 │   │                               graph, cycle detection, execution ordering
+│   ├── executors/                  Phase 8: execute generated DDL against a
+│   │                               real database (DuckDB — first slice)
 │   ├── discover.py                 schema/requirements inference
 │   ├── llm.py                      provider-agnostic LLM client
 │   │
@@ -109,7 +114,7 @@ structifact/                        (repo root)
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (34 files, 307 tests)
+├── tests/                          (35 files, 322 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -184,6 +189,18 @@ Declaration and ordering only — deliberately does *not* resolve cross-dataset 
 
 ---
 
+## Execution (Phase 8 — new since the last full rewrite of this document)
+
+`structifact/executors/` is a new package, following the same registry pattern as `adapters/`/`generators/`. It closes a real gap: nothing previously confirmed that Structifact's generated SQL was actually valid, executable SQL — `SQLGenerator` only ever produced text.
+
+`Executor` (`executors/base.py`) defines a minimal interface: `connect()`, `execute_ddl()`, `load_rows()`, `query()`, `close()`. `DuckDBExecutor` (`executors/duckdb.py`) is the first, and currently only, real implementation — chosen deliberately because it needs no credentials or network access, so the interface itself gets proven before a credentialed engine (Postgres, Snowflake) is attempted. `executors/registry.py` maps an `--engine` name to its `Executor` class, exactly like `generators/registry.py` maps generator names.
+
+Exposed via a new CLI command, `structifact execute <spec.yml> --engine <name> [--database <target>] [--data <csv>] [--drop-if-exists]`. Runs `SQLGenerator`'s DDL output against the real engine; with `--data`, also loads real CSV rows and runs a verification query. `--drop-if-exists` was added after a real run showed the honest default behavior — failing loudly if the target table already exists, rather than silently overwriting or appending — needs an explicit opt-in escape hatch for repeated runs.
+
+Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 Release" section: real Postgres/Snowflake (or other) engine implementations, transaction/connection-pooling/retry handling, and executing `ModelGenerator`'s transformation SQL (only `SQLGenerator`'s schema DDL is executed today).
+
+---
+
 ## Discover / AI-Assisted Discovery
 
 `structifact discover` infers a draft schema from raw CSV sample data — deterministic, no AI, always writes a clearly-labeled draft for human review. `--ai` adds optional LLM-assisted field descriptions (off by default, cost-estimated, confirmed before any request; declining makes zero API calls). `discover --requirements <file> --ai` extracts a draft schema from a freeform requirements document (multi-column tables, prose, terse bullets, or a mix) — always requires `--ai`, since there's no deterministic way to parse freeform text.
@@ -202,7 +219,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 ## CLI
 
-`structifact/cli.py` — five commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `--requirements`, `-y`), `validate-data` (`--ref`, repeatable), and `deps` (resolves dependencies across multiple dataset files into a safe execution order).
+`structifact/cli.py` — six commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `--requirements`, `-y`), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--database`, `--data`, `--drop-if-exists`).
 
 ---
 
@@ -226,30 +243,34 @@ Structifact still does not provide:
 * data-type validation (verifying a "decimal" column's values are actually numeric at all) — deliberately deferred; range/pattern checking in `quality.py` skips values that fail to parse rather than flagging them
 * composite (multi-column) foreign keys, joins, or dedup rules beyond what's already scoped — the IR intentionally supports only the shapes real examples have needed so far
 * cross-dataset value resolution — one dataset consuming another's computed/resolved value (e.g. an FX-rate lookup with conditional fallback); dependency *declaration* and *ordering* are done, but not this
+* real, credentialed execution against anything beyond DuckDB (Postgres, Snowflake, etc.) — the `Executor` interface is designed for it, but only DuckDB is actually implemented
+* transaction management, connection pooling, or retry logic in the execution layer — a single connect/run/close per `structifact execute` invocation only
+* executing `ModelGenerator`'s transformation SQL — only `SQLGenerator`'s schema DDL is currently executable
 
-These are documented, deliberate scope boundaries, not oversights — see `ROADMAP.md`/`FUTURE_WORK.md` for what's actually planned next versus what's exploratory.
+These are documented, deliberate scope boundaries, not oversights — see `ROADMAP.md`/`FUTURE_WORK.md` for what's actually planned next versus what's exploratory. The execution-layer items above are also tracked explicitly in `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist.
 
 ---
 
 # Immediate Development Focus
 
-Phase 6 (Data Quality Framework) and Phase 7 (Transformation Framework, including its dependency-tracking remainder) are both now complete end to end, matching their original scope in `ROADMAP.md`. Per the project's own YAGNI discipline, the next step is *not* an automatic continuation of either — future work in these areas should come from a real, concrete need, the same way each prior increment did.
+Phase 6 (Data Quality Framework) and Phase 7 (Transformation Framework, including its dependency-tracking remainder) are both now complete end to end, matching their original scope in `ROADMAP.md`. Phase 8 (Execution and Platform Integrations) has a first real slice done (DuckDB). Per the project's own YAGNI discipline, none of this automatically continues — future work in these areas should come from a real, concrete need, the same way each prior increment did. (Phase 8's DuckDB slice is a deliberate, acknowledged exception to that discipline — chosen for its own sake, specifically because it required no credentialed environment and closed a real gap: nothing previously confirmed Structifact's generated SQL was actually executable.)
 
 Open threads:
 
 * **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — two real synthetic examples (`enterprise_demo`, `workorder_demo`) both motivate this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
+* **A real, credentialed Executor** (Postgres or Snowflake — the latter directly relevant to real day-job usage) — the natural next Phase 8 slice once a credentialed environment is available to test against.
 * Longer-term, deliberately deferred: VS Code extension, structifact.com deployment/GUI (see `FUTURE_WORK.md`).
 
 ---
 
 # Current Development Philosophy
 
-Unchanged from earlier versions of this document: the priority is a trustworthy architecture over feature quantity. What has changed is that this philosophy now has a real track record behind it — every non-trivial IR addition this project has made (computed fields, FK/check constraints, sources/joins, each Phase 6 increment, dataset dependency tracking) went through the same sequence: a real example first, a minimal paper contract, review, then implementation with tests verified end-to-end before being considered done. See `DECISION_HISTORY.md` for specific instances of this.
+Unchanged from earlier versions of this document: the priority is a trustworthy architecture over feature quantity. What has changed is that this philosophy now has a real track record behind it — every non-trivial IR addition this project has made (computed fields, FK/check constraints, sources/joins, each Phase 6 increment, dataset dependency tracking) went through the same sequence: a real example first, a minimal paper contract, review, then implementation with tests verified end-to-end before being considered done. Phase 8's DuckDB slice is a notable, acknowledged departure from strict real-example-first sequencing (chosen deliberately rather than externally motivated) — but it kept every other part of the discipline: a minimal contract agreed before code, a real end-to-end run (not just passing unit tests) required before being called done, and a genuine bug (re-running against an existing table) found and fixed from that real run rather than from the test suite alone. See `DECISION_HISTORY.md` for specific instances of this.
 
 ---
 
 # Summary
 
-Structifact currently represents a working metadata-driven framework: adapters normalize three input formats into a shared IR; validation checks that IR's own well-formedness; generators produce SQL, dbt-shaped YAML, catalogs, docs, and (for datasets with computed fields or joins) real executable transformation SQL; `discover` can bootstrap a draft schema from raw data or a freeform requirements document, optionally AI-assisted; `validate-data` checks real data rows — including across two related datasets — against everything the schema declares; and `deps` resolves and safely orders dependencies across a collection of related datasets.
+Structifact currently represents a working metadata-driven framework: adapters normalize three input formats into a shared IR; validation checks that IR's own well-formedness; generators produce SQL, dbt-shaped YAML, catalogs, docs, and (for datasets with computed fields or joins) real executable transformation SQL; `discover` can bootstrap a draft schema from raw data or a freeform requirements document, optionally AI-assisted; `validate-data` checks real data rows — including across two related datasets — against everything the schema declares; `deps` resolves and safely orders dependencies across a collection of related datasets; and `execute` runs generated SQL against a real database (DuckDB today), proving it actually works rather than just looking plausible.
 
 The project has moved from "architectural design" through "deeper implementation" into what's now a genuinely complete first version of several major capability areas, not just scaffolding for them.
