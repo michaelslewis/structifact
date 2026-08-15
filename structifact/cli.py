@@ -9,6 +9,7 @@ from .quality import load_data_rows, check_data, resolve_references
 from .dependencies import execution_order, impacted_by
 from .executors.registry import EXECUTORS
 from .generators.sql import SQLGenerator
+from .generators.model import ModelGenerator
 from .discover import (
     discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
     build_requirements_prompt, parse_requirements_draft,
@@ -271,18 +272,37 @@ def execute(args):
     loading real data and running a verification query.
 
     Phase 8C-v1: the DROP (if --drop-if-exists), CREATE, and row-load
-    steps run inside a single executor.transaction() scope — atomic
-    as a whole. A failure partway through (e.g. a duplicate-key row
-    in --data) rolls back everything from this invocation, including
-    the DROP and CREATE — leaving the database exactly as it was
-    before the invocation, not silently half-populated. The
-    verification query runs after the transaction commits, so it
-    proves durable persistence, not just in-transaction visibility.
-    Re-running against an existing table still fails loudly unless
-    --drop-if-exists is passed — no silent overwrite/append.
+    (or model INSERT — see below) steps run inside a single
+    executor.transaction() scope — atomic as a whole. A failure
+    partway through (e.g. a duplicate-key row in --data, or a real
+    constraint violation during --materialize) rolls back everything
+    from this invocation, including the DROP and CREATE — leaving the
+    database exactly as it was before the invocation, not silently
+    half-populated. The verification query runs after the transaction
+    commits, so it proves durable persistence, not just in-transaction
+    visibility. Re-running against an existing table still fails
+    loudly unless --drop-if-exists is passed — no silent overwrite/
+    append; --materialize does not change this in any way, it only
+    changes how the table gets its rows once CREATE succeeds.
 
-    Connection pooling and retry logic remain deliberately unstarted
-    — see docs/FUTURE_WORK.md.
+    Phase 8D v4: --materialize populates the table by running its
+    transformation model's SELECT (ModelGenerator.generate_insert(),
+    Phase 8D v3) instead of loading raw --data — mutually exclusive
+    with --data, since they're two different ways of populating the
+    same rows. Requires the dataset to declare computed fields and/or
+    sources/joins (checked before connecting to the database — a
+    dataset with nothing to materialize, or one whose model reads
+    from a relation sharing its own name, fails fast with a clear
+    error, never a wasted connection). Assumes any upstream tables the
+    model reads from already exist and are already populated in the
+    target database — structifact execute does not create, populate,
+    or orchestrate across datasets; that remains explicitly out of
+    scope (see docs/FUTURE_WORK.md).
+
+    Connection pooling and retry logic (Executor.transaction()'s
+    retry_transaction(), Phase 8C-v2) remain deliberately unexposed
+    here — no real caller of this command has a concurrent-writer or
+    connection-reuse need yet. See docs/FUTURE_WORK.md.
     """
     try:
         table = load_spec(args.spec)
@@ -293,6 +313,30 @@ def execute(args):
         return
 
     print(f"✓ Loaded schema: {table.name}")
+
+    if getattr(args, "materialize", False) and args.data:
+        print(
+            "\n--materialize and --data cannot be used together — "
+            "--materialize populates the table by running its model's "
+            "SELECT; --data loads raw CSV rows directly."
+        )
+        return
+
+    insert_artifact = None
+    if getattr(args, "materialize", False):
+        try:
+            insert_artifact = ModelGenerator().generate_insert(table)
+        except ValueError as e:
+            print(f"\nCannot materialize '{table.name}':\n")
+            print(e)
+            return
+
+        if insert_artifact is None:
+            print(
+                f"\n'{table.name}' has no computed fields or sources/joins "
+                "declared — nothing to materialize."
+            )
+            return
 
     executor_cls = EXECUTORS.get(args.engine)
     if executor_cls is None:
@@ -326,7 +370,10 @@ def execute(args):
             executor.execute_ddl(ddl_artifact.content)
             print(f"✓ Executed DDL: CREATE TABLE {table.name} (...)")
 
-            if args.data:
+            if getattr(args, "materialize", False):
+                executor.execute_ddl(insert_artifact.content)
+                print(f"✓ Executed model INSERT: INSERT INTO {table.name} (...)")
+            elif args.data:
                 rows = load_data_rows(args.data)
                 columns = [f.name for f in table.fields]
                 executor.load_rows(table.name, columns, rows)
@@ -335,11 +382,16 @@ def execute(args):
         # Only reached if the transaction above committed successfully —
         # this query runs against durably persisted data, not merely
         # in-transaction visibility.
-        if args.data:
+        if args.data or getattr(args, "materialize", False):
             result = executor.query(f"SELECT * FROM {table.name}")
             print(f"✓ Verification query: {len(result)} rows in {table.name}")
 
-        outcome = "created and populated" if args.data else "created"
+        if getattr(args, "materialize", False):
+            outcome = "created and materialized"
+        elif args.data:
+            outcome = "created and populated"
+        else:
+            outcome = "created"
         print(f"\nTable '{table.name}' {outcome} successfully.")
 
     except Exception as e:
@@ -638,8 +690,9 @@ def main():
         "execute",
         help=(
             "Execute a dataset's generated DDL against a real database "
-            "engine, optionally loading real data and verifying it. "
-            "Real implementations: DuckDB (local file or in-memory, no "
+            "engine, optionally loading real --data or --materialize-ing "
+            "its transformation model, then verifying it. Real "
+            "implementations: DuckDB (local file or in-memory, no "
             "credentials needed) and PostgreSQL (via a --connection DSN). "
             "The Executor interface is designed for further engines "
             "(Snowflake, ...) to slot in later without a redesign — see "
@@ -668,6 +721,19 @@ def main():
     execute_parser.add_argument(
         "--data", default=None,
         help="Optional CSV of real data rows to load and verify after DDL execution.",
+    )
+
+    execute_parser.add_argument(
+        "--materialize", action="store_true",
+        help=(
+            "Populate the table by running its transformation model's "
+            "SELECT (ModelGenerator) instead of loading raw --data. "
+            "Requires the dataset to declare computed fields and/or "
+            "sources/joins. Assumes any upstream tables the model "
+            "reads from already exist and are populated in the target "
+            "database -- structifact execute does not create or "
+            "populate them. Mutually exclusive with --data."
+        ),
     )
 
     execute_parser.add_argument(
