@@ -89,6 +89,20 @@ up beyond the narrowest proven case:
   from a real YAML file — see `DECISION_HISTORY.md` for the full
   writeup (the same class of bug as the Phase 1 constraint-parsing
   gap). See ROADMAP.md's Phase 8 section for the full contract.
+* **`docs/ARCHITECTURE.md`'s execution-pattern documentation** — found
+  during the 1.0 readiness audit: the document has zero mentions of
+  `Executor`, `execute`, or materialization anywhere across its full
+  length, despite Phase 8 adding an entire fourth architectural
+  pattern alongside generation/quality/dependency-resolution. This is
+  a real content gap, not a stale-wording fix — a properly-scoped
+  future task in its own right rather than something to fold into a
+  documentation-consolidation pass. Specific, bounded scope for when
+  this is picked up: document the `Executor` abstraction and the
+  database-execution boundary, the `transaction()`/atomicity contract,
+  `retry_transaction()`, materialization (`generate_insert()` and the
+  typed-INSERT-over-CTAS decision), and the DuckDB/PostgreSQL executor
+  implementations — as a fourth pattern alongside the three already
+  documented, not a rewrite of the other three.
 
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
 

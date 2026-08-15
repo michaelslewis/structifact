@@ -15,7 +15,7 @@ The project is being developed as both:
 1. A serious engineering exploration of metadata-driven data systems.
 2. A professional portfolio project demonstrating modern software and data engineering practices.
 
-The registration of `structifact.com` reflects the long-term intention for Structifact to become a recognizable standalone engineering project. The domain is deliberately not deployed yet — see "Current Development Phase" below for why.
+The registration of `structifact.com` reflects the long-term intention for Structifact to become a recognizable standalone engineering project. The domain is deliberately not deployed yet — see `FUTURE_WORK.md`'s "Open Source and Community Direction" section for why.
 
 ---
 
@@ -36,7 +36,7 @@ Structifact explores an alternative:
 * check whether real data actually conforms to what the metadata declares
 * — and now, understand how multiple datasets relate to and depend on each other
 
-That last point is a meaningful expansion of the original vision, not just an implementation detail: for most of this project's life, a dataset's metadata described only itself. Structifact now also lets a dataset declare a dependency on another Structifact-defined dataset, and resolves a whole collection of related datasets into a safe processing order. See "Current Repository State" below.
+That last point is a meaningful expansion of the original vision, not just an implementation detail: for most of this project's life, a dataset's metadata described only itself. Structifact now also lets a dataset declare a dependency on another Structifact-defined dataset, and resolves a whole collection of related datasets into a safe processing order. See `CURRENT_STATE.md` for the current implementation snapshot.
 
 ---
 
@@ -50,99 +50,9 @@ Metadata describes datasets, fields, types, constraints, how a dataset is built 
 
 ---
 
-# Current Repository State
+# Current Implementation
 
-Structifact has moved well past initial framework scaffolding. The core pipeline (adapters → IR → validation → generators) is fully implemented and tested, and three further capability areas are now complete alongside it: schema/requirements discovery (deterministic and AI-assisted), real-data quality checking, and cross-dataset dependency resolution.
-
-```text
-structifact/
-│
-├── examples/
-│   ├── customers/            golden-path example
-│   ├── workorder_demo/       synthetic work-order example (multi-role joins, dedup)
-│   ├── data_quality_demo/    Phase 6 example (orders + a referenced customers dataset)
-│   └── dependency_demo/      Phase 7 remainder example (dataset chain + cyclic variant)
-│
-├── structifact/
-│   ├── cli.py                 validate / generate / discover / validate-data / deps
-│   ├── ir.py                  DatasetSpec / FieldSpec / ConstraintSpec /
-│   │                          SourceRef / JoinSpec / DedupRule
-│   ├── validation.py          metadata well-formedness + relationship checks
-│   ├── quality.py             real-data checking against that metadata
-│   ├── dependencies.py        cross-dataset dependency graph + execution ordering
-│   ├── discover.py            schema/requirements inference
-│   ├── llm.py                 provider-agnostic LLM client
-│   ├── types.py
-│   │
-│   ├── adapters/               yaml.py (canonical) / csv.py / excel.py
-│   └── generators/             sql.py / dbt_yaml.py / catalog.py /
-│                               catalog_extended.py / docs.py / model.py
-│
-├── tests/                      307 tests
-├── docs/
-└── pyproject.toml
-```
-
----
-
-# Currently Implemented Capabilities
-
-## Metadata Handling
-
-A dataset's metadata can now express far more than the original name/fields/types shape: field-level role classification, an accepted-value domain, computed/derived fields with their own expression, value-level rules (range, regex pattern), which source (of possibly several) a field actually comes from, dataset-level relationships to other sources — including the same physical table joined in multiple times under different roles, each with its own filter and a priority-based deduplication rule — and, most recently, which other Structifact-defined datasets this one depends on.
-
-## Adapter Architecture
-
-YAML (canonical), CSV, and Excel — all three kept at parity on field-level attributes, including the newer value-level rules.
-
-## Intermediate Representation
-
-```text
-Input Metadata
-       |
-       v
-    Adapter
-       |
-       v
-Intermediate Representation
-       |
-       +------------+
-       |            |
-       v            v
- Validation    Generators
-```
-
-The IR remains the central architectural decision preventing the framework from becoming tightly coupled to specific formats or outputs. It has grown substantially since the project's early stages — see `ARCHITECTURE.md` for the full current shape.
-
-## Validation Framework
-
-Validates the IR's own well-formedness: schema structure, constraint relationships, and (a newer addition) genuinely checkable rule *content* — a declared regex pattern must actually compile, a declared min/max range must be internally consistent, a declared relationship between sources must actually resolve, a declared dataset-level dependency must be well-formed. This remains distinct from checking real data (`quality.py`'s job) and from resolving a whole collection of datasets against each other (`dependencies.py`'s job).
-
-## Data Quality Framework
-
-A dataset's declared rules can now be checked against real CSV data — required fields, uniqueness, an accepted-values domain, numeric ranges, regex patterns, and (checking across two datasets at once) whether a foreign-key relationship's values actually exist in the referenced dataset's real data. This is implemented as its own subsystem (`quality.py`), not bolted onto the existing `Generator` framework, since checking real data needs two inputs (a schema and a data file) where every generator only ever needed one.
-
-## Dataset Dependency Tracking
-
-A dataset can declare that it depends on other Structifact-defined datasets (distinct from a computed field's own dependency on other fields within the same dataset). Given a collection of related dataset files, Structifact resolves them into a deterministic execution order, with clear errors for unresolved references, duplicate dataset names, or circular dependencies. Implemented as its own subsystem (`dependencies.py`), matching the same reasoning as the data quality framework — this operates on a *collection* of datasets, a genuinely different question from validating one. Declaration and ordering only — deliberately does not resolve *how* one dataset obtains another's data (see "What Structifact Is Not Currently" below).
-
-## Generators
-
-Six generators now exist: SQL DDL, dbt-style YAML, two catalog formats (a minimal default and a richer opt-in variant), Markdown documentation, and a generator that emits real, executable `SELECT` SQL for a dataset's computed fields and joined-in sources, distinct from the SQL generator's schema-only DDL.
-
-## Discovery
-
-Beyond the original "infer types from a CSV sample" capability, Structifact can now extract a draft schema from a freeform requirements document (tables, prose, or a mix) with optional LLM assistance — always opt-in, always cost-estimated and confirmed before any real request, always producing a draft for human review rather than anything auto-applied.
-
-## CLI
-
-Five commands: `validate`, `generate`, `discover`, `validate-data`, and `deps` — the last two the newest, exposing the data quality framework and dataset dependency resolution respectively.
-
----
-
-# Current Development Phase
-
-Structifact has moved past the original two-phase framing ("architectural foundation" then "framework expansion") into a phase better described as **capability completion**: several major areas (generation, discovery, data quality, dependency tracking) are now genuinely complete first versions, not scaffolding. The project continues to follow the same discipline that got it here — ground each new capability in a real example, agree a minimal contract before writing code, then implement with tests verified end-to-end — rather than expanding scope for its own sake. Phase 6 (Data Quality Framework), for instance, was deliberately built in three small, separately-verified increments (required/uniqueness/accepted-values, then range/pattern, then cross-dataset relationships) rather than attempted all at once, and was declared complete once it matched its original planned scope rather than continuing to grow indefinitely. The dependency-tracking work followed the same discipline in a different way: real examples motivated a larger, tempting scope (resolving cross-dataset values, not just declaring dependencies), and the project deliberately held to the documented, narrower scope instead.
+This document deliberately does not maintain its own snapshot of what's implemented, the repository structure, or capability lists — that duplicated `CURRENT_STATE.md` and reliably drifted out of sync with it (see `DECISION_HISTORY.md` for the specific instance that prompted removing it). **See [`CURRENT_STATE.md`](CURRENT_STATE.md) for the authoritative, actively-maintained description of what's actually implemented, the current repository structure, completed milestones, and known limitations.** This document's job is the one below: why Structifact exists, not what it currently does.
 
 ---
 

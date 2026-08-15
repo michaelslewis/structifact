@@ -310,6 +310,26 @@ The previous entry's stated practice — "run the real CLI against a real file a
 
 ---
 
+# Decision: A 1.0 Readiness Audit, and Retiring a Duplicate Document
+
+## What Happened
+
+A structured 1.0 readiness audit (Green/Yellow/Red across the entire public surface — IR, adapters, validation, dependencies, generation, execution, materialization, CLI, tests, docs) found that `README.md` and `docs/EXAMPLES.md` had both stopped being updated before Phase 8 started, while `ROADMAP.md`/`FUTURE_WORK.md`/`CURRENT_STATE.md`/this document had been updated every single phase since. The gap was concrete, not cosmetic: README's own flagship `validate-data` example no longer reproduced its documented output (the fixture gained a `foreign_key` constraint requiring `--ref` since the example was written), README described five CLI commands and omitted `execute`/`impact` entirely, and `examples/enterprise_demo` — cited as a real example across eight files, including this one — had never actually been committed to the repository at any point (confirmed via `git log`). Separately, the CLI never called `sys.exit()` anywhere, so a genuine validation or execution failure exited `0`, and a missing file produced a raw Python traceback in most commands.
+
+The same audit pass, extended to a documentation-structure review, found `docs/CURRENT_IMPLEMENTATION.md` and `docs/CURRENT_STATE.md` had converged on an identical stated purpose ("describes the current state of Structifact" / "the technical source of truth for implemented behavior") with near-identical shape (repo structure diagram, capabilities list, workflow diagrams, "not currently implemented" list) — one actively maintained every phase, the other frozen at the same stale point as README. `docs/PROJECT_CONTEXT.md` was found to be a partial duplicate: its vision/identity/principles sections were unique, but its "Current Repository State"/"Currently Implemented Capabilities"/"Current Development Phase" sections covered the identical territory as `CURRENT_STATE.md`, at the same staleness.
+
+## What Was Done
+
+CLI exit codes and file-not-found handling were fixed (every command now returns a success/failure signal `main()` propagates into a real process exit code). README and `EXAMPLES.md` were corrected against the real, currently-running CLI — every command shown was re-run and its actual output used, not assumed. `enterprise_demo` references were corrected everywhere except this document's own earlier entry (left as originally written, with a correction note added, since rewriting a decision record after the fact would defeat its purpose). `docs/CURRENT_IMPLEMENTATION.md` was deleted outright — not merged, not deprecated-in-place — since it had no unique content once `CURRENT_STATE.md` was confirmed authoritative, and keeping both was exactly the "did we update both?" maintenance trap this project's own simplicity principle exists to avoid. `docs/PROJECT_CONTEXT.md` was trimmed, not deleted: its vision/identity/engineering-principles content was kept (genuinely unique, doesn't go stale the way an implementation snapshot does), and its redundant current-state sections were replaced with a single pointer to `CURRENT_STATE.md`.
+
+## Why This Is Worth Recording
+
+This is the same lesson as the two entries above, applied one level up: "verify end to end, don't just trust a green test suite" is about code; the equivalent discipline for documentation is "verify the documented workflow against the real CLI, don't just trust that a doc was accurate when it was written." Four of nine core docs had been rigorously kept current every phase; two (README, EXAMPLES.md) had not, for no principled reason — nobody decided to stop maintaining them, the per-phase docs habit just never covered them. The fix wasn't "write more documentation" — it was "delete the document that duplicated an already-authoritative one, and correct the two that made false claims a user could immediately disprove by running the command shown." One document doing one job, verified against reality, beats several documents doing the same job with different amounts of drift.
+
+`docs/ARCHITECTURE.md` was found to have the same staleness (zero mentions of the entire Phase 8/9 execution layer across 927 lines) but was deliberately left unaddressed here — its content is genuinely unique (not a duplicate of anything), so fixing it means writing real new material (the `Executor` abstraction, atomic transactions, retry, materialization as a fourth architectural pattern), not a correction. That's a properly-scoped future task in its own right, not something to fold into a consolidation pass — see `FUTURE_WORK.md`.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
