@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (371 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (381 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -116,7 +116,7 @@ structifact/                        (repo root)
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (32 files, 371 tests)
+├── tests/                          (33 files, 381 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -217,7 +217,9 @@ Exposed via a new CLI command, `structifact execute <spec.yml> --engine <name> [
 
 `tests/test_model_execution_sources_joins.py` (Phase 8D, v2) proves the materially bigger sources/joins/dedup CTE shape also executes correctly, still read-only, via the same `Executor.query()` — no new Executor method needed for this either. Split out from what was originally one "8D remainder" item, matching the discipline that each slice proves exactly one new thing. Reuses the `work_order_source`/`partner_role` fixture already unit-tested (SQL text only) in `tests/test_model_sources_joins.py`, with real data specifically designed to exercise three semantics with exact-value assertions: a `filter` that must exclude a wrong-role candidate that would otherwise look like a better dedup match, a dedup tie broken by the *secondary* sort key rather than the primary one, and a `left join` that must preserve an unmatched row as `NULL` rather than dropping it. Verified against both DuckDB and a real PostgreSQL server.
 
-Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 Release" section: a real Snowflake (or other) engine implementation, connection pooling (no usage pattern in the codebase motivates it — exactly one `Executor` instance is ever constructed, per CLI invocation), and materializing `ModelGenerator`'s output (either SELECT shape — both are now proven to execute correctly read-only) into a real target table, including any CLI exposure for model execution or for retry.
+`ModelGenerator.generate_insert()` (Phase 8D, v3) closes the gap v1/v2 deliberately left open: it wraps `generate()`'s SELECT in a typed `INSERT INTO <target> (<columns>) <select>`, materializing the transformation into a real table created by `SQLGenerator`'s DDL, atomically (one `transaction()` scope, Phase 8C-v1) — proven on both engines via `tests/test_model_materialization.py`, asserting *persisted* table contents. Chosen over `CREATE TABLE ... AS SELECT` — confirmed empirically before implementation, not just argued — because CTAS lets the engine infer types and drops declared constraints, handing type/constraint authority away from Structifact's own metadata; a plain typed `INSERT` works cleanly since `SQLGenerator` and `ModelGenerator` already emit fields in identical order. Reuses `Executor.execute_ddl()` as-is; no new method. Investigation surfaced a real precondition before any code was written: `source_table` defaults to `dataset.name`, so materializing into a table sharing a name with any relation the model reads from is a self-referential collision — `generate_insert()` rejects this explicitly (checking the primary source *and* every joined source's table, not just `source_table`), scoped as a materialization-specific precondition rather than a general `DatasetSpec` validation rule, since a model reading from its own dataset name can be legitimate outside of materializing it. Tests also prove the target's declared `primary_key` is genuinely enforced (not engine-inferred) and that a failed materialization is atomic — a real constraint violation during the INSERT leaves no target table at all, not a partial one. No CLI exposure, matching 8D v1/v2's precedent exactly.
+
+Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 Release" section: a real Snowflake (or other) engine implementation, connection pooling (no usage pattern in the codebase motivates it — exactly one `Executor` instance is ever constructed, per CLI invocation), and any CLI exposure for model execution (the plain read-only SELECT, materialization, or retry).
 
 ---
 
@@ -280,7 +282,7 @@ Phase 9 (Lineage and Observability) now has a first real slice done: impact anal
 Open threads:
 
 * **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — two real synthetic examples (`enterprise_demo`, `workorder_demo`) both motivate this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
-* **8B — Snowflake Executor**, **8C-v3 — connection pooling**, **8D v3 — materializing `ModelGenerator`'s output** (both SELECT shapes now proven to execute correctly read-only; see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — all deliberately parked pending a real, concrete need.
+* **8B — Snowflake Executor**, **8C-v3 — connection pooling**, **CLI exposure for model execution** (materialization, the plain read-only SELECT, and retry are all now proven via `Executor` methods directly, not the CLI — see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — all deliberately parked pending a real, concrete need.
 * **Lineage view / dependency-graph visualization** (Phase 9 remainder) — bigger, less concretely scoped than impact analysis; worth revisiting once a real use case surfaces.
 * Longer-term, deliberately deferred: VS Code extension, structifact.com deployment/GUI (see `FUTURE_WORK.md`).
 

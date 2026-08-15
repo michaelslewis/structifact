@@ -56,16 +56,27 @@ up beyond the narrowest proven case:
   inspection: exactly one `Executor` instance is ever constructed, per
   CLI invocation).
 * **Materializing ModelGenerator's transformation SQL into a real target
-  table** (Phase 8D v3) — `tests/test_model_execution.py` (v1) and
-  `tests/test_model_execution_sources_joins.py` (v2) now prove both the
-  simple single-source SELECT *and* the sources/joins/dedup CTE shape run
-  correctly against real data on both DuckDB and PostgreSQL — read-only,
-  via the existing `Executor.query()`, no new Executor method needed for
-  either. Still unproven/undone: writing either shape's output into a
-  real table (an `INSERT INTO ... SELECT`-style path, closer to `dbt
-  run` — vs. a `CREATE TABLE ... AS SELECT` that lets the engine infer
-  types, an open design question not yet resolved on paper) and any CLI
-  exposure for model execution.
+  table** (Phase 8D v3) — now done. `ModelGenerator.generate_insert()`
+  wraps its SELECT in a typed `INSERT INTO <target> (<columns>) <select>`,
+  chosen over `CREATE TABLE ... AS SELECT` so the target's types/
+  constraints stay authored by Structifact's metadata rather than
+  inferred by the engine — confirmed empirically, not just argued in
+  the abstract, before implementation. Reuses `Executor.execute_ddl()`
+  as-is; no new Executor method. A real, load-bearing constraint
+  surfaced during investigation: materializing into a table sharing a
+  name with any relation the model reads from is a self-referential
+  collision (the common case, since `source_table` defaults to the
+  dataset's own name) — rejected with a clear error, scoped as a
+  materialization-specific precondition rather than a general
+  `DatasetSpec` validation rule. Verified on both engines, asserting
+  persisted table contents (not just query-time results), including
+  that a failed materialization is atomic (no target table left behind
+  at all) and that the target's declared constraints are genuinely
+  enforced, not engine-inferred. See ROADMAP.md's Phase 8 section for
+  the full contract. Still open: any CLI exposure for model execution
+  (materialization or the plain read-only SELECT) — every 8D slice so
+  far has proven its capability via `Executor` methods directly, not
+  the CLI.
 
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
 
