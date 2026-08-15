@@ -1,14 +1,12 @@
 from typing import Any, Dict, List
 
-import duckdb
-
 from .base import Executor
 
 
 class DuckDBExecutor(Executor):
     """
     Executes generated DDL against a local DuckDB file (or an
-    in-memory database, if `database` is omitted). No credentials,
+    in-memory database, if `connection` is omitted). No credentials,
     no network, no server — the first real Executor implementation
     specifically because it needs none of those, letting the
     Executor interface itself get proven before a credentialed
@@ -22,7 +20,9 @@ class DuckDBExecutor(Executor):
         self._conn = None
 
     def connect(self, **connection_args: Any) -> None:
-        database = connection_args.get("database") or ":memory:"
+        import duckdb  # lazy import: only required if this executor runs
+
+        database = connection_args.get("connection") or ":memory:"
         self._conn = duckdb.connect(database=database)
 
     def execute_ddl(self, sql: str) -> None:

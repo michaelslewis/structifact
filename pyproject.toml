@@ -26,6 +26,10 @@ duckdb = [
     "duckdb>=0.10",
 ]
 
+postgres = [
+    "psycopg2-binary>=2.9",
+]
+
 dev = [
     "pytest",
 ]
