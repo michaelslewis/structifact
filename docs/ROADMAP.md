@@ -448,8 +448,10 @@ Connect Structifact metadata with execution environments.
 **Two real engines done (8A); a computed-field SELECT proven to
 execute correctly, read-only, for both the simple single-source case
 (8D, v1) and the sources/joins/dedup CTE shape (8D, v2); execute's
-write operations now atomic (8C-v1). Snowflake, retry, pooling, and
-model materialization remain (8B/8C-v2/8C-v3/8D v3).** A new `Executor` interface
+write operations now atomic (8C-v1); a genuinely reproduced transient
+database error now recoverable via retry (8C-v2). Snowflake,
+connection pooling, and model materialization remain
+(8B/8C-v3/8D v3).** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
@@ -580,15 +582,57 @@ transaction rather than being applied destructively beforehand.
 Manually confirmed end-to-end against a real PostgreSQL server too,
 not just via pytest.
 
+**8C-v2 (retry) is also now done.** Scoped directly against a real,
+empirically-verified transient failure rather than a hypothetical
+error taxonomy: PostgreSQL's `serialization_failure` (SQLSTATE
+`40001`, raised as `psycopg2.errors.SerializationFailure`), reproduced
+with two genuinely concurrent `SERIALIZABLE` transactions before any
+retry code was written, confirming the exact exception type and
+condition rather than assuming it. `structifact/executors/base.py`
+gained one new module-level function, `retry_transaction(executor,
+fn, retry_on, max_attempts)` — deliberately NOT a new `Executor`
+method: retrying means re-running the *caller's* code, and a context
+manager can't re-invoke its own `with`-block body, so `fn` is passed
+in as a callable rather than becoming a new abstract method every
+`Executor` subclass would need to implement. `Executor`,
+`DuckDBExecutor`, and `PostgresExecutor` needed zero changes, the same
+pattern 8C-v1 established for `execute_ddl()`/`load_rows()`/`query()`.
+
+`fn` must represent the *complete* unit of work for one attempt and be
+safe to re-run from the beginning — `retry_transaction` re-executes
+`fn()` in its entirety inside a fresh `transaction()` scope on each
+retry, not just the statement that failed, so `fn` may not perform
+irreversible effects outside the database (an email, an external API
+call). `max_attempts` counts total calls to `fn()`, including the
+first — `max_attempts=3` means at most 3 calls, not 3 retries after an
+initial attempt. A non-`retry_on` exception propagates immediately, on
+any attempt; exhausting `max_attempts` propagates the *final*
+attempt's exception. Verified at two levels: deterministic loop-
+mechanics tests (`tests/test_executor_retry.py`, real `DuckDBExecutor`,
+plain Python exceptions — proving exact attempt counts and which
+exception propagates when) and a real PostgreSQL integration test
+proving the actual claim under test — that the *entire* callback
+re-executes, not just the failing statement. That test's callback
+performs two separate writes; after a successful retry, the committed
+state is asserted to reflect exactly one complete application of the
+callback's effect (not zero — proving the failed attempt left no
+partial writes; not two — proving the failed attempt's work wasn't
+double-counted), and a call counter independently proves `fn` was
+invoked exactly twice. No CLI exposure (e.g. a `--retry` flag) —
+`structifact execute` is a single sequential invocation with no
+concurrent writer today, so there's no real caller that would hit a
+retryable failure yet; wiring it into the CLI now would build for a
+hypothetical rather than a real need, the same discipline `transaction()`
+itself followed before 8C-v1. In practice this is Postgres-specific for
+now — DuckDB has no comparable concurrent-writer failure mode, so its
+callers simply never encounter a `retry_on` match and get unchanged
+single-attempt behavior.
+
 Deliberately, explicitly still NOT done — kept visible as separate
 pieces rather than folded into "Postgres done," matching the
 originally scoped 8A/8B/8C/8D breakdown:
 
 * **8B — Snowflake** (or any further engine) implementation
-* **8C-v2 — Retry**: only meaningful now that atomicity exists;
-  retrying means re-entering the same `transaction()` scope on a
-  specific transient-error type, never retrying a partially-applied
-  operation
 * **8C-v3 — Connection pooling**: deliberately deferred — no usage
   pattern anywhere in the codebase motivates it yet (confirmed by
   inspection: exactly one `Executor` instance is ever constructed,

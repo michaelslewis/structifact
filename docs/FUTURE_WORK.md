@@ -38,16 +38,23 @@ up beyond the narrowest proven case:
   (PostgreSQL verified with real integration tests against an actual
   server, CI-enforced via a `postgres:16` service container — see
   ROADMAP.md); Snowflake remains unimplemented.
-* **Retry logic, connection pooling** (Phase 8C-v2/v3) — `Executor` gained
-  a `transaction()` context manager (Phase 8C-v1) so `structifact execute`'s
-  DROP/CREATE/load sequence is atomic as a whole, fixing a real reproduced
-  bug (a mid-batch load failure previously left partial data committed on
-  both DuckDB and PostgreSQL). Retry (re-entering `transaction()` on a
-  specific transient-error type) is only meaningful now that atomicity
-  exists, and hasn't been built yet. Connection pooling remains
-  deliberately deferred — no usage pattern anywhere in the codebase
-  motivates it (confirmed by inspection: exactly one `Executor` instance
-  is ever constructed, per CLI invocation).
+* **Retry logic** (Phase 8C-v2) — now done. `structifact/executors/base.py`
+  gained `retry_transaction(executor, fn, retry_on, max_attempts)`, a
+  module-level function (not a new `Executor` method — retrying means
+  re-running the caller's code, which a context manager can't do to its
+  own body), built on `transaction()` (Phase 8C-v1) with zero changes
+  to any `Executor` implementation. Scoped against a real, empirically-
+  reproduced transient failure — PostgreSQL's `serialization_failure`
+  (SQLSTATE `40001`) from two genuinely concurrent `SERIALIZABLE`
+  transactions, verified interactively before any code was written —
+  rather than a hypothetical retry taxonomy. See ROADMAP.md for the
+  full contract (what `fn` must guarantee, exact attempt-counting
+  semantics) and test plan. No CLI exposure yet — no real caller with
+  concurrent writers exists today.
+* **Connection pooling** (Phase 8C-v3) remains deliberately deferred —
+  no usage pattern anywhere in the codebase motivates it (confirmed by
+  inspection: exactly one `Executor` instance is ever constructed, per
+  CLI invocation).
 * **Materializing ModelGenerator's transformation SQL into a real target
   table** (Phase 8D v3) — `tests/test_model_execution.py` (v1) and
   `tests/test_model_execution_sources_joins.py` (v2) now prove both the
