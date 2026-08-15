@@ -606,25 +606,60 @@ Improve understanding of data systems.
 
 ## Status
 
-Unstarted, but with more real structural groundwork to build on than
-when this phase was first written: `DatasetSpec` now has genuine
+**v1 (impact analysis) done.** `structifact/dependencies.py` gained
+`impacted_by(dataset_name, datasets) -> List[str]` — the reverse of
+the forward graph `build_dependency_graph()` already built: given a
+dataset name, returns every dataset that depends on it, directly or
+transitively. Ordering is not arbitrary: the result is the
+subsequence of `execution_order()`'s output restricted to the
+impacted set, so it's a genuine regeneration order, not an arbitrary
+one, since every returned entry actually is downstream of the queried
+dataset.
+
+Deliberately built on the existing graph machinery rather than
+reimplementing traversal: `impacted_by()` calls `execution_order()`
+for validation (duplicate names / unresolved references / cycles —
+the same errors, same messages) and `build_dependency_graph()` for
+the reverse walk itself, so `build_dependency_graph()`,
+`execution_order()`, and `impacted_by()` all stay grounded in one
+canonical graph rather than developing subtly different
+interpretations of `depends_on` over time. A dataset name absent from
+the collection is a distinct, explicit error ("Dataset 'X' was not
+found in the provided collection.") — checked only after the
+collection itself is confirmed structurally sound, so a broken
+collection always reports its structural problems first. Exposed via
+a new CLI command, `structifact impact <dataset_name> <path>
+[<path> ...]`, mirroring `deps`'s existing multi-file loading/
+validation/error-reporting exactly. Verified against the existing
+`examples/dependency_demo/` chain (`customers`/`transactions` →
+`customer_summary` → `daily_report`) end to end, not just against
+in-memory `DatasetSpec`s — including the diamond-dependency shape
+(one dataset feeding two, both feeding a fourth), where the result
+must place the sink after both branches.
+
+`DatasetSpec` had more real structural groundwork to build on when
+this phase was picked up than when it was first written: genuine
 structural knowledge of a dataset's sources (`SourceRef`/`JoinSpec`),
 of foreign-key relationships between datasets (`ConstraintSpec`'s
-`target_table`/`target_column`, now actually resolved and checked
-against real data by Phase 6 v3), and, most directly relevant, of
-explicit dataset-to-dataset dependencies (`DatasetSpec.depends_on`,
-validated and resolved into a graph by Phase 7's `dependencies.py`).
-None of these three was built as a lineage feature, but all three are
-exactly the kind of structural information a future lineage capability
-would need — the dependency graph in particular is close to
-lineage-ready as a data structure, even though nothing here yet
-generates a lineage view or supports impact-analysis queries.
+`target_table`/`target_column`, resolved and checked against real
+data by Phase 6 v3), and, most directly relevant here, of explicit
+dataset-to-dataset dependencies (`DatasetSpec.depends_on`, validated
+and resolved into a graph by Phase 7's `dependencies.py`) — the
+dependency graph in particular was already close to lineage-ready as
+a data structure, which is exactly why impact analysis was the
+smallest real next slice.
+
+Still unstarted: source-to-output lineage rendering and
+dependency-graph visualization (see "Potential Capabilities" below) —
+both bigger, less concretely scoped problems, deliberately left for a
+real need to justify picking one, the same discipline that scoped
+this slice.
 
 ## Potential Capabilities
 
 Generate: source-to-output lineage, dependency-graph visualization,
-impact analysis (what depends on a given dataset), metadata
-relationships.
+metadata relationships. (Impact analysis — what depends on a given
+dataset — is now done; see above.)
 
 ---
 

@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (322 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (363 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -37,6 +37,7 @@ Beyond the original schema-definition/generation pipeline, Structifact now also:
 * checks foreign-key relationships across two datasets' real data
 * declares and validates dependencies between datasets, and derives a safe
   execution order (with cycle detection) across a collection of them
+* answers impact-analysis queries — what depends on a given dataset, directly or transitively — on top of that same dependency graph
 
 The framework is not a production data platform and isn't intended to become one in the near term. The current objective remains a strong, trustworthy architectural foundation, now with several genuinely complete capability areas rather than only foundational scaffolding.
 
@@ -82,7 +83,7 @@ structifact/                        (repo root)
 │
 ├── structifact/
 │   ├── cli.py                      validate / generate / discover /
-│   │                               validate-data / deps
+│   │                               validate-data / deps / impact / execute
 │   ├── __main__.py
 │   ├── ir.py                       DatasetSpec / FieldSpec / ConstraintSpec /
 │   │                               SourceRef / JoinSpec / DedupRule
@@ -92,7 +93,8 @@ structifact/                        (repo root)
 │   ├── quality.py                  Phase 6: real-data checking (new subsystem,
 │   │                               not a Generator)
 │   ├── dependencies.py             Phase 7 remainder: cross-dataset dependency
-│   │                               graph, cycle detection, execution ordering
+│   │                               graph, cycle detection, execution ordering;
+│   │                               Phase 9 v1: impact analysis (impacted_by)
 │   ├── executors/                  Phase 8: execute generated DDL against a
 │   │                               real database (DuckDB — first slice)
 │   ├── discover.py                 schema/requirements inference
@@ -114,7 +116,7 @@ structifact/                        (repo root)
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (35 files, 322 tests)
+├── tests/                          (30 files, 363 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -189,6 +191,16 @@ Declaration and ordering only — deliberately does *not* resolve cross-dataset 
 
 ---
 
+## Impact Analysis (Phase 9, v1 — new since the last full rewrite of this document)
+
+`dependencies.py` gained one new function, `impacted_by(dataset_name, datasets) -> List[str]` — the reverse question to `execution_order()`: given a dataset name, which datasets depend on it, directly or transitively? Deliberately added to `dependencies.py` itself rather than a new module, since it's the same graph and the same collection-level validation needs as `build_dependency_graph()`/`execution_order()`, just traversed backward.
+
+Built directly on the existing graph machinery rather than reimplementing traversal: `impacted_by()` calls `execution_order()` first (reusing its validation — duplicate dataset names, unresolved `depends_on` references, circular dependencies — and its ordering), then `build_dependency_graph()` for the reverse walk itself, so all three functions stay grounded in one canonical graph rather than gradually developing different interpretations of `depends_on`. The result is not an unordered set: it's the subsequence of `execution_order()`'s output restricted to the impacted set, which is a genuinely meaningful order (a valid regeneration sequence) precisely because every entry in it really is downstream of the queried dataset. A dataset name absent from the collection raises a distinct error, checked only once the collection itself is confirmed structurally sound — so a broken collection always reports its own structural problems first, never a possibly-misleading "not found."
+
+Exposed via a new CLI command, `structifact impact <dataset_name> <path> [<path> ...]`, mirroring `deps`'s existing multi-file loading/validation/error-reporting exactly — no new CLI architecture introduced. Verified against the real `examples/dependency_demo/` chain end to end (not just in-memory `DatasetSpec`s), plus unit coverage of fan-out, diamond-shaped, and unrelated-dataset graph shapes.
+
+---
+
 ## Execution (Phase 8 — new since the last full rewrite of this document)
 
 `structifact/executors/` is a new package, following the same registry pattern as `adapters/`/`generators/`. It closes a real gap: nothing previously confirmed that Structifact's generated SQL was actually valid, executable SQL — `SQLGenerator` only ever produced text.
@@ -223,7 +235,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 ## CLI
 
-`structifact/cli.py` — six commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `--requirements`, `-y`), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--drop-if-exists`).
+`structifact/cli.py` — seven commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `--requirements`, `-y`), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--drop-if-exists`).
 
 ---
 
@@ -259,10 +271,13 @@ These are documented, deliberate scope boundaries, not oversights — see `ROADM
 
 Phase 6 (Data Quality Framework) and Phase 7 (Transformation Framework, including its dependency-tracking remainder) are both now complete end to end, matching their original scope in `ROADMAP.md`. Phase 8 (Execution and Platform Integrations) has a first real slice done (DuckDB). Per the project's own YAGNI discipline, none of this automatically continues — future work in these areas should come from a real, concrete need, the same way each prior increment did. (Phase 8's DuckDB slice is a deliberate, acknowledged exception to that discipline — chosen for its own sake, specifically because it required no credentialed environment and closed a real gap: nothing previously confirmed Structifact's generated SQL was actually executable.)
 
+Phase 9 (Lineage and Observability) now has a first real slice done: impact analysis (`impacted_by()`, above). Source-to-output lineage rendering and dependency-graph visualization remain open — both bigger, less concretely scoped, deliberately left for a real need to justify picking one.
+
 Open threads:
 
 * **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — two real synthetic examples (`enterprise_demo`, `workorder_demo`) both motivate this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
-* **A real, credentialed Executor** (Postgres or Snowflake — the latter directly relevant to real day-job usage) — the natural next Phase 8 slice once a credentialed environment is available to test against.
+* **8B — Snowflake Executor**, **8C-v2 — retry logic**, **8D remainder — materializing `ModelGenerator`'s output** (see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — all deliberately parked pending a real, concrete need.
+* **Lineage view / dependency-graph visualization** (Phase 9 remainder) — bigger, less concretely scoped than impact analysis; worth revisiting once a real use case surfaces.
 * Longer-term, deliberately deferred: VS Code extension, structifact.com deployment/GUI (see `FUTURE_WORK.md`).
 
 ---
