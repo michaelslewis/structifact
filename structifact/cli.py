@@ -225,17 +225,24 @@ def deps(args):
 
 def execute(args):
     """
-    Phase 8 — Execution and Platform Integrations, first slice.
-    Executes a dataset's generated DDL against a real database
-    engine (currently: DuckDB only — see executors/registry.py),
-    optionally loading real data and running a verification query.
+    Phase 8 — Execution and Platform Integrations.
+    Executes a dataset's generated DDL against a real database engine
+    (DuckDB or PostgreSQL — see executors/registry.py), optionally
+    loading real data and running a verification query.
 
-    Scope, explicit: DDL only, not ModelGenerator's transformation
-    SQL; a single connect/run/close per invocation, no transactions/
-    pooling/retry. Re-running against an existing table fails loudly
-    unless --drop-if-exists is passed — no silent overwrite/append.
-    See docs/FUTURE_WORK.md's "Before a 1.0 Release" section for
-    what's deliberately not here yet.
+    Phase 8C-v1: the DROP (if --drop-if-exists), CREATE, and row-load
+    steps run inside a single executor.transaction() scope — atomic
+    as a whole. A failure partway through (e.g. a duplicate-key row
+    in --data) rolls back everything from this invocation, including
+    the DROP and CREATE — leaving the database exactly as it was
+    before the invocation, not silently half-populated. The
+    verification query runs after the transaction commits, so it
+    proves durable persistence, not just in-transaction visibility.
+    Re-running against an existing table still fails loudly unless
+    --drop-if-exists is passed — no silent overwrite/append.
+
+    Connection pooling and retry logic remain deliberately unstarted
+    — see docs/FUTURE_WORK.md.
     """
     try:
         table = load_spec(args.spec)
@@ -270,20 +277,25 @@ def execute(args):
     print(f"✓ Connected: {executor.name}{connection_label}")
 
     try:
-        if getattr(args, "drop_if_exists", False):
-            executor.execute_ddl(f"DROP TABLE IF EXISTS {table.name}")
-            print(f"✓ Dropped table '{table.name}' if it existed")
+        with executor.transaction():
+            if getattr(args, "drop_if_exists", False):
+                executor.execute_ddl(f"DROP TABLE IF EXISTS {table.name}")
+                print(f"✓ Dropped table '{table.name}' if it existed")
 
-        ddl_artifact = SQLGenerator().generate(table)
-        executor.execute_ddl(ddl_artifact.content)
-        print(f"✓ Executed DDL: CREATE TABLE {table.name} (...)")
+            ddl_artifact = SQLGenerator().generate(table)
+            executor.execute_ddl(ddl_artifact.content)
+            print(f"✓ Executed DDL: CREATE TABLE {table.name} (...)")
 
+            if args.data:
+                rows = load_data_rows(args.data)
+                columns = [f.name for f in table.fields]
+                executor.load_rows(table.name, columns, rows)
+                print(f"✓ Loaded {len(rows)} rows")
+
+        # Only reached if the transaction above committed successfully —
+        # this query runs against durably persisted data, not merely
+        # in-transaction visibility.
         if args.data:
-            rows = load_data_rows(args.data)
-            columns = [f.name for f in table.fields]
-            executor.load_rows(table.name, columns, rows)
-            print(f"✓ Loaded {len(rows)} rows")
-
             result = executor.query(f"SELECT * FROM {table.name}")
             print(f"✓ Verification query: {len(result)} rows in {table.name}")
 

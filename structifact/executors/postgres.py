@@ -1,4 +1,5 @@
-from typing import Any, Dict, List
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List
 
 from .base import Executor
 
@@ -10,12 +11,14 @@ class PostgresExecutor(Executor):
     proving the interface DuckDB validated also holds for a
     credentialed, networked engine.
 
-    Persistence contract (see base.py's docstring for the full
-    Phase 8A note): connects with autocommit enabled, so every
-    operation is immediately durable — matching DuckDBExecutor's
-    existing effective behavior. This is deliberate compatibility
-    behavior, not real transaction management; explicit transactions,
-    rollback, connection pooling, and retry logic are Phase 8C.
+    Standalone persistence contract (see base.py's docstring):
+    connects with autocommit enabled, so every operation outside
+    transaction() is immediately durable — matching DuckDBExecutor's
+    existing effective behavior. transaction() (Phase 8C-v1) toggles
+    autocommit off for its scope and restores it afterward — real
+    transaction management for that scope specifically, not a
+    replacement for the standalone default. Connection pooling and
+    retry logic remain Phase 8C-v2/v3.
 
     `connection_args["connection"]` is a PostgreSQL DSN (e.g.
     "postgresql://user:pass@host:port/dbname"), passed straight to
@@ -68,6 +71,20 @@ class PostgresExecutor(Executor):
             cur.execute(sql)
             column_names = [d[0] for d in cur.description]
             return [dict(zip(column_names, row)) for row in cur.fetchall()]
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        self._require_connection()
+
+        self._conn.autocommit = False
+        try:
+            yield
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        finally:
+            self._conn.autocommit = True
 
     def close(self) -> None:
         if self._conn is not None:

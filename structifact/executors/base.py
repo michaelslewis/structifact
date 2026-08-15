@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, ContextManager, Dict, List
 
 
 class Executor:
@@ -12,16 +12,6 @@ class Executor:
     should exist for this dataset," an Executor answers "does that
     SQL actually work against a real engine."
 
-    v1 scope, deliberately minimal (see docs/FUTURE_WORK.md's
-    "Before a 1.0 Release" section for what's intentionally NOT
-    here yet): a single connect/run/close per invocation, no
-    transaction management, no connection pooling, no retry logic.
-    Only DDL execution is supported — running a computed field's
-    ModelGenerator SELECT against real data is a distinct, future
-    capability, not this one. This mirrors SQLGenerator's own
-    documented boundary (its docstring explicitly scopes itself to
-    schema declaration, not transformation execution).
-
     connection_args are passed to connect(), never to __init__ or
     stored anywhere persistent — same bring-your-own-credentials
     posture as structifact/llm.py's ANTHROPIC_API_KEY handling. The
@@ -31,14 +21,32 @@ class Executor:
     straight through to its driver). The CLI never learns
     engine-specific connection concepts like host/port/user/password.
 
-    Phase 8A persistence contract: every Executor operation has the
-    same effective persistence semantics as DuckDB's default
-    behavior — durable without a separate commit step. PostgresExecutor
-    achieves this via autocommit, not real transaction management.
-    This is deliberate compatibility behavior, not the final model:
-    explicit transactions, atomic multi-operation execution, rollback
-    semantics, connection pooling, and retry logic are all Phase 8C
-    (see docs/FUTURE_WORK.md), not solved by any Executor today.
+    Standalone persistence contract (Phase 8A): calling execute_ddl(),
+    load_rows(), or query() directly, outside transaction() below,
+    has the same effective persistence semantics as DuckDB's default
+    behavior — durable without a separate commit step. This is
+    unaffected by transaction() and requires no change to existing
+    callers (see PostgresExecutor's autocommit handling).
+
+    Atomic execution contract (Phase 8C-v1): transaction() establishes
+    an atomic execution scope. Operations performed through this
+    Executor within the scope are committed when the scope exits
+    normally; if an exception escapes the scope, every operation
+    performed within it is rolled back and the exception is
+    re-raised. Operations outside a transaction retain the standalone
+    persistence semantics above, unchanged.
+
+    Deliberately a single new public method rather than exposing
+    begin()/commit()/rollback() individually: a context manager makes
+    "these operations are one atomic unit" impossible to leave half
+    -open (Python's `with` guarantees exit runs exactly once), and
+    callers never need to know how DuckDB or PostgreSQL implements
+    transactions underneath. See docs/DECISION_HISTORY.md for the
+    scoping process.
+
+    Connection pooling and retry logic remain deliberately unstarted
+    — no current usage pattern in this codebase motivates either yet
+    (see docs/FUTURE_WORK.md).
     """
 
     name: str
@@ -53,6 +61,9 @@ class Executor:
         raise NotImplementedError
 
     def query(self, sql: str) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def transaction(self) -> ContextManager[None]:
         raise NotImplementedError
 
     def close(self) -> None:
