@@ -3,7 +3,7 @@ import pytest
 from structifact.adapters.yaml import load_yaml
 from structifact.ir import DatasetSpec, FieldSpec
 from structifact.validation import validate_table
-from structifact.dependencies import build_dependency_graph, execution_order
+from structifact.dependencies import build_dependency_graph, execution_order, impacted_by
 
 
 # ---------------------------------------------------------------------
@@ -320,6 +320,127 @@ def test_no_partial_order_returned_on_cycle():
 
 
 # ---------------------------------------------------------------------
+# Impact analysis (Phase 9, v1 — impacted_by)
+# ---------------------------------------------------------------------
+
+def test_impacted_by_leaf_dataset_has_no_impact():
+    order = impacted_by("daily_report", _dependency_chain_datasets())
+
+    assert order == []
+
+
+def test_impacted_by_direct_dependent_only():
+    datasets = [_dataset("customers"), _dataset("orders", ["customers"])]
+
+    assert impacted_by("customers", datasets) == ["orders"]
+
+
+def test_impacted_by_transitive_chain():
+    order = impacted_by("customers", _dependency_chain_datasets())
+
+    assert order == ["customer_summary", "daily_report"]
+
+
+def test_impacted_by_transitive_via_second_root():
+    order = impacted_by("transactions", _dependency_chain_datasets())
+
+    assert order == ["customer_summary", "daily_report"]
+
+
+def test_impacted_by_fan_out():
+    datasets = [
+        _dataset("customers"),
+        _dataset("customer_summary", ["customers"]),
+        _dataset("customer_report", ["customers"]),
+    ]
+
+    order = impacted_by("customers", datasets)
+
+    assert set(order) == {"customer_summary", "customer_report"}
+
+
+def test_impacted_by_diamond_orders_sink_after_both_branches():
+    """
+    A ──> B ──┐
+    A ──> C ──┴──> D
+
+    Querying impact on A must place D after both B and C — a
+    topologically valid regeneration order, not an arbitrary one.
+    """
+    datasets = [
+        _dataset("a"),
+        _dataset("b", ["a"]),
+        _dataset("c", ["a"]),
+        _dataset("d", ["b", "c"]),
+    ]
+
+    order = impacted_by("a", datasets)
+
+    assert set(order) == {"b", "c", "d"}
+    assert order.index("b") < order.index("d")
+    assert order.index("c") < order.index("d")
+
+
+def test_impacted_by_excludes_unrelated_datasets():
+    datasets = [
+        _dataset("customers"),
+        _dataset("customer_summary", ["customers"]),
+        _dataset("regions"),  # unrelated — no path to/from customers
+    ]
+
+    order = impacted_by("customers", datasets)
+
+    assert order == ["customer_summary"]
+
+
+def test_impacted_by_never_includes_the_queried_dataset_itself():
+    order = impacted_by("customer_summary", _dependency_chain_datasets())
+
+    assert "customer_summary" not in order
+
+
+def test_impacted_by_deterministic_across_repeated_calls():
+    datasets = _dependency_chain_datasets()
+
+    first = impacted_by("customers", datasets)
+    second = impacted_by("customers", datasets)
+
+    assert first == second
+
+
+def test_impacted_by_raises_when_dataset_name_not_found():
+    datasets = [_dataset("customers"), _dataset("orders", ["customers"])]
+
+    with pytest.raises(ValueError, match="'regions' was not found in the provided collection"):
+        impacted_by("regions", datasets)
+
+
+def test_impacted_by_propagates_duplicate_name_errors():
+    datasets = [_dataset("customers"), _dataset("customers")]
+
+    with pytest.raises(ValueError, match="Duplicate dataset name"):
+        impacted_by("customers", datasets)
+
+
+def test_impacted_by_propagates_unresolved_reference_errors():
+    datasets = [_dataset("orders", ["customers"])]  # customers not provided
+
+    with pytest.raises(ValueError, match="not found in the provided collection"):
+        impacted_by("orders", datasets)
+
+
+def test_impacted_by_propagates_cycle_errors():
+    datasets = [
+        _dataset("dataset_a", ["dataset_b"]),
+        _dataset("dataset_b", ["dataset_c"]),
+        _dataset("dataset_c", ["dataset_a"]),
+    ]
+
+    with pytest.raises(ValueError, match="Circular dependency detected"):
+        impacted_by("dataset_a", datasets)
+
+
+# ---------------------------------------------------------------------
 # End-to-end acceptance: real YAML fixtures on disk
 # ---------------------------------------------------------------------
 
@@ -367,3 +488,38 @@ def test_dependency_demo_cyclic_broken_example_end_to_end():
 
     with pytest.raises(ValueError, match="Circular dependency detected"):
         execution_order(datasets)
+
+
+def test_dependency_demo_impacted_by_customers_end_to_end():
+    """
+    Same real fixtures as test_dependency_demo_example_end_to_end,
+    querying impact on the 'customers' root: both downstream datasets
+    come back, in a valid regeneration order.
+    """
+    paths = [
+        "examples/dependency_demo/customers.yml",
+        "examples/dependency_demo/transactions.yml",
+        "examples/dependency_demo/customer_summary.yml",
+        "examples/dependency_demo/daily_report.yml",
+    ]
+
+    datasets = [load_yaml(p) for p in paths]
+
+    assert impacted_by("customers", datasets) == ["customer_summary", "daily_report"]
+
+
+def test_dependency_demo_impacted_by_terminal_dataset_end_to_end():
+    """
+    daily_report is the terminal dataset in the real fixture chain —
+    nothing depends on it, so impact analysis on it must return [].
+    """
+    paths = [
+        "examples/dependency_demo/customers.yml",
+        "examples/dependency_demo/transactions.yml",
+        "examples/dependency_demo/customer_summary.yml",
+        "examples/dependency_demo/daily_report.yml",
+    ]
+
+    datasets = [load_yaml(p) for p in paths]
+
+    assert impacted_by("daily_report", datasets) == []
