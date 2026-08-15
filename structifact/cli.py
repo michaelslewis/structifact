@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 
 from .adapters.registry import load_spec
 from .utils import write_file
@@ -21,15 +22,19 @@ def validate(args):
         table = load_spec(args.spec)
         validate_table(table)
 
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
     except ValueError as e:
         print("\nValidation failed:\n")
         print(e)
-        return
+        return False
 
     print(f"✓ Loaded metadata")
     print(f"✓ Parsed {len(table.fields)} fields")
     print(f"✓ Valid schema")
     print(f"✓ No constraint violations")
+    return True
 
 
 def _join_rows(rows):
@@ -147,10 +152,13 @@ def validate_data(args):
         table = load_spec(args.spec)
         validate_table(table)
 
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
     except ValueError as e:
         print("\nSchema validation failed:\n")
         print(e)
-        return
+        return False
 
     print(f"✓ Loaded schema: {table.name}")
 
@@ -166,10 +174,13 @@ def validate_data(args):
 
         referenced_values = resolve_references(table, loaded_refs)
 
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
     except ValueError as e:
         print("\nForeign-key configuration error:\n")
         print(e)
-        return
+        return False
 
     fk_target_labels = {}
     for constraint in table.constraints:
@@ -179,10 +190,16 @@ def validate_data(args):
                 f"{constraint.target_table}.{constraint.target_column}"
             )
 
-    rows = load_data_rows(args.data)
+    try:
+        rows = load_data_rows(args.data)
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
+
     result = check_data(table, rows, referenced_values=referenced_values)
 
     _format_quality_report(result, fk_target_labels=fk_target_labels)
+    return True
 
 
 def deps(args):
@@ -204,10 +221,13 @@ def deps(args):
         try:
             table = load_spec(path)
             validate_table(table)
+        except FileNotFoundError as e:
+            print(f"\nFile not found: {e.filename}")
+            return False
         except ValueError as e:
             print(f"\nValidation failed for {path}:\n")
             print(e)
-            return
+            return False
         tables.append(table)
 
     print(f"✓ Loaded {len(tables)} dataset(s)")
@@ -217,11 +237,12 @@ def deps(args):
     except ValueError as e:
         print("\nDependency resolution failed:\n")
         print(e)
-        return
+        return False
 
     print("\n--- EXECUTION ORDER ---\n")
     for i, name in enumerate(order, start=1):
         print(f"{i}. {name}")
+    return True
 
 
 def impact(args):
@@ -241,10 +262,13 @@ def impact(args):
         try:
             table = load_spec(path)
             validate_table(table)
+        except FileNotFoundError as e:
+            print(f"\nFile not found: {e.filename}")
+            return False
         except ValueError as e:
             print(f"\nValidation failed for {path}:\n")
             print(e)
-            return
+            return False
         tables.append(table)
 
     print(f"✓ Loaded {len(tables)} dataset(s)")
@@ -254,7 +278,7 @@ def impact(args):
     except ValueError as e:
         print("\nDependency resolution failed:\n")
         print(e)
-        return
+        return False
 
     print(f"\n--- IMPACTED BY '{args.dataset_name}' ---\n")
     if not impacted:
@@ -262,6 +286,7 @@ def impact(args):
     else:
         for i, name in enumerate(impacted, start=1):
             print(f"{i}. {name}")
+    return True
 
 
 def execute(args):
@@ -307,10 +332,13 @@ def execute(args):
     try:
         table = load_spec(args.spec)
         validate_table(table)
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
     except ValueError as e:
         print("\nValidation failed:\n")
         print(e)
-        return
+        return False
 
     print(f"✓ Loaded schema: {table.name}")
 
@@ -320,7 +348,7 @@ def execute(args):
             "--materialize populates the table by running its model's "
             "SELECT; --data loads raw CSV rows directly."
         )
-        return
+        return False
 
     insert_artifact = None
     if getattr(args, "materialize", False):
@@ -329,20 +357,20 @@ def execute(args):
         except ValueError as e:
             print(f"\nCannot materialize '{table.name}':\n")
             print(e)
-            return
+            return False
 
         if insert_artifact is None:
             print(
                 f"\n'{table.name}' has no computed fields or sources/joins "
                 "declared — nothing to materialize."
             )
-            return
+            return False
 
     executor_cls = EXECUTORS.get(args.engine)
     if executor_cls is None:
         print(f"\nUnknown engine '{args.engine}'")
         print(f"Available: {', '.join(sorted(EXECUTORS.keys()))}")
-        return
+        return False
 
     executor = executor_cls()
 
@@ -355,7 +383,7 @@ def execute(args):
     except Exception as e:
         print("\nConnection failed:\n")
         print(e)
-        return
+        return False
 
     connection_label = f" ({args.connection})" if args.connection else " (in-memory)"
     print(f"✓ Connected: {executor.name}{connection_label}")
@@ -397,8 +425,11 @@ def execute(args):
     except Exception as e:
         print("\nExecution failed:\n")
         print(e)
+        return False
     finally:
         executor.close()
+
+    return True
 
 
 def discover(args, ai_client=None):
@@ -410,9 +441,16 @@ def discover(args, ai_client=None):
             "\nstructifact discover currently only supports raw CSV "
             "input, or a requirements document (.md/.txt) with --ai."
         )
-        return
+        return False
 
-    discovered = discover_csv(args.spec, sample_size=args.sample_size)
+    try:
+        discovered = discover_csv(args.spec, sample_size=args.sample_size)
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
+    except ValueError as e:
+        print(f"\n{e}")
+        return False
 
     sampled = min(discovered.row_count, args.sample_size)
 
@@ -430,7 +468,7 @@ def discover(args, ai_client=None):
                 ai_client = AnthropicLLMClient()
             except RuntimeError as e:
                 print(f"\n{e}")
-                return
+                return False
 
         prompt = build_ai_prompt(discovered)
         estimate = ai_client.estimate_cost(prompt)
@@ -459,6 +497,7 @@ def discover(args, ai_client=None):
     print("\nThis is a draft, not verified metadata. Review it, fix")
     print("anything wrong, then run:")
     print(f"\n  structifact validate {output_path}\n")
+    return True
 
 
 def discover_requirements(args, ai_client=None):
@@ -475,10 +514,14 @@ def discover_requirements(args, ai_client=None):
             "(this reads the document with an LLM; nothing here is "
             "generated deterministically)."
         )
-        return
+        return False
 
-    with open(args.spec, "r") as f:
-        text = f.read()
+    try:
+        with open(args.spec, "r") as f:
+            text = f.read()
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
 
     if ai_client is None:
         from .llm import AnthropicLLMClient
@@ -487,7 +530,7 @@ def discover_requirements(args, ai_client=None):
             ai_client = AnthropicLLMClient()
         except RuntimeError as e:
             print(f"\n{e}")
-            return
+            return False
 
     prompt = build_requirements_prompt(text)
     estimate = ai_client.estimate_cost(prompt)
@@ -511,7 +554,7 @@ def discover_requirements(args, ai_client=None):
         parsed = parse_requirements_draft(raw)
     except ValueError as e:
         print(f"\nCouldn't parse the AI response:\n\n{e}")
-        return
+        return False
 
     yaml_content = render_requirements_draft_yaml(parsed, source_path=args.spec)
 
@@ -524,6 +567,7 @@ def discover_requirements(args, ai_client=None):
     print("Review it — especially any 'computed' fields and everything")
     print("under unresolved_notes — then run:")
     print(f"\n  structifact validate {output_path}\n")
+    return True
 
 
 def generate(args):
@@ -531,10 +575,13 @@ def generate(args):
         table = load_spec(args.spec)
         validate_table(table)
 
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
     except ValueError as e:
         print("\nValidation failed:\n")
         print(e)
-        return
+        return False
 
     print("\n--- STRUCTURED VIEW ---\n")
     print(f"Table: {table.name}\n")
@@ -561,7 +608,7 @@ def generate(args):
         if unknown:
             print(f"\nUnknown generator(s): {', '.join(unknown)}")
             print(f"Available: {', '.join(sorted(by_name.keys()))}")
-            return
+            return False
 
         selected = [by_name[n] for n in requested]
     else:
@@ -584,6 +631,8 @@ def generate(args):
 
         print(f"- {path}")
 
+    return True
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -603,9 +652,11 @@ def main():
         "validate-data",
         help=(
             "Check real data rows against a dataset's already-declared "
-            "metadata rules (nullable, accepted_values, primary_key/"
-            "unique). v1: no range/regex validation, no type coercion "
-            "— comparisons are on raw CSV string values."
+            "metadata rules: required fields, uniqueness, accepted "
+            "values, numeric ranges, regex patterns, and foreign-key "
+            "relationships against a second dataset's real data "
+            "(--ref). No type coercion — comparisons are on raw CSV "
+            "string values."
         ),
     )
 
@@ -789,6 +840,13 @@ def main():
     args = parser.parse_args()
 
     if hasattr(args, "func"):
-        args.func(args)
+        success = args.func(args)
+        # Handlers return False on a genuine failure (validation,
+        # missing file, connection/execution error, etc.) and True or
+        # None otherwise -- None covers handlers/branches that were
+        # never audited for an explicit return, so an unaudited path
+        # still exits 0 rather than accidentally starting to fail CI.
+        if success is False:
+            sys.exit(1)
     else:
         parser.print_help()
