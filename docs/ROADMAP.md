@@ -449,9 +449,10 @@ Connect Structifact metadata with execution environments.
 execute correctly, read-only, for both the simple single-source case
 (8D, v1) and the sources/joins/dedup CTE shape (8D, v2); execute's
 write operations now atomic (8C-v1); a genuinely reproduced transient
-database error now recoverable via retry (8C-v2). Snowflake,
-connection pooling, and model materialization remain
-(8B/8C-v3/8D v3).** A new `Executor` interface
+database error now recoverable via retry (8C-v2); ModelGenerator's
+output now materializes into a real target table on both engines
+(8D, v3). Snowflake and connection pooling remain (8B/8C-v3); so does
+CLI exposure for model execution.** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
@@ -628,6 +629,61 @@ now — DuckDB has no comparable concurrent-writer failure mode, so its
 callers simply never encounter a `retry_on` match and get unchanged
 single-attempt behavior.
 
+**8D, v3 (materialization) is also now done.** Closes the gap 8D v1/v2
+deliberately left open: `ModelGenerator` gained one new method,
+`generate_insert(dataset)`, wrapping `generate()`'s SELECT in
+`INSERT INTO <dataset.name> (<columns>) <select>`. Materializing means
+running `SQLGenerator`'s DDL to create the target (typed and
+constrained from Structifact's own declared metadata), then that
+`INSERT ... SELECT`, inside a single `transaction()` scope (Phase
+8C-v1) — the same atomic-as-a-whole pattern `cli.py`'s `execute()`
+already uses for DROP/CREATE/load. Chosen deliberately over
+`CREATE TABLE ... AS SELECT`: CTAS would let the engine infer column
+types from the query result and drop every declared constraint unless
+re-added afterward, handing type/constraint authority to the database
+instead of Structifact's metadata — confirmed empirically before
+implementation that a plain typed `INSERT INTO (<explicit columns>)
+<select>` executes correctly on both engines with `SQLGenerator` and
+`ModelGenerator` already emitting fields in identical order. Reuses
+`Executor.execute_ddl()` as-is for the INSERT statement — no new
+method, no rename; `execute_ddl()`'s actual contract was already "run
+this SQL, don't return rows," and adding a second method with an
+identical body just to fix the DDL-flavored name would be surface
+area without solving a real problem.
+
+Investigation surfaced a real, load-bearing constraint before any code
+was written: `source_table` defaults to the dataset's own `name` when
+unset — exactly what 8D v1/v2's original fixtures did — so
+materializing into a table named `dataset.name` while reading from a
+relation of that same name is a self-referential collision (the raw
+and enriched shapes can't coexist under one name). `generate_insert()`
+rejects this with a clear error whenever `dataset.name` is among the
+relations the generated SELECT reads from — the resolved primary
+source *or any joined source's table*, not just `source_table` alone.
+Deliberately scoped as a materialization-specific precondition inside
+`generate_insert()`, not a general `DatasetSpec` validation rule — a
+model reading from its own dataset name may be entirely legitimate
+outside of materializing it (see 8D v1/v2, both read-only). Every
+fixture here sets a genuinely distinct upstream relation name, the
+same pattern any real ELT pipeline already uses.
+
+Verified against adapted versions of 8D v1/v2's exact fixtures
+(`tests/test_model_materialization.py`) on both DuckDB and PostgreSQL,
+asserting *persisted* table contents, not query-time results:
+computed-field transformation, source filtering, dedup ordering, and
+LEFT JOIN NULL-preservation all still hold once written to a real
+table. Two things proven beyond 8D v1/v2's read-only scope: the
+target's declared `primary_key` constraint is actually enforced on the
+materialized table (a raw duplicate insert against it fails for real —
+proof the schema came from Structifact's metadata, not engine
+inference), and a failed materialization is atomic — a genuine
+primary-key violation during the INSERT leaves no target table at all
+afterward, not a partially- or fully-populated one, since CREATE and
+INSERT share one `transaction()` scope. No CLI exposure — matching
+8D v1/v2 and 8C-v2's precedent, this is proven via `Executor` methods
+directly in tests; `structifact execute --materialize` (or similar)
+remains a distinct, later slice.
+
 Deliberately, explicitly still NOT done — kept visible as separate
 pieces rather than folded into "Postgres done," matching the
 originally scoped 8A/8B/8C/8D breakdown:
@@ -637,11 +693,11 @@ originally scoped 8A/8B/8C/8D breakdown:
   pattern anywhere in the codebase motivates it yet (confirmed by
   inspection: exactly one `Executor` instance is ever constructed,
   in `cli.py`'s `execute()`, one per CLI invocation)
-* **8D, v3** — materializing `ModelGenerator`'s output into a real
-  target table, and any CLI exposure for model execution. Both the
-  simple single-source (8D v1) and sources/joins/dedup (8D v2) SELECT
-  shapes are now proven to execute correctly read-only — materializing
-  either into a real table is the remaining, still-open piece.
+* **CLI exposure for model execution** — running `ModelGenerator`'s
+  SELECT or `generate_insert()`'s materialization via `structifact
+  execute` (or a new command) remains unbuilt; every 8D slice so far
+  has deliberately proven the underlying capability via `Executor`
+  methods directly, not the CLI
 
 The DuckDB slice's scope was chosen deliberately rather than from an
 external real-need example, an explicit, acknowledged exception to
