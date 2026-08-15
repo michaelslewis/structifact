@@ -45,10 +45,15 @@ up beyond the narrowest proven case:
   use. PostgresExecutor's `autocommit=True` is explicitly documented as
   Phase 8A compatibility behavior matching DuckDB's existing implicit
   semantics, not a substitute for this.
-* **Executing ModelGenerator's transformation SQL, not just SQLGenerator's
-  DDL** (Phase 8) — the first Executor slice only proves schema creation
-  works; proving a computed-field SELECT actually runs against real data
-  is a distinct, unproven claim until it's done.
+* **Materializing ModelGenerator's transformation SQL into a real target
+  table** (Phase 8D remainder) — `tests/test_model_execution.py` now proves
+  a computed-field SELECT runs correctly against real data on both DuckDB
+  and PostgreSQL (read-only, via the existing `Executor.query()` — no new
+  Executor method needed), for the simple single-source case. Still
+  unproven/undone: writing that SELECT's output into a real table (an
+  `INSERT INTO ... SELECT`-style path, closer to `dbt run`), any CLI
+  exposure, and the sources/joins/dedup CTE shape (materially bigger SQL,
+  not yet executed against a real engine at all).
 
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
 
