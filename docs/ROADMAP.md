@@ -445,8 +445,9 @@ Connect Structifact metadata with execution environments.
 
 ## Status
 
-**Two real engines done (8A); Snowflake, reliability, and model
-execution remain (8B/8C/8D).** A new `Executor` interface
+**Two real engines done (8A); a computed-field SELECT proven to
+execute correctly, read-only (8D, v1). Snowflake, reliability, and
+model materialization remain (8B/8C/8D remainder).** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
@@ -500,6 +501,27 @@ success. Explicit transaction management, atomic multi-operation
 execution, rollback semantics, connection pooling, and retry logic
 remain deferred — see below and `FUTURE_WORK.md`.
 
+**8D, v1 (read-only verification) is also now done.** `tests/test_model_execution.py`
+proves `ModelGenerator`'s computed-field `SELECT` actually runs against
+real data on both real engines, not just that it looks like plausible
+SQL text — a minimal, deliberately single-purpose fixture (one
+dataset, one computed field, `expression: "quantity * unit_price"`,
+no sources/joins/dedup), asserting exact expected values, not just
+"the query didn't error." The generated SQL itself is asserted to
+contain the expected expression/alias too, so a generator regression
+and an Executor regression stay distinguishable. Uses `Executor.query()`
+— already the right tool for this — no new Executor method was added.
+The table the model reads from is deliberately a *raw* upstream table
+(`order_id`/`quantity`/`unit_price` only): `ModelGenerator`'s SELECT
+never reads a dataset's own computed-field column, only the raw inputs
+it derives that value from — a different table than `SQLGenerator`'s
+DDL would produce for that same dataset. Deliberately, explicitly
+scoped out of this slice: materializing the SELECT's output into a
+real target table (an `INSERT INTO ... SELECT`-style write path,
+closer to `dbt run`), any CLI exposure, and the sources/joins/dedup
+CTE shape (a materially bigger, still-unproven SQL construct) — all
+still open, not silently folded into "done."
+
 Deliberately, explicitly still NOT done — kept visible as separate
 pieces rather than folded into "Postgres done," matching the
 originally scoped 8A/8B/8C/8D breakdown:
@@ -509,10 +531,10 @@ originally scoped 8A/8B/8C/8D breakdown:
   connection pooling, retry logic (including backend-specific
   transient-error handling) — a single connect/run/close per
   invocation only, for both DuckDB and Postgres today
-* **8D — Executing `ModelGenerator`'s transformation SQL** — only
-  `SQLGenerator`'s schema DDL is executed, for either engine; proving
-  a computed-field `SELECT` runs against real data remains a distinct,
-  unproven capability
+* **8D, remainder** — materializing `ModelGenerator`'s output into a
+  real target table, CLI exposure, and proving the sources/joins/dedup
+  CTE shape executes correctly (only the simpler single-source
+  computed-field case is proven so far)
 
 The DuckDB slice's scope was chosen deliberately rather than from an
 external real-need example, an explicit, acknowledged exception to
