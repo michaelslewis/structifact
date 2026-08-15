@@ -446,8 +446,9 @@ Connect Structifact metadata with execution environments.
 ## Status
 
 **Two real engines done (8A); a computed-field SELECT proven to
-execute correctly, read-only (8D, v1). Snowflake, reliability, and
-model materialization remain (8B/8C/8D remainder).** A new `Executor` interface
+execute correctly, read-only (8D, v1); execute's write operations now
+atomic (8C-v1). Snowflake, retry, pooling, and model materialization
+remain (8B/8C-v2/8C-v3/8D remainder).** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
@@ -522,15 +523,55 @@ closer to `dbt run`), any CLI exposure, and the sources/joins/dedup
 CTE shape (a materially bigger, still-unproven SQL construct) — all
 still open, not silently folded into "done."
 
+**8C-v1 (atomic execution) is also now done.** Scoped directly from a
+reproduced, real bug rather than the roadmap's original three-item
+list treated as equally-sized: `load_rows`'s internal batching was
+found to commit rows individually on both DuckDB and PostgreSQL, so a
+mid-batch failure (e.g. a duplicate primary key) left prior rows
+silently persisted even though the CLI reported "Execution failed" —
+a genuine correctness gap, not a hypothetical. `Executor` gained one
+new public method, `transaction()` — a context manager, not the
+`begin()`/`commit()`/`rollback()` triplet originally considered.
+Deliberately one method rather than three: Python's `with` guarantees
+exit runs exactly once, so a transaction can't be left half-open the
+way three independent lifecycle calls could be misused, and callers
+never need to know how DuckDB or PostgreSQL implements transactions
+underneath. `execute_ddl()`/`load_rows()`/`query()` needed **no
+changes at all** — both drivers already treat "inside a transaction
+vs. autocommitting" transparently at the connection level, so
+standalone calls outside `transaction()` keep their exact Phase 8A
+behavior, asserted explicitly in tests, not just implied by the rest
+of the suite still passing.
+
+`cli.py`'s `execute()` now wraps its DROP (if `--drop-if-exists`) +
+CREATE + row-load sequence in a single `transaction()` scope — atomic
+as a whole, including the DROP itself. The post-load verification
+query moved to *after* the transaction commits, so it proves durable
+persistence rather than merely in-transaction visibility (matching
+what "verification" was always meant to demonstrate). Verified with
+real regression tests against both engines: the exact
+`[1, 2, 1, 4]` batch now leaves zero rows after rollback; a fresh
+target's `CREATE` rolls back too, leaving no table at all after a
+failed load (not just an empty one); and — the centerpiece case — a
+pre-existing table's original data survives a failed
+`--drop-if-exists` reload intact, proving the DROP lives inside the
+transaction rather than being applied destructively beforehand.
+Manually confirmed end-to-end against a real PostgreSQL server too,
+not just via pytest.
+
 Deliberately, explicitly still NOT done — kept visible as separate
 pieces rather than folded into "Postgres done," matching the
 originally scoped 8A/8B/8C/8D breakdown:
 
 * **8B — Snowflake** (or any further engine) implementation
-* **8C — Executor reliability**: real transaction management,
-  connection pooling, retry logic (including backend-specific
-  transient-error handling) — a single connect/run/close per
-  invocation only, for both DuckDB and Postgres today
+* **8C-v2 — Retry**: only meaningful now that atomicity exists;
+  retrying means re-entering the same `transaction()` scope on a
+  specific transient-error type, never retrying a partially-applied
+  operation
+* **8C-v3 — Connection pooling**: deliberately deferred — no usage
+  pattern anywhere in the codebase motivates it yet (confirmed by
+  inspection: exactly one `Executor` instance is ever constructed,
+  in `cli.py`'s `execute()`, one per CLI invocation)
 * **8D, remainder** — materializing `ModelGenerator`'s output into a
   real target table, CLI exposure, and proving the sources/joins/dedup
   CTE shape executes correctly (only the simpler single-source
