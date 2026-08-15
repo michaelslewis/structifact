@@ -38,13 +38,16 @@ up beyond the narrowest proven case:
   (PostgreSQL verified with real integration tests against an actual
   server, CI-enforced via a `postgres:16` service container — see
   ROADMAP.md); Snowflake remains unimplemented.
-* **Transaction management, connection pooling, retry logic** (Phase 8C) —
-  every Executor slice so far (DuckDB, Postgres) is a single
-  connect/run/close per invocation, fine for a local proof-of-concept or
-  a CI-verified integration test, not for anything resembling production
-  use. PostgresExecutor's `autocommit=True` is explicitly documented as
-  Phase 8A compatibility behavior matching DuckDB's existing implicit
-  semantics, not a substitute for this.
+* **Retry logic, connection pooling** (Phase 8C-v2/v3) — `Executor` gained
+  a `transaction()` context manager (Phase 8C-v1) so `structifact execute`'s
+  DROP/CREATE/load sequence is atomic as a whole, fixing a real reproduced
+  bug (a mid-batch load failure previously left partial data committed on
+  both DuckDB and PostgreSQL). Retry (re-entering `transaction()` on a
+  specific transient-error type) is only meaningful now that atomicity
+  exists, and hasn't been built yet. Connection pooling remains
+  deliberately deferred — no usage pattern anywhere in the codebase
+  motivates it (confirmed by inspection: exactly one `Executor` instance
+  is ever constructed, per CLI invocation).
 * **Materializing ModelGenerator's transformation SQL into a real target
   table** (Phase 8D remainder) — `tests/test_model_execution.py` now proves
   a computed-field SELECT runs correctly against real data on both DuckDB
