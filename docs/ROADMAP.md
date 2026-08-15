@@ -451,8 +451,8 @@ execute correctly, read-only, for both the simple single-source case
 write operations now atomic (8C-v1); a genuinely reproduced transient
 database error now recoverable via retry (8C-v2); ModelGenerator's
 output now materializes into a real target table on both engines
-(8D, v3). Snowflake and connection pooling remain (8B/8C-v3); so does
-CLI exposure for model execution.** A new `Executor` interface
+(8D, v3), and is reachable from `structifact execute --materialize`
+(8D, v4). Snowflake and connection pooling remain (8B/8C-v3).** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
@@ -684,6 +684,47 @@ INSERT share one `transaction()` scope. No CLI exposure — matching
 directly in tests; `structifact execute --materialize` (or similar)
 remains a distinct, later slice.
 
+**8D, v4 (CLI exposure for materialization) is also now done.**
+`structifact execute` gained `--materialize`: populates the table by
+running `ModelGenerator.generate_insert()`'s INSERT instead of loading
+raw `--data` — the two are mutually exclusive, checked before ever
+connecting to a database, alongside `generate_insert()`'s own two
+failure modes (nothing to materialize; the source/target collision
+from 8D v3), so a dataset that can't be materialized fails fast with a
+clear message rather than a wasted connection. Wired into the exact
+same `transaction()` scope DROP/CREATE already use — `--materialize`
+changes nothing about DROP/CREATE's existing behavior (still fails
+loudly against an existing table without `--drop-if-exists`, still
+atomic on a real constraint violation, now confirmed through the CLI
+path itself, not just at the `Executor` level). Reuses the existing
+post-commit verification-query block (previously gated on `args.data`
+alone) rather than inventing a second reporting path. Does not create
+or populate the upstream tables a model reads from — no cross-dataset
+orchestration, an explicit, unchanged boundary. Deliberately still
+excluded: a `--retry` flag (no real caller of this command has a
+concurrent-writer need) and any standalone read-only "preview the
+model's results" mode (`structifact generate -g model` already exposes
+the raw SQL text; materialization's own verification query already
+shows the persisted result — a distinct preview command would be new
+surface area without a demonstrated need).
+
+A real, previously-invisible bug surfaced while building this slice's
+test fixtures: `yaml.py`'s `load_yaml()` had never actually parsed
+`source_table`, `sources`, `joins`, or a field's `source`/
+`source_column` from a YAML file, despite `validation.py` and
+`ModelGenerator` operating correctly on those exact attributes since
+Phase 7 — every sources/joins test across Phase 7 and 8D v1–v3 had
+constructed `DatasetSpec` directly in Python, so the gap was invisible
+until this was the first time a real YAML file needed `source_table`
+to load. Fixed directly in `yaml.py`, with regression coverage in
+`tests/test_yaml_adapter.py` including a full YAML → `DatasetSpec` →
+`validate_table` → `ModelGenerator` pipeline test — the same class of
+bug, found the same way, as the Phase 1 constraint-parsing gap (see
+`DECISION_HISTORY.md`). A related, smaller finding from the same pass
+is now documented directly on `JoinSpec` in `ir.py`: PyYAML's default
+resolver parses a bare `on:` key as the boolean `True`, not the string
+`"on"`, so real YAML files must quote it (`"on":`).
+
 Deliberately, explicitly still NOT done — kept visible as separate
 pieces rather than folded into "Postgres done," matching the
 originally scoped 8A/8B/8C/8D breakdown:
@@ -693,11 +734,6 @@ originally scoped 8A/8B/8C/8D breakdown:
   pattern anywhere in the codebase motivates it yet (confirmed by
   inspection: exactly one `Executor` instance is ever constructed,
   in `cli.py`'s `execute()`, one per CLI invocation)
-* **CLI exposure for model execution** — running `ModelGenerator`'s
-  SELECT or `generate_insert()`'s materialization via `structifact
-  execute` (or a new command) remains unbuilt; every 8D slice so far
-  has deliberately proven the underlying capability via `Executor`
-  methods directly, not the CLI
 
 The DuckDB slice's scope was chosen deliberately rather than from an
 external real-need example, an explicit, acknowledged exception to
