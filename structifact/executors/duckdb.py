@@ -1,4 +1,5 @@
-from typing import Any, Dict, List
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List
 
 from .base import Executor
 
@@ -49,6 +50,18 @@ class DuckDBExecutor(Executor):
         column_names = [d[0] for d in cursor.description]
 
         return [dict(zip(column_names, row)) for row in cursor.fetchall()]
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        self._require_connection()
+
+        self._conn.begin()
+        try:
+            yield
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def close(self) -> None:
         if self._conn is not None:
