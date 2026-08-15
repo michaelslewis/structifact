@@ -218,6 +218,11 @@ class JoinSpec:
     `type` is restricted to Structifact's currently-supported join
     types (see validation.py) — not free text, since generating an
     unsupported join keyword would just produce broken SQL silently.
+
+    In YAML, this field's key must be quoted (`"on":`, not `on:`) —
+    PyYAML's default (YAML 1.1) resolver parses a bare `on` key as the
+    boolean `True`, not the string "on", which silently produces a
+    dict key mismatch rather than an obvious error.
     """
 
     source: str

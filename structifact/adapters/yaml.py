@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import yaml
 
-from ..ir import DatasetSpec, FieldSpec, ConstraintSpec
+from ..ir import DatasetSpec, FieldSpec, ConstraintSpec, SourceRef, JoinSpec, DedupRule
 from ..types import parse_type
 
 
@@ -76,6 +76,9 @@ def load_yaml(path: str) -> DatasetSpec:
                 min_value=_parse_bound(field.get("min_value")),
                 max_value=_parse_bound(field.get("max_value")),
                 pattern=field.get("pattern"),
+
+                source=field.get("source"),
+                source_column=field.get("source_column"),
             )
         )
 
@@ -103,10 +106,49 @@ def load_yaml(path: str) -> DatasetSpec:
         else []
     )
 
+    # Phase 7 — sources/joins milestone, and source_table (also Phase
+    # 7). Top-level keys, siblings to `constraints`/`depends_on` above
+    # — same placement precedent, and matching ARCHITECTURE.md's own
+    # documented DatasetSpec shape. Previously never actually parsed
+    # here despite being fully supported by validation.py/ModelGenerator
+    # ever since Phase 7 — every existing sources/joins test only ever
+    # constructed DatasetSpec directly, so this gap was invisible until
+    # a real YAML file exercised it (see DECISION_HISTORY.md).
+    source_table = data.get("source_table")
+
+    sources = [
+        SourceRef(
+            name=source["name"],
+            table=source["table"],
+            filter=source.get("filter"),
+            dedup=(
+                DedupRule(
+                    partition_by=[str(v) for v in source["dedup"]["partition_by"]],
+                    order_by=[str(v) for v in source["dedup"]["order_by"]],
+                )
+                if source.get("dedup") is not None
+                else None
+            ),
+        )
+        for source in data.get("sources", [])
+    ]
+
+    joins = [
+        JoinSpec(
+            source=join["source"],
+            on=join["on"],
+            type=join.get("type", "left"),
+        )
+        for join in data.get("joins", [])
+    ]
+
     return DatasetSpec(
         name=name,
         description=description,
         fields=fields,
         constraints=constraints,
         depends_on=dataset_depends_on,
+        source_table=source_table,
+        sources=sources,
+        joins=joins,
     )

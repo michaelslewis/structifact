@@ -83,3 +83,206 @@ fields:
     dataset = load_yaml(yaml_file)
 
     assert dataset.name == "customers"
+
+
+# ---------------------------------------------------------------------
+# source_table / sources / joins / field-level source / source_column
+#
+# Regression coverage for a real bug found while implementing Phase
+# 8D v4 (CLI exposure for materialization): validation.py and
+# ModelGenerator have operated on DatasetSpec.source_table/.sources/
+# .joins and FieldSpec.source/.source_column since Phase 7, but
+# load_yaml() never actually parsed any of them from a real YAML file
+# -- every existing sources/joins test constructed DatasetSpec
+# directly in Python. The gap was invisible until this was the first
+# time a real YAML file needed source_table to load correctly.
+# ---------------------------------------------------------------------
+
+def test_load_yaml_parses_source_table(tmp_path):
+    yaml_file = tmp_path / "order_items.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: order_items
+
+source_table: raw_order_items
+
+fields:
+  - name: order_id
+    type: integer
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.source_table == "raw_order_items"
+
+
+def test_load_yaml_source_table_absent_defaults_to_none(tmp_path):
+    dataset = load_yaml("tests/fixtures/customers.yml")
+
+    assert dataset.source_table is None
+
+
+def test_load_yaml_parses_sources_and_joins(tmp_path):
+    yaml_file = tmp_path / "work_order_source.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: work_order_source
+
+source_table: raw_work_order_source
+
+fields:
+  - name: wo_id
+    type: integer
+  - name: requested_by_name
+    type: string
+    source: partner_requested_by
+    source_column: contact_name
+
+sources:
+  - name: partner_requested_by
+    table: partner_role
+    filter: "role_code = 'REQ'"
+    dedup:
+      partition_by: [wo_id]
+      order_by: ["is_current desc", "updated_at desc"]
+
+joins:
+  - source: partner_requested_by
+    "on": "raw_work_order_source.wo_id = partner_requested_by.wo_id"
+    type: left
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.source_table == "raw_work_order_source"
+
+    assert dataset.fields[1].source == "partner_requested_by"
+    assert dataset.fields[1].source_column == "contact_name"
+
+    assert len(dataset.sources) == 1
+    source = dataset.sources[0]
+    assert source.name == "partner_requested_by"
+    assert source.table == "partner_role"
+    assert source.filter == "role_code = 'REQ'"
+    assert source.dedup.partition_by == ["wo_id"]
+    assert source.dedup.order_by == ["is_current desc", "updated_at desc"]
+
+    assert len(dataset.joins) == 1
+    join = dataset.joins[0]
+    assert join.source == "partner_requested_by"
+    assert join.on == "raw_work_order_source.wo_id = partner_requested_by.wo_id"
+    assert join.type == "left"
+
+
+def test_load_yaml_sources_join_type_defaults_to_left(tmp_path):
+    yaml_file = tmp_path / "orders.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: orders
+
+fields:
+  - name: order_id
+    type: integer
+
+sources:
+  - name: customers
+    table: cust_mst
+
+joins:
+  - source: customers
+    "on": "orders.customer_id = customers.customer_id"
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.joins[0].type == "left"
+
+
+def test_load_yaml_sources_joins_absent_default_to_empty_lists(tmp_path):
+    dataset = load_yaml("tests/fixtures/customers.yml")
+
+    assert dataset.sources == []
+    assert dataset.joins == []
+
+
+def test_load_yaml_source_without_dedup_leaves_dedup_none(tmp_path):
+    yaml_file = tmp_path / "orders.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: orders
+
+fields:
+  - name: order_id
+    type: integer
+
+sources:
+  - name: customers
+    table: cust_mst
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.sources[0].dedup is None
+
+
+def test_load_yaml_dependency_demo_end_to_end_via_real_pipeline():
+    """
+    Loads the real examples/workorder_demo-motivated sources/joins/
+    dedup shape end to end -- YAML -> DatasetSpec -> validate_table ->
+    ModelGenerator -- proving the fix works through the whole real
+    pipeline, not just load_yaml() in isolation.
+    """
+    from structifact.validation import validate_table
+    from structifact.generators.model import ModelGenerator
+
+    import tempfile
+    import os
+
+    yaml_content = """
+dataset:
+  name: work_order_source
+
+source_table: raw_work_order_source
+
+fields:
+  - name: wo_id
+    type: integer
+  - name: requested_by_name
+    type: string
+    source: partner_requested_by
+    source_column: contact_name
+
+sources:
+  - name: partner_requested_by
+    table: partner_role
+    filter: "role_code = 'REQ'"
+    dedup:
+      partition_by: [wo_id]
+      order_by: ["is_current desc", "updated_at desc"]
+
+joins:
+  - source: partner_requested_by
+    "on": "raw_work_order_source.wo_id = partner_requested_by.wo_id"
+"""
+
+    fd, path = tempfile.mkstemp(suffix=".yml")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(yaml_content)
+
+        dataset = load_yaml(path)
+        validate_table(dataset)  # should not raise
+
+        artifact = ModelGenerator().generate(dataset)
+        assert "from raw_work_order_source" in artifact.content
+        assert "left join partner_requested_by" in artifact.content
+    finally:
+        os.remove(path)
