@@ -446,9 +446,10 @@ Connect Structifact metadata with execution environments.
 ## Status
 
 **Two real engines done (8A); a computed-field SELECT proven to
-execute correctly, read-only (8D, v1); execute's write operations now
-atomic (8C-v1). Snowflake, retry, pooling, and model materialization
-remain (8B/8C-v2/8C-v3/8D remainder).** A new `Executor` interface
+execute correctly, read-only, for both the simple single-source case
+(8D, v1) and the sources/joins/dedup CTE shape (8D, v2); execute's
+write operations now atomic (8C-v1). Snowflake, retry, pooling, and
+model materialization remain (8B/8C-v2/8C-v3/8D v3).** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
@@ -520,8 +521,28 @@ DDL would produce for that same dataset. Deliberately, explicitly
 scoped out of this slice: materializing the SELECT's output into a
 real target table (an `INSERT INTO ... SELECT`-style write path,
 closer to `dbt run`), any CLI exposure, and the sources/joins/dedup
-CTE shape (a materially bigger, still-unproven SQL construct) — all
-still open, not silently folded into "done."
+CTE shape (a materially bigger, still-unproven SQL construct at the
+time) — all still open, not silently folded into "done."
+
+**8D, v2 (sources/joins/dedup CTE, also read-only) is also now done.**
+Split out from what was originally scoped as a single "8D remainder"
+slice, matching this project's discipline of proving one new thing
+per slice: 8D v1 proved a simple single-source SELECT executes
+correctly; 8D v2 proves the materially bigger CTE shape (joined
+sources, filters, `ROW_NUMBER()`-based dedup) does too, still
+read-only, via the same `Executor.query()` — no new method, no CLI
+change. `tests/test_model_execution_sources_joins.py` reuses the
+`work_order_source`/`partner_role` shape already unit-tested (SQL-text
+only) in `tests/test_model_sources_joins.py`, but with real data
+deliberately designed to exercise three distinct semantics with
+exact-value assertions rather than "the query didn't error": a
+`filter` that must exclude a wrong-role candidate that would otherwise
+look like a better dedup match; a dedup tie broken by the *secondary*
+sort key, not just the primary one; and a `left join` that must
+preserve a row with no match at all (`NULL`, not a dropped row).
+Verified against both DuckDB and a real PostgreSQL server. Still
+explicitly open: materializing either shape's output into a real
+target table (8D v3) and any CLI exposure.
 
 **8C-v1 (atomic execution) is also now done.** Scoped directly from a
 reproduced, real bug rather than the roadmap's original three-item
@@ -572,10 +593,11 @@ originally scoped 8A/8B/8C/8D breakdown:
   pattern anywhere in the codebase motivates it yet (confirmed by
   inspection: exactly one `Executor` instance is ever constructed,
   in `cli.py`'s `execute()`, one per CLI invocation)
-* **8D, remainder** — materializing `ModelGenerator`'s output into a
-  real target table, CLI exposure, and proving the sources/joins/dedup
-  CTE shape executes correctly (only the simpler single-source
-  computed-field case is proven so far)
+* **8D, v3** — materializing `ModelGenerator`'s output into a real
+  target table, and any CLI exposure for model execution. Both the
+  simple single-source (8D v1) and sources/joins/dedup (8D v2) SELECT
+  shapes are now proven to execute correctly read-only — materializing
+  either into a real table is the remaining, still-open piece.
 
 The DuckDB slice's scope was chosen deliberately rather than from an
 external real-need example, an explicit, acknowledged exception to
