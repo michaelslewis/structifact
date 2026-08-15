@@ -1,4 +1,4 @@
-from typing import Any, ContextManager, Dict, List
+from typing import Any, Callable, ContextManager, Dict, List, Tuple, Type
 
 
 class Executor:
@@ -68,3 +68,57 @@ class Executor:
 
     def close(self) -> None:
         raise NotImplementedError
+
+
+def retry_transaction(
+    executor: "Executor",
+    fn: Callable[[], None],
+    retry_on: Tuple[Type[BaseException], ...],
+    max_attempts: int = 3,
+) -> None:
+    """
+    Phase 8C-v2 — retry, built on top of transaction() (Phase 8C-v1)
+    rather than a new Executor method: retrying means re-running the
+    CALLER's code inside a fresh transaction() scope, and a context
+    manager cannot re-invoke its own `with`-block body, so this is a
+    plain function taking that code as `fn`, not a new abstract method
+    every Executor subclass would have to implement. Deliberately
+    requires no changes to Executor, DuckDBExecutor, or PostgresExecutor.
+
+    fn MUST represent the complete unit of work for one transaction
+    attempt, and MUST be safe to run again from the beginning --
+    retry_transaction re-executes fn() in its entirety on each retry,
+    not just the statement that failed. This means fn must confine its
+    effects to the transaction itself: no irreversible action outside
+    the database (sending an email, calling an external API, writing a
+    file) belongs inside fn, since a retry will re-run it.
+
+    If fn() raises an exception matching retry_on, the transaction
+    rolls back (transaction()'s existing behavior) and fn() is called
+    again from the start in a new transaction() scope. max_attempts is
+    the TOTAL number of times fn() may be called, including the first
+    attempt -- max_attempts=3 means at most 3 calls to fn(), not 3
+    retries after an initial attempt.
+
+    Any exception NOT matching retry_on propagates immediately,
+    without retrying. If every attempt raises a retry_on exception, the
+    exception from the FINAL attempt propagates once max_attempts is
+    exhausted.
+
+    The only retry_on condition verified against real engine behavior
+    so far is psycopg2.errors.SerializationFailure (PostgreSQL SQLSTATE
+    40001, from two genuinely concurrent SERIALIZABLE transactions --
+    see tests/test_executor_retry.py). This function doesn't validate
+    or restrict what's passed as retry_on, but callers should treat
+    that as the only concretely justified case until a different real
+    transient failure motivates another.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with executor.transaction():
+                fn()
+            return
+        except retry_on:
+            if attempt == max_attempts:
+                raise
+            continue
