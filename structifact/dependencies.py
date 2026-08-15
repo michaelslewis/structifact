@@ -18,11 +18,12 @@ it requires a structurally sound graph (no duplicates, no missing
 references) to even traverse.
 
 Scope, explicit: this module represents and validates *that* one
-dataset depends on another, and derives a safe processing order. It
-does NOT resolve cross-dataset values, generate SQL, infer
-dependencies from expressions, execute/materialize anything, or
-support lineage/impact-analysis queries. Those are all real,
-deferred capabilities, not implemented here.
+dataset depends on another, derives a safe processing order, and (as
+of Phase 9, v1) answers "what depends on X" impact-analysis queries
+via impacted_by(). It does NOT resolve cross-dataset values, generate
+SQL, infer dependencies from expressions, execute/materialize
+anything, or render a full lineage view. Those are all real, deferred
+capabilities, not implemented here.
 """
 
 from typing import Dict, List
@@ -117,3 +118,55 @@ def execution_order(datasets: List[DatasetSpec]) -> List[str]:
         visit(name, [])
 
     return order
+
+
+def impacted_by(dataset_name: str, datasets: List[DatasetSpec]) -> List[str]:
+    """
+    Returns every dataset in `datasets` that depends on `dataset_name`,
+    directly or transitively -- the reverse of the graph
+    build_dependency_graph() builds forward. `dataset_name` itself is
+    never included in its own result.
+
+    Ordering is not arbitrary: the result is the subsequence of
+    execution_order(datasets) restricted to the impacted set. Since
+    every returned entry is genuinely downstream of `dataset_name`,
+    this ordering IS semantically meaningful (unlike execution_order's
+    general guarantee) -- it's a valid order in which those datasets
+    could be regenerated if `dataset_name` changed.
+
+    Raises ValueError:
+    - everything execution_order() raises for (duplicate dataset name,
+      unresolved depends_on reference, circular dependency) -- same
+      message, checked first, since structural validity is a
+      precondition for asking an impact question at all.
+    - "Dataset 'X' was not found in the provided collection." if
+      `dataset_name` isn't present -- checked only once the collection
+      itself is known structurally sound.
+
+    Returns [] for a dataset nothing depends on (e.g. a terminal
+    report), not an error.
+    """
+    order = execution_order(datasets)
+
+    if dataset_name not in order:
+        raise ValueError(
+            f"Dataset '{dataset_name}' was not found in the provided "
+            "collection."
+        )
+
+    graph = build_dependency_graph(datasets)
+    reverse_graph: Dict[str, List[str]] = {name: [] for name in graph}
+    for name, deps in graph.items():
+        for dep in deps:
+            reverse_graph[dep].append(name)
+
+    impacted = set()
+    stack = [dataset_name]
+    while stack:
+        current = stack.pop()
+        for dependent in reverse_graph[current]:
+            if dependent not in impacted:
+                impacted.add(dependent)
+                stack.append(dependent)
+
+    return [name for name in order if name in impacted]

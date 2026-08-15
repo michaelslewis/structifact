@@ -6,7 +6,7 @@ from .utils import write_file
 from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
 from .quality import load_data_rows, check_data, resolve_references
-from .dependencies import execution_order
+from .dependencies import execution_order, impacted_by
 from .executors.registry import EXECUTORS
 from .generators.sql import SQLGenerator
 from .discover import (
@@ -221,6 +221,46 @@ def deps(args):
     print("\n--- EXECUTION ORDER ---\n")
     for i, name in enumerate(order, start=1):
         print(f"{i}. {name}")
+
+
+def impact(args):
+    """
+    Phase 9, v1 -- impact analysis. Loads and validates multiple
+    dataset YAML files together, then reports every dataset that
+    depends on args.dataset_name, directly or transitively, in the
+    order they'd need to be regenerated (or a clear error: schema
+    validation failure, unresolved dependency reference, duplicate
+    dataset name, circular dependency, or an unknown dataset name).
+
+    See dependencies.py's impacted_by() for the full contract.
+    """
+    tables = []
+
+    for path in args.paths:
+        try:
+            table = load_spec(path)
+            validate_table(table)
+        except ValueError as e:
+            print(f"\nValidation failed for {path}:\n")
+            print(e)
+            return
+        tables.append(table)
+
+    print(f"✓ Loaded {len(tables)} dataset(s)")
+
+    try:
+        impacted = impacted_by(args.dataset_name, tables)
+    except ValueError as e:
+        print("\nDependency resolution failed:\n")
+        print(e)
+        return
+
+    print(f"\n--- IMPACTED BY '{args.dataset_name}' ---\n")
+    if not impacted:
+        print(f"(no datasets depend on '{args.dataset_name}')")
+    else:
+        for i, name in enumerate(impacted, start=1):
+            print(f"{i}. {name}")
 
 
 def execute(args):
@@ -570,6 +610,29 @@ def main():
     )
 
     deps_parser.set_defaults(func=deps)
+
+    impact_parser = subparsers.add_parser(
+        "impact",
+        help=(
+            "Report every dataset that depends on a given dataset, "
+            "directly or transitively, across multiple metadata "
+            "files (or a circular-dependency/unresolved-reference "
+            "error). Declaration/ordering only -- does not resolve "
+            "or generate anything about how one dataset obtains "
+            "another's data."
+        ),
+    )
+
+    impact_parser.add_argument(
+        "dataset_name",
+        help="Name of the dataset to analyze impact for (as declared in metadata, not a file path).",
+    )
+    impact_parser.add_argument(
+        "paths", nargs="+",
+        help="One or more dataset YAML files to resolve together.",
+    )
+
+    impact_parser.set_defaults(func=impact)
 
     execute_parser = subparsers.add_parser(
         "execute",
