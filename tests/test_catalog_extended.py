@@ -143,6 +143,30 @@ def test_cli_explicit_generator_selection(tmp_path):
     assert not (tmp_path / "customers.sql").exists()  # only what was asked for
 
 
+def test_cli_model_generator_none_result_prints_explanation(tmp_path, capsys):
+    """
+    Found during the 1.0 readiness audit: ModelGenerator legitimately
+    returns None for a dataset with no computed fields and no
+    sources/joins (nothing to transform) -- but the CLI previously
+    printed nothing at all when that happened, leaving an empty
+    "GENERATED ARTIFACTS" section with no explanation. Not an error
+    (exit code must stay unaffected), just previously silent.
+    """
+    from structifact.cli import generate as generate_cmd
+
+    args = argparse.Namespace(
+        spec="tests/fixtures/customers_with_roles.yml",
+        output=str(tmp_path),
+        generators="model",
+    )
+    result = generate_cmd(args)
+
+    out = capsys.readouterr().out
+    assert "model: nothing to generate for this dataset" in out
+    assert result is True
+    assert not (tmp_path / "customers_model.sql").exists()
+
+
 def test_cli_unknown_generator_lists_available(tmp_path, capsys):
     from structifact.cli import generate as generate_cmd
 

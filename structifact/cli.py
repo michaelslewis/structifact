@@ -619,10 +619,14 @@ def generate(args):
 
         # generate() may return None to mean "nothing to generate
         # for this dataset" (see generators/base.py) — e.g.
-        # ModelGenerator for a dataset with no computed fields.
-        # Skip writing anything in that case rather than erroring
-        # on artifact.filename against a None.
+        # ModelGenerator for a dataset with no computed fields and no
+        # sources/joins. A valid result, not an error -- say so
+        # explicitly (matching how `execute --materialize` explains
+        # the identical case) rather than silently printing nothing,
+        # which previously left a "GENERATED ARTIFACTS" header with
+        # no explanation for why nothing followed it.
         if artifact is None:
+            print(f"- {gen.name}: nothing to generate for this dataset")
             continue
 
         path = f"{args.output}/{artifact.filename}"
