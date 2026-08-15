@@ -73,10 +73,22 @@ up beyond the narrowest proven case:
   that a failed materialization is atomic (no target table left behind
   at all) and that the target's declared constraints are genuinely
   enforced, not engine-inferred. See ROADMAP.md's Phase 8 section for
-  the full contract. Still open: any CLI exposure for model execution
-  (materialization or the plain read-only SELECT) — every 8D slice so
-  far has proven its capability via `Executor` methods directly, not
-  the CLI.
+  the full contract.
+* **CLI exposure for materialization** (Phase 8D v4) — now done.
+  `structifact execute` gained `--materialize`, mutually exclusive
+  with `--data`, failing fast (before connecting) when materialization
+  is impossible for the dataset. Wired into the same `transaction()`
+  scope and verification-query reporting `--data` already used — no
+  new CLI architecture. Deliberately still excluded: a `--retry` flag
+  (no real concurrent-writer caller) and a standalone read-only preview
+  mode (`generate -g model` already covers "see the SQL text";
+  materialization's own verification query already shows the
+  persisted result). Building this slice's real fixtures also
+  surfaced and fixed a genuine bug: `yaml.py` had never parsed
+  `source_table`/`sources`/`joins`/field-level `source`/`source_column`
+  from a real YAML file — see `DECISION_HISTORY.md` for the full
+  writeup (the same class of bug as the Phase 1 constraint-parsing
+  gap). See ROADMAP.md's Phase 8 section for the full contract.
 
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
 

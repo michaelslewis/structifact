@@ -292,6 +292,22 @@ Two real examples showing the same pattern is genuine evidence that the pattern 
 
 ---
 
+# Decision: The Same Class of Bug, Found the Same Way, Twice
+
+## What Happened
+
+While implementing Phase 8D v4 (CLI exposure for materialization), the first-ever real YAML file to declare `source_table` (needed so the CLI's target table and the model's upstream read source could be genuinely distinct relations — see the Phase 8D v3 self-reference-collision finding in ROADMAP.md) failed to materialize correctly. Investigation found that `yaml.py`'s `load_yaml()` never parsed `source_table`, `sources`, `joins`, or a field's `source`/`source_column` from a YAML file at all — despite `validation.py` and `ModelGenerator` having operated correctly on those exact `DatasetSpec`/`FieldSpec` attributes since Phase 7. Every sources/joins test in the codebase, across three phase slices (7, 8D v1, 8D v2, 8D v3), had constructed `DatasetSpec` directly in Python, never once round-tripping through the YAML adapter — so the gap was invisible until this was the first time a real file needed it.
+
+This is the identical shape of bug documented above ("A Real Bug, Found by Actually Running the System End to End"): an IR/generator/validation feature that was fully correct and fully unit-tested, silently unreachable from any real YAML file, because every test exercising it bypassed the adapter entirely.
+
+A second, smaller finding surfaced in the same pass: PyYAML's default (YAML 1.1) resolver parses a bare `on:` key as the boolean `True`, not the string `"on"` — meaning `JoinSpec.on`'s real YAML key silently fails to bind unless quoted (`"on":`). Documented directly on `JoinSpec` in `ir.py` rather than worked around in the adapter, since this is an inherent YAML dialect quirk tied to the word "on" itself, not something Structifact should paper over.
+
+## Why This Is Worth Recording
+
+The previous entry's stated practice — "run the real CLI against a real file as the last verification step before considering any feature genuinely done" — held for every feature it was actually applied to going forward (constraints, quality checks, dependency tracking, execution). It didn't retroactively protect a feature (Phase 7's sources/joins) that had already shipped and stayed unit-tested-only ever since, because nothing forced a real YAML file through that specific path until this slice's CLI test needed one. The fix (`yaml.py` now parses all four previously-missing fields, with regression tests in `tests/test_yaml_adapter.py` covering each one plus a full YAML → `DatasetSpec` → `validate_table` → `ModelGenerator` pipeline test) closes the gap the same way the constraint bug's fix did. The durable lesson is narrower and more actionable than "test end to end": a feature isn't actually proven end to end until *every* adapter/interface path a real user could take has been exercised at least once by something other than direct object construction — passing unit tests against directly-constructed IR objects proves the logic, not the wiring.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
