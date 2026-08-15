@@ -95,23 +95,30 @@ models:
     description: Record creation timestamp
 ```
 
-Check whether real data actually conforms to the same definition:
+Check whether real data actually conforms to the same definition — including a foreign-key relationship checked against a second dataset's real data:
 
 ```bash
-$ structifact validate-data examples/data_quality_demo/orders_data.yml examples/data_quality_demo/orders_data.csv
+$ structifact validate-data examples/data_quality_demo/orders_data.yml examples/data_quality_demo/orders_data.csv \
+    --ref dq_customers=examples/data_quality_demo/dq_customers.yml:examples/data_quality_demo/dq_customers.csv
 ✓ Loaded schema: orders_data
 ✓ Loaded data: 15 rows
 
-✗ 7 issue(s) found
+✗ 11 issue(s) found
 
 Required-field violations:
   - order_id is blank at data row 4
   - customer_id is blank at data row 15
   - quantity is blank at data row 7
+
+Uniqueness violations:
+  - order_id 'ORD-1002' appears in data rows 2 and 5
+...
+Foreign-key violations:
+  - customer_id 'CUST-004' at data rows 5 and 14 not found in dq_customers.customer_id
 ...
 ```
 
-Resolve how multiple datasets depend on each other into a safe processing order:
+Resolve how multiple datasets depend on each other into a safe processing order — and ask the reverse question, what depends on this one:
 
 ```bash
 $ structifact deps examples/dependency_demo/customers.yml examples/dependency_demo/transactions.yml examples/dependency_demo/customer_summary.yml examples/dependency_demo/daily_report.yml
@@ -123,12 +130,33 @@ $ structifact deps examples/dependency_demo/customers.yml examples/dependency_de
 2. transactions
 3. customer_summary
 4. daily_report
+
+$ structifact impact customers examples/dependency_demo/customers.yml examples/dependency_demo/transactions.yml examples/dependency_demo/customer_summary.yml examples/dependency_demo/daily_report.yml
+✓ Loaded 4 dataset(s)
+
+--- IMPACTED BY 'customers' ---
+
+1. customer_summary
+2. daily_report
 ```
 
+Execute that same definition against a real database — DuckDB (no setup) or PostgreSQL — and, for datasets with computed fields or joined-in sources, materialize the transformation into a real table:
+
+```bash
+$ structifact execute examples/customers/customers.yml --engine duckdb
+✓ Loaded schema: customers
+✓ Connected: duckdb (in-memory)
+✓ Executed DDL: CREATE TABLE customers (...)
+
+Table 'customers' created successfully.
+```
+
+(Omit `--connection` for a throwaway in-memory database, as above, or pass a file path — e.g. `--connection customers.duckdb` — to persist it.)
+
 One definition, several independently-correct outcomes — generated
-artifacts, real-data validation, and dependency resolution, all from
-the same source — with no duplicated column descriptions or rules to
-keep in sync by hand. See
+artifacts, real-data validation, dependency resolution, and real
+database execution — all from the same source, with no duplicated
+column descriptions or rules to keep in sync by hand. See
 [`examples/customers/`](examples/customers/) for the generation
 walkthrough, [`examples/data_quality_demo/`](examples/data_quality_demo/)
 for the data-quality walkthrough (including checking a foreign-key
@@ -177,16 +205,37 @@ Metadata (validated as above)  +  Real Data (CSV)
        Data-Quality Report
 ```
 
-A third flow resolves how multiple datasets relate to each other:
+A third flow resolves how multiple datasets relate to each other —
+`structifact deps` for a safe execution order, `structifact impact`
+for the reverse question:
 
 ```text
 Multiple Metadata Files (each validated as above)
               |
               v
-         structifact deps
+    structifact deps / impact
               |
               v
-   Execution Order (or a dependency error)
+   Execution Order, or Impacted Datasets
+   (or a dependency error)
+```
+
+A fourth flow actually runs generated SQL against a real database —
+creating the schema, and, for datasets with computed fields or
+joined-in sources, materializing the transformation into a real table:
+
+```text
+Generated Artifacts (SQL DDL, transformation SELECT)
+              |
+              v
+        structifact execute
+     (--data / --materialize)
+              |
+              v
+   Real Table, Created and Populated
+   (DuckDB or PostgreSQL — atomic:
+    a failure leaves the database
+    exactly as it was before)
 ```
 
 The Intermediate Representation (IR) is the architectural core: every
@@ -237,21 +286,35 @@ reasoning behind these choices.
   Structifact-defined datasets into a safe execution order, with cycle
   detection (a hard error naming the full cycle) and clear errors for
   unresolved references or duplicate dataset names
-* A five-command CLI (`validate`, `generate`, `discover`,
-  `validate-data`, `deps`)
-* Continuous integration running the full test suite (307 tests) on
-  every push, across Python 3.11 and 3.12
+* **`structifact impact`** — the reverse question: given a dataset,
+  which others depend on it, directly or transitively, in a valid
+  order for regenerating them — built on the same dependency graph
+  as `deps`
+* **`structifact execute`** — runs a dataset's generated DDL against
+  a real database engine (DuckDB, no credentials needed; PostgreSQL,
+  via a `--connection` DSN), optionally loading real `--data` or
+  `--materialize`-ing its transformation model (the computed-field/
+  sources-joins SELECT, written into a real typed target table) — all
+  atomic, so a failure partway through leaves the database exactly as
+  it was before the invocation, not half-populated
+* A seven-command CLI (`validate`, `generate`, `discover`,
+  `validate-data`, `deps`, `impact`, `execute`)
+* Continuous integration running the full test suite (~400 tests,
+  including real PostgreSQL integration tests via a service
+  container) on every push, across Python 3.11 and 3.12
 
 ## Technology Stack
 
-**Currently used:** Python, YAML, SQL, Git, pytest, GitHub Actions.
-Optional: `pandas`/`openpyxl` (Excel input), the Anthropic API
-(opt-in AI-assisted discovery only).
+**Currently used:** Python, YAML, SQL, Git, pytest, GitHub Actions,
+DuckDB (embedded, no setup), `psycopg2`/PostgreSQL (real integration
+tests run against an actual server, both locally and in CI). Optional:
+`pandas`/`openpyxl` (Excel input), the Anthropic API (opt-in
+AI-assisted discovery only).
 
 **Under consideration for future work, not yet dependencies:**
-DuckDB, Apache Parquet, dbt (as an execution engine — Structifact
-generates dbt-shaped YAML; it doesn't run dbt itself), Snowflake,
-Prefect, and other warehouse or orchestration integrations.
+Snowflake, Apache Parquet, dbt (as an execution engine — Structifact
+generates dbt-shaped YAML; it doesn't run dbt itself), Prefect, and
+other warehouse or orchestration integrations.
 
 ---
 
@@ -262,26 +325,32 @@ Structifact/
 │
 ├── examples/
 │   ├── customers/          golden-path example (start here)
-│   ├── enterprise_demo/    synthetic wholesale-order example
-│   ├── workorder_demo/     multi-role joins + dedup example
+│   ├── workorder_demo/     multi-role joins + dedup scoping material
+│   │                        (a real requirements doc; its only spec
+│   │                        file is an unvalidated AI draft, not
+│   │                        meant to run)
 │   ├── data_quality_demo/  validate-data example, incl. a
 │   │                        foreign-key reference dataset
-│   └── dependency_demo/    deps example, incl. a deliberately
+│   └── dependency_demo/    deps/impact example, incl. a deliberately
 │                            cyclic variant
 │
 ├── structifact/
 │   ├── adapters/            input format integrations
-│   ├── generators/          artifact generation logic
+│   ├── generators/          artifact generation logic, incl. the
+│   │                         SELECT-based transformation model
+│   ├── executors/            real database execution (DuckDB,
+│   │                         PostgreSQL) — DDL, atomic transactions,
+│   │                         retry, materialization
 │   ├── ir.py                 DatasetSpec / FieldSpec / ConstraintSpec /
 │   │                         SourceRef / JoinSpec / DedupRule
 │   ├── validation.py         metadata well-formedness
 │   ├── quality.py            real-data checking (validate-data)
-│   ├── dependencies.py       dependency resolution (deps)
+│   ├── dependencies.py       dependency resolution (deps / impact)
 │   ├── discover.py           schema/requirements inference
 │   ├── llm.py                 provider-agnostic AI client
 │   └── cli.py
 │
-├── tests/                  automated test suite (307 tests)
+├── tests/                  automated test suite (~400 tests)
 ├── docs/                   architecture and design documentation
 ├── AGENTS.md                working rules for AI assistants in this repo
 └── pyproject.toml
@@ -308,8 +377,14 @@ demonstrating modern software and data engineering practices. The
 core pipeline — adapters, IR, validation, and generation — is
 implemented, tested, and covered by CI, alongside a complete
 real-data quality framework (required fields through cross-dataset
-foreign-key checking), cross-dataset dependency resolution (execution
-ordering with cycle detection), and AI-assisted schema/requirements
-discovery. See `docs/ROADMAP.md` for what's next.
+foreign-key checking), cross-dataset dependency resolution and impact
+analysis (execution ordering with cycle detection, and the reverse
+question), AI-assisted schema/requirements discovery, and real
+execution against DuckDB and PostgreSQL — DDL creation, atomic
+multi-step writes, retry on a real transient database error, and
+materializing a dataset's transformation model into a real table. See
+`docs/ROADMAP.md` for what's next; `docs/FUTURE_WORK.md`'s "Before a
+1.0 Release" section tracks what's deliberately still open (a
+Snowflake executor, connection pooling).
 
 > Define structure once. Generate reliable systems from it.
