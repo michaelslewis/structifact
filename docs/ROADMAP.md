@@ -221,8 +221,7 @@ maturity, not a strict execution order.
 Structifact's architectural foundation, described in earlier drafts
 of this document as a set of goals, is now a set of completed,
 tested capabilities. See "Recently Completed" above and
-`docs/CURRENT_STATE.md` / `docs/CURRENT_IMPLEMENTATION.md` for the
-authoritative current snapshot.
+`docs/CURRENT_STATE.md` for the authoritative current snapshot.
 
 ---
 

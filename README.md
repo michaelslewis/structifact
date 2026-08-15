@@ -362,7 +362,7 @@ Structifact/
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system architecture and component design
 * [`docs/DECISION_HISTORY.md`](docs/DECISION_HISTORY.md) — key architectural decisions and rationale
 * [`docs/DESIGN_PRINCIPLES.md`](docs/DESIGN_PRINCIPLES.md) — core engineering philosophy
-* [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) / [`docs/CURRENT_IMPLEMENTATION.md`](docs/CURRENT_IMPLEMENTATION.md) — snapshot of what's actually implemented
+* [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) — snapshot of what's actually implemented
 * [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned development, with completed work marked as such
 * [`docs/FUTURE_WORK.md`](docs/FUTURE_WORK.md) — longer-term exploratory ideas
 * [`docs/EXAMPLES.md`](docs/EXAMPLES.md) — additional usage examples, including the full `validate-data` and `deps` walkthroughs
