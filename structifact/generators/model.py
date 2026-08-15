@@ -159,6 +159,55 @@ from {primary};"""
             content=sql,
         )
 
+    def generate_insert(self, dataset: DatasetSpec) -> Optional[Artifact]:
+        """
+        Phase 8D v3 — wraps generate()'s SELECT in an
+        `INSERT INTO <dataset.name> (<columns>) <select>` statement,
+        for materializing this dataset's transformation model into
+        its own target table (created separately, via SQLGenerator's
+        DDL — this method only produces the write statement, not the
+        target's schema).
+
+        Returns None under the same condition generate() does: no
+        computed fields and no sources/joins means nothing to
+        materialize either.
+
+        Raises ValueError if `dataset.name` (the materialization
+        target) is among the relations the underlying SELECT reads
+        from — the resolved primary source (`source_table`, or
+        `dataset.name` if unset) or any declared source's `table`.
+        Materializing into a relation the SELECT itself reads from is
+        a self-referential write/read collision, never attempted
+        silently. This is a materialization-specific precondition,
+        not a general DatasetSpec validation rule — a model reading
+        from its own dataset name may be perfectly valid outside of
+        materializing it (e.g. read-only use, see 8D v1/v2).
+        """
+        select_artifact = self.generate(dataset)
+        if select_artifact is None:
+            return None
+
+        primary = dataset.source_table or dataset.name
+        read_relations = {primary} | {source.table for source in dataset.sources}
+
+        if dataset.name in read_relations:
+            raise ValueError(
+                f"Cannot materialize '{dataset.name}': its model reads "
+                f"from a relation of the same name. Set source_table "
+                f"(and/or each source's table) to a distinct upstream "
+                f"relation to materialize this dataset."
+            )
+
+        columns = ", ".join(f.name for f in dataset.fields)
+        select_body = select_artifact.content.rstrip().rstrip(";")
+
+        sql = f"INSERT INTO {dataset.name} ({columns})\n{select_body};"
+
+        return Artifact(
+            filename=f"{dataset.name}_insert.sql",
+            content=sql,
+        )
+
     def _select_line(self, f, primary: str, indent: str) -> str:
         if f.computed and f.expression:
             return f"{indent}{f.expression} as {f.name}"
