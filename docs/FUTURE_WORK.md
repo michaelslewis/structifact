@@ -32,15 +32,19 @@ but that should be revisited before Structifact is called 1.0, since a 1.0
 implies the core promise — "generate reliable systems from metadata" — holds
 up beyond the narrowest proven case:
 
-* **Real Postgres/Snowflake Executor implementations** (Phase 8) — the
-  Executor interface is designed to support these without a redesign, but
-  only DuckDB is actually implemented/tested. A 1.0 claiming multi-engine
-  support should have at least one credentialed, real-warehouse-tested
-  implementation beyond DuckDB.
-* **Transaction management, connection pooling, retry logic** (Phase 8) —
-  the first Executor slice is a single connect/run/close per invocation,
-  fine for a local proof-of-concept, not for anything resembling
-  production use.
+* **Real Snowflake Executor implementation** (Phase 8B) — the Executor
+  interface is designed to support this without a redesign. DuckDB and,
+  as of Phase 8A, PostgreSQL are both real, tested implementations
+  (PostgreSQL verified with real integration tests against an actual
+  server, CI-enforced via a `postgres:16` service container — see
+  ROADMAP.md); Snowflake remains unimplemented.
+* **Transaction management, connection pooling, retry logic** (Phase 8C) —
+  every Executor slice so far (DuckDB, Postgres) is a single
+  connect/run/close per invocation, fine for a local proof-of-concept or
+  a CI-verified integration test, not for anything resembling production
+  use. PostgresExecutor's `autocommit=True` is explicitly documented as
+  Phase 8A compatibility behavior matching DuckDB's existing implicit
+  semantics, not a substitute for this.
 * **Executing ModelGenerator's transformation SQL, not just SQLGenerator's
   DDL** (Phase 8) — the first Executor slice only proves schema creation
   works; proving a computed-field SELECT actually runs against real data
@@ -188,9 +192,9 @@ The core metadata model should remain platform-independent.
 
 Warehouse and Platform Integrations
 
-Future exploration may include: Snowflake, BigQuery, Databricks, PostgreSQL, DuckDB, cloud object storage.
+DuckDB and PostgreSQL are now real, tested Executor implementations (Phase 8A — see ROADMAP.md). Future exploration may still include: Snowflake, BigQuery, Databricks, cloud object storage.
 
-These should be implemented through adapters or generators rather than embedded into the core framework.
+These should be implemented through Executors (or adapters/generators, for non-warehouse targets) rather than embedded into the core framework.
 
 The architectural principle: Structifact defines intent. Platform-specific components implement execution details.
 

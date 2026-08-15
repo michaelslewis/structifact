@@ -445,42 +445,85 @@ Connect Structifact metadata with execution environments.
 
 ## Status
 
-**First real slice done.** A new `Executor` interface
+**Two real engines done (8A); Snowflake, reliability, and model
+execution remain (8B/8C/8D).** A new `Executor` interface
 (`structifact/executors/`) lets Structifact actually run its own
 generated DDL against a real database, not just produce SQL text —
 closing a real gap (nothing previously confirmed generated SQL was
 genuinely valid/executable). `DatasetSpec` → `SQLGenerator` →
-`Executor.execute_ddl()` is now a real, tested, end-to-end path.
+`Executor.execute_ddl()` is now a real, tested, end-to-end path,
+proven against two independent engines with no engine-specific logic
+added to `SQLGenerator` or the CLI.
 
-First and only real implementation: **DuckDB** (`DuckDBExecutor`,
-local file or in-memory, no credentials needed) — deliberately chosen
-first specifically because it needed no credentialed environment,
-letting the `Executor` interface itself get proven before a
-credentialed engine is attempted. Exposed via a new
-`structifact execute` command, with `--data` (load real CSV rows and
-run a verification query) and `--drop-if-exists` (added after a real
-run surfaced that re-running against an existing table fails loudly
-by default — an intentional choice, matching this project's explicit-
-over-magic principle, with an opt-in escape hatch rather than a
-silent overwrite).
+**DuckDB** (`DuckDBExecutor`, local file or in-memory, no credentials
+needed) was implemented first specifically because it needed no
+credentialed environment, letting the `Executor` interface itself get
+proven before a credentialed engine was attempted.
 
-Deliberately, explicitly NOT done — see `FUTURE_WORK.md`'s "Before a
-1.0 Release" section:
+**PostgreSQL** (`PostgresExecutor`, Phase 8A) is the second, proving
+the same interface holds for a real, networked, credentialed engine
+via `psycopg2`. Verified with real integration tests against an
+actual PostgreSQL 16 server — never mocked — covering DDL correctness
+(table/columns/types/primary key), row loading with the same raw,
+uncoerced CSV-string values the existing `load_rows` contract already
+passed to DuckDB, query shape, persistence across a close/reconnect
+cycle, and a real constraint-violation error propagating uncaught.
+CI runs these via a `postgres:16` GitHub Actions service container;
+local runs are opt-in via `STRUCTIFACT_TEST_POSTGRES_DSN` and skip
+cleanly when unset.
 
-* Real Postgres/Snowflake (or any other engine) implementations —
-  the interface is designed to support them without a redesign, but
-  none exist yet
-* Transaction management, connection pooling, retry logic — a single
-  connect/run/close per invocation only
-* Executing `ModelGenerator`'s transformation SQL — only
-  `SQLGenerator`'s schema DDL is executed; proving a computed-field
-  `SELECT` runs against real data is a distinct, unproven capability
+Two things changed at the interface/CLI boundary to make this
+possible, both applied to DuckDB too for consistency: the CLI's
+connection flag was renamed `--database` → `--connection` (a clean
+pre-1.0 break, no alias — `--database` was DuckDB-specific
+terminology to begin with and wasn't shown in any README/EXAMPLES
+golden path), carrying a single opaque string the CLI never
+interprets — each `Executor` decides what it means (a file path for
+DuckDB, a DSN for Postgres). This keeps host/port/user/password
+concepts entirely out of the generic CLI layer. Separately, both
+`DuckDBExecutor` and `PostgresExecutor` now import their third-party
+driver lazily, inside `connect()`, rather than at module load time —
+fixing a real pre-existing bug where the whole `structifact` CLI
+failed to import without `duckdb` installed (confirmed: CI had
+actually been failing on `main` for several commits, including the
+`v0.4.0` tag, for exactly this reason — also fixed alongside this
+work).
 
-This scope was chosen deliberately rather than from an external real-
-need example, an explicit, acknowledged exception to this project's
-usual real-example-first discipline — justified because DuckDB
-requires no setup and there was a genuine gap (unverified generated
-SQL) worth closing regardless.
+`PostgresExecutor` connects with `autocommit=True`, explicitly
+documented (see `Executor`'s base docstring) as deliberate Phase 8A
+compatibility behavior matching DuckDB's existing implicit
+persistence semantics — not real transaction management. That
+distinction matters: PostgreSQL does not autocommit by default the
+way DuckDB does, and a naive implementation would have silently
+rolled back everything on connection close while still reporting
+success. Explicit transaction management, atomic multi-operation
+execution, rollback semantics, connection pooling, and retry logic
+remain deferred — see below and `FUTURE_WORK.md`.
+
+Deliberately, explicitly still NOT done — kept visible as separate
+pieces rather than folded into "Postgres done," matching the
+originally scoped 8A/8B/8C/8D breakdown:
+
+* **8B — Snowflake** (or any further engine) implementation
+* **8C — Executor reliability**: real transaction management,
+  connection pooling, retry logic (including backend-specific
+  transient-error handling) — a single connect/run/close per
+  invocation only, for both DuckDB and Postgres today
+* **8D — Executing `ModelGenerator`'s transformation SQL** — only
+  `SQLGenerator`'s schema DDL is executed, for either engine; proving
+  a computed-field `SELECT` runs against real data remains a distinct,
+  unproven capability
+
+The DuckDB slice's scope was chosen deliberately rather than from an
+external real-need example, an explicit, acknowledged exception to
+this project's usual real-example-first discipline — justified
+because DuckDB requires no setup and there was a genuine gap
+(unverified generated SQL) worth closing regardless. The Postgres
+slice returned to the normal discipline: scoped on paper against the
+same `tests/fixtures/customers.yml` fixture and `SQLGenerator` output
+already proven against DuckDB, with the connection-configuration
+boundary and persistence-semantics questions investigated and
+resolved *before* any implementation, not assumed.
 
 ## Design Requirement
 
