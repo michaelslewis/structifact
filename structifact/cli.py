@@ -256,8 +256,8 @@ def execute(args):
     executor = executor_cls()
 
     connection_args = {}
-    if args.database:
-        connection_args["database"] = args.database
+    if args.connection:
+        connection_args["connection"] = args.connection
 
     try:
         executor.connect(**connection_args)
@@ -266,8 +266,8 @@ def execute(args):
         print(e)
         return
 
-    database_label = f" ({args.database})" if args.database else " (in-memory)"
-    print(f"✓ Connected: {executor.name}{database_label}")
+    connection_label = f" ({args.connection})" if args.connection else " (in-memory)"
+    print(f"✓ Connected: {executor.name}{connection_label}")
 
     try:
         if getattr(args, "drop_if_exists", False):
@@ -564,11 +564,12 @@ def main():
         help=(
             "Execute a dataset's generated DDL against a real database "
             "engine, optionally loading real data and verifying it. "
-            "First real implementation: DuckDB (local file or in-memory, "
-            "no credentials needed). The Executor interface is designed "
-            "for other engines (Postgres, Snowflake, ...) to slot in "
-            "later without a redesign — see FUTURE_WORK.md's "
-            "'Before a 1.0 Release' section for what's not built yet."
+            "Real implementations: DuckDB (local file or in-memory, no "
+            "credentials needed) and PostgreSQL (via a --connection DSN). "
+            "The Executor interface is designed for further engines "
+            "(Snowflake, ...) to slot in later without a redesign — see "
+            "FUTURE_WORK.md's 'Before a 1.0 Release' section for what's "
+            "not built yet."
         ),
     )
 
@@ -576,14 +577,16 @@ def main():
 
     execute_parser.add_argument(
         "--engine", required=True,
-        help="Which Executor to use (e.g. 'duckdb'). Required — no default engine.",
+        help="Which Executor to use ('duckdb' or 'postgres'). Required — no default engine.",
     )
 
     execute_parser.add_argument(
-        "--database", default=None,
+        "--connection", default=None,
         help=(
-            "Engine-specific connection target. For duckdb: a file "
-            "path, or omit for an in-memory database."
+            "Opaque connection string, interpreted by the chosen engine. "
+            "For duckdb: a file path, or omit for an in-memory database. "
+            "For postgres: a DSN, e.g. postgresql://user:pass@host:port/dbname "
+            "(required — postgres has no in-memory default)."
         ),
     )
 
