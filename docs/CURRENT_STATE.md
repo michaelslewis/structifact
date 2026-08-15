@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (363 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (366 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -116,7 +116,7 @@ structifact/                        (repo root)
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (30 files, 363 tests)
+├── tests/                          (31 files, 366 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -213,7 +213,9 @@ Exposed via a new CLI command, `structifact execute <spec.yml> --engine <name> [
 
 `tests/test_model_execution.py` (Phase 8D, v1) proves `ModelGenerator`'s computed-field SELECT actually executes correctly against real data — a minimal single-computed-field fixture (no sources/joins), run via the existing `Executor.query()` on both DuckDB and PostgreSQL, asserting exact expected values (not just "the query didn't error"), plus a check that the generated SQL itself contains the expected expression/alias. Read-only verification only: the table it reads from is a raw upstream table Structifact doesn't generate DDL for (matching how `sources`/`joins` already treat upstream tables), distinct from `SQLGenerator`'s DDL for that same dataset's own resulting shape.
 
-Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 Release" section: a real Snowflake (or other) engine implementation, retry logic and connection pooling (only meaningful now that `transaction()` gives atomicity to build retry on top of — see above), materializing `ModelGenerator`'s output into a real target table, any CLI exposure for model execution, and proving the sources/joins/dedup CTE shape executes correctly.
+`tests/test_model_execution_sources_joins.py` (Phase 8D, v2) proves the materially bigger sources/joins/dedup CTE shape also executes correctly, still read-only, via the same `Executor.query()` — no new Executor method needed for this either. Split out from what was originally one "8D remainder" item, matching the discipline that each slice proves exactly one new thing. Reuses the `work_order_source`/`partner_role` fixture already unit-tested (SQL text only) in `tests/test_model_sources_joins.py`, with real data specifically designed to exercise three semantics with exact-value assertions: a `filter` that must exclude a wrong-role candidate that would otherwise look like a better dedup match, a dedup tie broken by the *secondary* sort key rather than the primary one, and a `left join` that must preserve an unmatched row as `NULL` rather than dropping it. Verified against both DuckDB and a real PostgreSQL server.
+
+Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 Release" section: a real Snowflake (or other) engine implementation, retry logic and connection pooling (only meaningful now that `transaction()` gives atomicity to build retry on top of — see above), and materializing `ModelGenerator`'s output (either SELECT shape — both are now proven to execute correctly read-only) into a real target table, including any CLI exposure for model execution.
 
 ---
 
@@ -276,7 +278,7 @@ Phase 9 (Lineage and Observability) now has a first real slice done: impact anal
 Open threads:
 
 * **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — two real synthetic examples (`enterprise_demo`, `workorder_demo`) both motivate this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
-* **8B — Snowflake Executor**, **8C-v2 — retry logic**, **8D remainder — materializing `ModelGenerator`'s output** (see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — all deliberately parked pending a real, concrete need.
+* **8B — Snowflake Executor**, **8C-v2 — retry logic**, **8D v3 — materializing `ModelGenerator`'s output** (both SELECT shapes now proven to execute correctly read-only; see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — all deliberately parked pending a real, concrete need.
 * **Lineage view / dependency-graph visualization** (Phase 9 remainder) — bigger, less concretely scoped than impact analysis; worth revisiting once a real use case surfaces.
 * Longer-term, deliberately deferred: VS Code extension, structifact.com deployment/GUI (see `FUTURE_WORK.md`).
 

@@ -49,14 +49,16 @@ up beyond the narrowest proven case:
   motivates it (confirmed by inspection: exactly one `Executor` instance
   is ever constructed, per CLI invocation).
 * **Materializing ModelGenerator's transformation SQL into a real target
-  table** (Phase 8D remainder) — `tests/test_model_execution.py` now proves
-  a computed-field SELECT runs correctly against real data on both DuckDB
-  and PostgreSQL (read-only, via the existing `Executor.query()` — no new
-  Executor method needed), for the simple single-source case. Still
-  unproven/undone: writing that SELECT's output into a real table (an
-  `INSERT INTO ... SELECT`-style path, closer to `dbt run`), any CLI
-  exposure, and the sources/joins/dedup CTE shape (materially bigger SQL,
-  not yet executed against a real engine at all).
+  table** (Phase 8D v3) — `tests/test_model_execution.py` (v1) and
+  `tests/test_model_execution_sources_joins.py` (v2) now prove both the
+  simple single-source SELECT *and* the sources/joins/dedup CTE shape run
+  correctly against real data on both DuckDB and PostgreSQL — read-only,
+  via the existing `Executor.query()`, no new Executor method needed for
+  either. Still unproven/undone: writing either shape's output into a
+  real table (an `INSERT INTO ... SELECT`-style path, closer to `dbt
+  run` — vs. a `CREATE TABLE ... AS SELECT` that lets the engine infer
+  types, an open design question not yet resolved on paper) and any CLI
+  exposure for model execution.
 
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
 
