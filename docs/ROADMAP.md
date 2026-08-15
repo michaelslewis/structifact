@@ -179,8 +179,8 @@ They are now implemented, tested, and covered by CI:
   command. Declaration/ordering only — deliberately does NOT resolve
   cross-dataset values or generate SQL for how one dataset obtains
   another's data; see `FUTURE_WORK.md` for that still-future problem
-  and the two real examples (`enterprise_demo`, `workorder_demo`) that
-  motivate it. New `examples/dependency_demo/` (a four-dataset chain
+  and the real example (`workorder_demo`) that motivates it. New
+  `examples/dependency_demo/` (a four-dataset chain
   plus a deliberately-broken cyclic variant) as the acceptance
   fixtures. See `DECISION_HISTORY.md` for the scoping process,
   including a real test-fixture bug caught by running the tests, not
@@ -419,10 +419,10 @@ Observability) once a real need for it surfaces.
 
 Separately, and deliberately kept out of this phase: **cross-dataset
 value resolution** — one dataset actually consuming another's
-computed/resolved value (not just knowing it must run after it). Two
-real synthetic examples (`enterprise_demo`, `workorder_demo`) both
-motivate this via the same FX-rate-lookup pattern, which is real
-evidence it recurs, but it's a substantially different and larger
+computed/resolved value (not just knowing it must run after it). A
+real synthetic example (`workorder_demo`) motivates this via an
+FX-rate-lookup pattern, which is real evidence it recurs, but it's a
+substantially different and larger
 problem (cross-dataset field references, lookup/fallback semantics,
 cross-dataset SQL generation) — see `FUTURE_WORK.md` and
 `DECISION_HISTORY.md` for the full reasoning on why this was kept

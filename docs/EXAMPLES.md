@@ -378,14 +378,80 @@ This is declaration and ordering only — `deps` doesn't know or generate anythi
 
 ---
 
+# Example 11 — Impact Analysis: What Depends On This Dataset?
+
+`structifact impact` answers the reverse question to `deps`: given a dataset, which others depend on it, directly or transitively — built on the same dependency graph, so it stays grounded in the same interpretation of `depends_on` rather than reimplementing traversal.
+
+```bash
+$ structifact impact customers examples/dependency_demo/customers.yml examples/dependency_demo/transactions.yml examples/dependency_demo/customer_summary.yml examples/dependency_demo/daily_report.yml
+✓ Loaded 4 dataset(s)
+
+--- IMPACTED BY 'customers' ---
+
+1. customer_summary
+2. daily_report
+```
+
+The result isn't an arbitrary set — it's ordered as a valid regeneration sequence, since every entry really is downstream of `customers`. A dataset nothing depends on reports that explicitly rather than silently:
+
+```bash
+$ structifact impact daily_report examples/dependency_demo/customers.yml examples/dependency_demo/transactions.yml examples/dependency_demo/customer_summary.yml examples/dependency_demo/daily_report.yml
+✓ Loaded 4 dataset(s)
+
+--- IMPACTED BY 'daily_report' ---
+
+(no datasets depend on 'daily_report')
+```
+
+---
+
+# Example 12 — Executing Against a Real Database, and Materializing a Transformation
+
+`structifact execute` runs a dataset's generated DDL against a real database engine — DuckDB (no credentials needed) or PostgreSQL (via `--connection`):
+
+```bash
+$ structifact execute examples/customers/customers.yml --engine duckdb
+✓ Loaded schema: customers
+✓ Connected: duckdb (in-memory)
+✓ Executed DDL: CREATE TABLE customers (...)
+
+Table 'customers' created successfully.
+```
+
+For a dataset with computed fields or joined-in sources (like `orders` from Example 4), `--materialize` populates the table by actually running the transformation model's SELECT — a real `INSERT INTO ... SELECT`, not just generating the SQL text — instead of loading raw `--data`. This assumes the upstream table(s) the model reads from (`source_table`, here `raw_orders`) already exist and are populated in the target database; `structifact execute` doesn't create or populate them, only the dataset being executed:
+
+```bash
+$ structifact execute orders.yml --engine duckdb --connection orders.duckdb --materialize
+✓ Loaded schema: orders
+✓ Connected: duckdb (orders.duckdb)
+✓ Executed DDL: CREATE TABLE orders (...)
+✓ Executed model INSERT: INSERT INTO orders (...)
+✓ Verification query: 2 rows in orders
+
+Table 'orders' created and materialized successfully.
+```
+
+Every write is atomic — the DROP (if `--drop-if-exists`), CREATE, and load/materialize steps share a single transaction, so a failure partway through (a duplicate-key row, a real constraint violation) leaves the database exactly as it was before the invocation, not half-populated. Re-running against an existing table fails loudly unless `--drop-if-exists` is passed — never a silent overwrite.
+
+`--materialize` and `--data` are mutually exclusive, and a dataset with neither computed fields nor sources/joins declared has nothing to materialize — both are checked before ever connecting to the database:
+
+```bash
+$ structifact execute examples/customers/customers.yml --engine duckdb --materialize
+✓ Loaded schema: customers
+
+'customers' has no computed fields or sources/joins declared — nothing to materialize.
+```
+
+---
+
 # Current Implementation Examples
 
 The current repository demonstrates all of the above, live, in its own example folders:
 
-* `examples/customers/` — the golden-path example (Examples 1–3)
-* `examples/enterprise_demo/` and `examples/workorder_demo/` — larger synthetic examples exercising computed fields, multi-role joins, and dedup (Examples 4–5, and the source material for Example 9)
+* `examples/customers/` — the golden-path example (Examples 1–3, 12)
+* `examples/workorder_demo/` — a real requirements document exercising multi-role joins and dedup (source material for Example 9); its only spec-shaped file is an AI-extracted draft, explicitly not meant to run — Examples 4–5 above use a small self-contained dataset instead
 * `examples/data_quality_demo/` — the Phase 6 data-quality example, including a second referenced dataset for foreign-key checking (Examples 6–7)
-* `examples/dependency_demo/` — dataset dependency chain (fan-in + multi-level) plus a deliberately-broken cyclic variant (Example 10)
+* `examples/dependency_demo/` — dataset dependency chain (fan-in + multi-level) plus a deliberately-broken cyclic variant (Examples 10–11)
 
 ---
 

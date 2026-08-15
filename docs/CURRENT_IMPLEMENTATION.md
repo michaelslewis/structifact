@@ -52,7 +52,6 @@ structifact/                        (repo root)
 │
 ├── examples/
 │   ├── customers/
-│   ├── enterprise_demo/
 │   ├── workorder_demo/
 │   ├── data_quality_demo/
 │   └── dependency_demo/

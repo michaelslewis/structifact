@@ -59,7 +59,6 @@ structifact/
 │
 ├── examples/
 │   ├── customers/            golden-path example
-│   ├── enterprise_demo/      synthetic wholesale-order example
 │   ├── workorder_demo/       synthetic work-order example (multi-role joins, dedup)
 │   ├── data_quality_demo/    Phase 6 example (orders + a referenced customers dataset)
 │   └── dependency_demo/      Phase 7 remainder example (dataset chain + cyclic variant)

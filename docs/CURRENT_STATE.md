@@ -69,9 +69,6 @@ structifact/                        (repo root)
 │   │                                 no input CSV — validate/generate
 │   │                                 only, no validate-data walkthrough
 │   │                                 here — see data_quality_demo/ for that)
-│   ├── enterprise_demo/            synthetic wholesale-order example
-│   │   (REQUIREMENTS.md, wholesale_order_source.sql/yml,
-│   │    int_fx_rate_lookup.sql/yml, catalog.csv)
 │   ├── workorder_demo/             synthetic work-order example
 │   │   (REQUIREMENTS_workorder.md, work_order_source.sql/yml,
 │   │    work_order_catalog.csv, work_order_source.discovered.yml)
@@ -187,7 +184,7 @@ All three report structured `QualityIssue`/`QualityResult` data; human-readable 
 
 Exposed via a new CLI command, `structifact deps <path> [<path> ...]`.
 
-Declaration and ordering only — deliberately does *not* resolve cross-dataset values or generate SQL for how one dataset obtains another's data. Two real synthetic examples (`enterprise_demo`, `workorder_demo`) both motivate that as a real future need (an FX-rate lookup pattern), but it's out of scope for this milestone — see `FUTURE_WORK.md`.
+Declaration and ordering only — deliberately does *not* resolve cross-dataset values or generate SQL for how one dataset obtains another's data. A real synthetic example (`workorder_demo`) motivates that as a real future need (an FX-rate lookup pattern), but it's out of scope for this milestone — see `FUTURE_WORK.md`.
 
 ---
 
@@ -285,7 +282,7 @@ Phase 9 (Lineage and Observability) now has a first real slice done: impact anal
 
 Open threads:
 
-* **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — two real synthetic examples (`enterprise_demo`, `workorder_demo`) both motivate this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
+* **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — a real synthetic example (`workorder_demo`) motivates this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
 * **8B — Snowflake Executor**, **8C-v3 — connection pooling** (see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — deliberately parked pending a real, concrete need.
 * **Lineage view / dependency-graph visualization** (Phase 9 remainder) — bigger, less concretely scoped than impact analysis; worth revisiting once a real use case surfaces.
 * Longer-term, deliberately deferred: VS Code extension, structifact.com deployment/GUI (see `FUTURE_WORK.md`).
