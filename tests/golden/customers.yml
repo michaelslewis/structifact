@@ -4,5 +4,9 @@ models:
   columns:
   - name: customer_id
     description: Unique customer identifier
+    meta:
+      source_field: customers.customer_id
   - name: created_at
     description: Record creation timestamp
+    meta:
+      source_field: customers.created_at
