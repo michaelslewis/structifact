@@ -116,6 +116,7 @@ column classification beyond dimension/measure
 validation-rule *recommendations* (as opposed to the deterministic rule-checking that already exists in quality.py)
 interactive/IDE-integrated metadata authoring assistance (see the IDE Integration section below, which folds this in)
 AI-assisted documentation (DocsGenerator is fully deterministic today)
+formatting-aware requirements extraction — `discover --ai` now reads a raw `.xlsx` requirements document directly (see ROADMAP.md, "Real-World Validation"), but only its literal cell text; it has no awareness of cell *formatting*. A real requirements workbook has already been observed using a grey fill to mark a candidate field as a join-key/filter-only column that should not appear in the output — a real, load-bearing signal a plain-text dump cannot represent, which caused several such fields to be silently included in an AI draft that the source document had excluded by color alone. Worth a real design pass (what formatting signals to surface, and how — a per-cell hint in the extraction prompt? in `unresolved_notes`?) once a second real example confirms the shape recurs, per this project's usual discipline — not designed abstractly from the one observed case
 
 Schema Evolution Management
 
