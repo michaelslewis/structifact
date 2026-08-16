@@ -40,6 +40,38 @@ constraints:
 
 This is the actual golden-path example shipped in the repo — every subsequent example in this document either builds on it or shows a different real one.
 
+## The Same Schema as CSV or Excel
+
+YAML is canonical, but the same schema can be written as a CSV or Excel spec file instead — one row per field, column headers giving each field's attributes. `examples/customers.csv` is the exact CSV equivalent of the YAML above:
+
+```csv
+column_name,type,description
+customer_id,string,Unique customer identifier
+created_at,timestamp,Account creation time
+```
+
+The full set of columns the CSV and Excel adapters recognize — `column_name` and `type` are required, everything else is optional and may be left blank:
+
+| Column | Meaning | Format |
+|---|---|---|
+| `column_name` | Field name | required |
+| `type` | e.g. `integer`, `varchar(50)`, `decimal(9,2)` | required |
+| `description` | Field description | plain text |
+| `role` | `dimension` or `measure` | plain text |
+| `accepted_values` | Allowed values | `;`-separated, e.g. `Free;Pro;Enterprise` |
+| `nullable` | Whether the field allows blanks | `true`/`false`/`yes`/`no`/`1`/`0`; defaults to `true` |
+| `computed` | Whether the value is derived, not sourced directly | same boolean format; defaults to `false` |
+| `expression` | SQL expression, if `computed` is true | plain text |
+| `depends_on` | Other field names this one is computed from | `;`-separated |
+| `min_value` / `max_value` | Inclusive numeric bounds | plain number |
+| `pattern` | Regex the value must fully match | plain text |
+
+An Excel spec file (`.xlsx`) uses the exact same column headers, as the first row of one sheet — the Excel adapter reads it with `pandas.read_excel`, same shape as the CSV above, just in workbook form. Requires the `excel` extra (`pip install -e ".[excel]"`).
+
+**This is a different thing from a raw Excel or Word requirements document** someone wrote by hand to describe a dataset — prose, a loose table, notes — rather than one already shaped as `column_name`/`type` rows. For that, see Example 9 below (`structifact discover --ai`) rather than trying to feed it to `validate`/`generate` directly.
+
+Not available in CSV/Excel, YAML-only: per-field `source`/`source_column` (cross-source attribution) and `label`, plus everything at the dataset level beyond a bare name/description — `constraints`, `source_table`/`sources`/`joins`, and `depends_on`.
+
 ---
 
 # Example 2 — Validating a Schema
@@ -312,7 +344,7 @@ Any `--ai` usage requires an `ANTHROPIC_API_KEY` environment variable — Struct
 
 # Example 9 — Bootstrapping a Schema from a Requirements Document
 
-For a freeform requirements document (a table-based spec, prose, bullet points, or a mix — see `examples/workorder_demo/REQUIREMENTS_workorder.md` for a real, complex example), there's no deterministic parsing path — `--ai` is required. There's no separate `--requirements` flag either: a `.md`/`.txt` file passed to `discover` is routed to this path automatically, based on its extension:
+For a freeform requirements document (a table-based spec, prose, bullet points, or a mix — see `examples/workorder_demo/REQUIREMENTS_workorder.md` for a real, complex example), there's no deterministic parsing path — `--ai` is required. There's no separate `--requirements` flag either: a `.md`/`.txt`/`.xlsx` file passed to `discover` is routed to this path automatically, based on its extension:
 
 ```bash
 $ structifact discover REQUIREMENTS_workorder.md --ai
@@ -325,6 +357,8 @@ Proceed with this request? [y/N] y
 ```
 
 Fields whose value is described as derived from others are flagged `computed: true` with the raw described logic preserved as text (not auto-translated into a real `expression` — that remains a human decision). Anything the extraction can identify but can't structurally place — join keys, cross-field business rules, deprioritization notes — goes into an `unresolved_notes` list in the draft rather than being silently dropped.
+
+A raw `.xlsx` requirements document works the same way — `structifact discover REQUIREMENTS.xlsx --ai` — and is read directly, no manual conversion to Markdown needed first: every sheet's grid is dumped as plain text, in workbook order, into the same extraction prompt shown above. This has no awareness of cell *formatting*: a real workbook that uses, say, a grey fill to mark a field as a join-key/filter-only column rather than a real output field — a real, load-bearing signal observed in an actual requirements workbook — is invisible to this extraction; only what's literally typed into a cell comes through (see `DECISION_HISTORY.md` for that real case, and `FUTURE_WORK.md` for the currently-deferred formatting-aware extraction idea). Reading `.xlsx` requires the `excel` extra in addition to `ai`.
 
 ---
 

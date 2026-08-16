@@ -387,6 +387,28 @@ This is the payoff of insisting on a *second* real example before building the d
 
 ---
 
+# Decision: A Question, Not a Ticket — Onboarding Gaps and Native `.xlsx` Discovery
+
+## What Happened
+
+Every prior "Real-World Validation" entry above was triggered by a new work ticket. This one wasn't: asked directly how someone other than the project's own author would know how to install and use Structifact, the honest answer required actually inspecting the README and CLI rather than assuming they were fine — and they weren't, in two concrete ways. First, the README had no Installation section anywhere; a reader would reach the `structifact validate ...` command shown in "See It In Action" with no path to having that command available at all. Second, nothing documented the actual contract for a structured CSV/Excel input file — `examples/customers.csv` was referenced by name in the golden-path walkthrough, but the full set of columns the CSV/Excel adapters recognize (`role`, `accepted_values`, `min_value`/`max_value`, `pattern`, etc. — eleven optional columns beyond the two required ones) existed only as something a reader would have to go read `adapters/csv.py` to discover.
+
+Investigating the second gap surfaced a real capability gap underneath the documentation one. A structured CSV/Excel spec file is a completely different thing from a raw Excel (or Word) requirements document — a spreadsheet someone wrote by hand to describe a dataset, not one already shaped as `column_name`/`type` rows — and both real work tickets in the prior two entries were exactly that second kind. Both required manually converting the source `.xlsx` to Markdown before `discover --ai` could read it, because `discover` had never accepted `.xlsx` as an extension at all — it only recognized `.md`/`.txt`. Nothing in the docs said this conversion step was necessary; a real user would have had no way to know why `structifact discover ticket.xlsx --ai` simply refused to run.
+
+## What Was Done
+
+Two documentation-only fixes: an Installation section (clone, venv, `pip install -e .`, and each optional extra individually) added to `README.md`; a full structured-input column reference (every column the CSV/Excel adapters recognize, what's required vs. optional, and an explicit note on what's YAML-only) added to `EXAMPLES.md`. While writing the column reference, checking it against the actual adapter code (not the prior claim that CSV/Excel were "at parity on every `FieldSpec` attribute") found that claim was itself slightly wrong — per-field `source`/`source_column` and `label` are YAML-only, never parsed by either `csv.py` or `excel.py`. Corrected in both `README.md` and `CURRENT_STATE.md`.
+
+One real code change: `discover.extract_text_from_xlsx()` reads a raw `.xlsx` requirements document directly — every sheet's grid dumped as plain text (blank rows and entirely-blank sheets skipped), in workbook order — and `discover`/`discover_requirements` in `cli.py` now route a `.xlsx` `spec` argument the same way they already routed `.md`/`.txt`. A missing `excel` extra (`pandas`) surfaces as the same kind of clear, caught error as a missing `anthropic` package for `--ai`, not a raw traceback. Deliberately scoped to text only, not cell *formatting* — the earlier entry in this section ("The First Real-World-Triggered Feature") already documented a real case where a workbook's grey-fill exclusion signal was invisible to a naive text conversion; this fix makes the text conversion itself automatic, but does not attempt to close that separate, harder gap, which stays tracked in `FUTURE_WORK.md`.
+
+Verified two ways: synthetic multi-sheet `openpyxl` fixtures in the automated test suite (`tests/test_discover_xlsx.py`) covering header/data rows, a blank row, an entirely blank sheet, a missing file, and CLI dispatch end to end with a `FakeLLMClient`; and, separately, re-running the new extraction against both real requirements workbooks already sitting in the scratchpad from the prior two entries — confirming it reproduces the same information the earlier *manual* Markdown conversion did, including the source document's own literal "Grey color = not included in table" instruction, which the AI still has no way to act on since it only ever sees that instruction as text, never as an actual color on a cell.
+
+## Why This Is Worth Recording
+
+The prior entries in this section all treated "real-world validation" as something that starts when a new work ticket arrives. This one shows the same discipline applies to a much more mundane trigger — a plain question about who else could use this and how — and that answering it honestly (by actually checking the README and the adapter code, not by asserting confidence) found real gaps exactly the same way a work ticket would have. It's also a second, independent confirmation of a pattern from earlier in this document (the Phase 1 constraint-parsing gap, and the Phase 8D `yaml.py` sources/joins gap): documentation and code both drift from what a fresh pair of eyes actually needs, and the fix is always to check, not to assume the existing docs already say it.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:

@@ -54,6 +54,44 @@ metadata, the validation, a data-quality report against real data,
 and its place in a larger dependency graph — derives from it instead
 of being maintained by hand in parallel.
 
+## Installation
+
+```bash
+git clone https://github.com/michaelslewis/Structifact.git
+cd Structifact
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+```
+
+Requires Python 3.10+ (CI runs 3.11 and 3.12). The base install has
+no dependencies beyond PyYAML — `validate`, `generate`, `deps`,
+`impact`, and CSV-based `discover`/`validate-data` all work
+immediately, no further setup.
+
+Everything else is opt-in, via extras:
+
+```bash
+pip install -e ".[excel]"     # Excel (.xlsx) input, and native .xlsx requirements-document discovery
+pip install -e ".[ai]"        # AI-assisted discover --ai (needs ANTHROPIC_API_KEY)
+pip install -e ".[duckdb]"    # structifact execute --engine duckdb
+pip install -e ".[postgres]"  # structifact execute --engine postgres
+pip install -e ".[dev]"       # pytest, for running the test suite
+```
+
+or all at once: `pip install -e ".[excel,ai,duckdb,postgres,dev]"`.
+
+Then confirm it's working — see [`examples/customers/`](examples/customers/)
+for the full golden-path walkthrough this mirrors:
+
+```bash
+$ structifact validate examples/customers/customers.yml
+✓ Loaded metadata
+✓ Parsed 2 fields
+✓ Valid schema
+✓ No constraint violations
+```
+
 ## See It In Action
 
 Validate a definition before anything is generated from it:
@@ -251,7 +289,12 @@ reasoning behind these choices.
 ## Current Capabilities
 
 * YAML, CSV, and Excel input adapters, all normalizing types through
-  a shared type system, kept at parity on every field-level attribute
+  a shared type system — CSV and Excel are at parity with each other
+  on every field-level attribute they support; YAML is a strict
+  superset (per-field `source`/`source_column`, and everything at
+  the dataset level beyond a bare name/description, are YAML-only —
+  see [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full column
+  reference)
 * An Intermediate Representation (`DatasetSpec` / `FieldSpec` /
   `ConstraintSpec`) as the stable internal model, including optional
   per-field `role` classification, computed/derived fields, and
@@ -273,9 +316,14 @@ reasoning behind these choices.
   richer format available via `-g catalog_extended`
 * Markdown documentation generation (`-g docs`)
 * `structifact discover` — infers a draft schema from raw CSV sample
-  data, or (passing a `.md`/`.txt` file with `--ai`) from a freeform
-  requirements document — for human review before it becomes real
-  metadata. AI assistance is entirely optional, bring-your-own-key
+  data, or (passing a `.md`/`.txt`/`.xlsx` file with `--ai`) from a
+  freeform requirements document — for human review before it
+  becomes real metadata. A raw `.xlsx` requirements document (the
+  `excel` extra) is read directly, no manual conversion to text
+  needed first — though it has no awareness of cell *formatting*
+  (e.g. a fill color marking a field as excluded), only literal cell
+  text; see `docs/FUTURE_WORK.md`. AI assistance is entirely
+  optional, bring-your-own-key
   (`ANTHROPIC_API_KEY`, and the `ai` extra — `pip install -e ".[ai]"`),
   cost-estimated and confirmed before any request, and every non-AI
   command works with zero setup
@@ -300,7 +348,7 @@ reasoning behind these choices.
   it was before the invocation, not half-populated
 * A seven-command CLI (`validate`, `generate`, `discover`,
   `validate-data`, `deps`, `impact`, `execute`)
-* Continuous integration running the full test suite (~400 tests,
+* Continuous integration running the full test suite (~470 tests,
   including real PostgreSQL integration tests via a service
   container) on every push, across Python 3.11 and 3.12
 
@@ -351,7 +399,7 @@ Structifact/
 │   ├── llm.py                 provider-agnostic AI client
 │   └── cli.py
 │
-├── tests/                  automated test suite (~400 tests)
+├── tests/                  automated test suite (~470 tests)
 ├── docs/                   architecture and design documentation
 ├── AGENTS.md                working rules for AI assistants in this repo
 └── pyproject.toml

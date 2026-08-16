@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (462 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (471 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -114,7 +114,7 @@ structifact/                        (repo root)
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (40 files, 462 tests)
+├── tests/                          (41 files, 471 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -145,7 +145,7 @@ A dataset definition can now express, well beyond the original name/fields/types
 
 ## Adapter Architecture
 
-Implemented adapters: YAML (primary/canonical), CSV, Excel — all three at parity on every `FieldSpec` attribute, including the Phase 6 v2 additions (`min_value`/`max_value`/`pattern`). Dataset-level `depends_on` is currently YAML-only, matching how `constraints`/`sources`/`joins` are also YAML-only.
+Implemented adapters: YAML (primary/canonical), CSV, Excel. CSV and Excel are at parity with each other on every `FieldSpec` attribute they support, including the Phase 6 v2 additions (`min_value`/`max_value`/`pattern`) — but YAML is a strict superset: per-field `source`/`source_column` (cross-source attribution) and `label` are YAML-only, matching how dataset-level `constraints`/`source_table`/`sources`/`joins`/`depends_on` are also YAML-only.
 
 ---
 
@@ -233,7 +233,9 @@ Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 
 
 ## Discover / AI-Assisted Discovery
 
-`structifact discover` infers a draft schema from raw CSV sample data — deterministic, no AI, always writes a clearly-labeled draft for human review. `--ai` adds optional LLM-assisted field descriptions (off by default, cost-estimated, confirmed before any request; declining makes zero API calls). `discover --requirements <file> --ai` extracts a draft schema from a freeform requirements document (multi-column tables, prose, terse bullets, or a mix) — always requires `--ai`, since there's no deterministic way to parse freeform text.
+`structifact discover` infers a draft schema from raw CSV sample data — deterministic, no AI, always writes a clearly-labeled draft for human review. `--ai` adds optional LLM-assisted field descriptions (off by default, cost-estimated, confirmed before any request; declining makes zero API calls). A `.md`/`.txt`/`.xlsx` `spec` argument routes automatically to requirements-document extraction instead — there's no separate `--requirements` flag — which extracts a draft schema from a freeform requirements document (multi-column tables, prose, terse bullets, or a mix) and always requires `--ai`, since there's no deterministic way to parse freeform text.
+
+A raw `.xlsx` requirements document (the `excel` extra) is read directly — every sheet's grid dumped as plain text, in workbook order — rather than requiring a manual conversion to Markdown first. This has no awareness of cell *formatting* (e.g. a fill color marking a field as excluded); only literal cell text is extracted. See `DECISION_HISTORY.md` for the real case that surfaced this limitation, and `FUTURE_WORK.md` for the deferred formatting-aware extraction idea.
 
 AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` defines a provider-agnostic `LLMClient` interface (not locked to one vendor), with `AnthropicLLMClient` reading an `ANTHROPIC_API_KEY` environment variable — never a hardcoded key — and a `FakeLLMClient` used in tests so the test suite needs no real network access or API key. Every non-AI Structifact command works with zero setup and zero network access.
 
@@ -249,7 +251,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 ## CLI
 
-`structifact/cli.py` — seven commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `-y`; a `.md`/`.txt` `spec` argument routes automatically to requirements-document extraction — there's no separate `--requirements` flag), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--materialize`, `--drop-if-exists`).
+`structifact/cli.py` — seven commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `-y`; a `.md`/`.txt`/`.xlsx` `spec` argument routes automatically to requirements-document extraction — there's no separate `--requirements` flag), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--materialize`, `--drop-if-exists`).
 
 ---
 
