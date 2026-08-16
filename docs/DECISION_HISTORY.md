@@ -330,6 +330,34 @@ This is the same lesson as the two entries above, applied one level up: "verify 
 
 ---
 
+# Decision: The First Real-World-Triggered Feature — `source_filter`
+
+## What Happened
+
+After the 1.0 readiness audit closed with an empty backlog, the agreed next step was to stop building from the roadmap and wait for real use to surface a real need. That happened almost immediately: a real work ticket (a SAP-shaped profit-center data source — one requirements xlsx, plus SQL/dbt-YAML/catalog already hand-built as ground truth, kept entirely outside the git repo in a scratchpad directory since it's real work data) was run through Structifact's actual pipeline as a genuinely adversarial test, not a demo built to look good.
+
+The experiment was structured in layers, each isolating a different question:
+
+1. **`discover --ai` against a naive xlsx→text conversion.** The requirements sheet used cell *color* (grey fill) to mark which candidate fields were join-keys/filter-only and shouldn't appear in the output — a real, load-bearing signal that a plain text dump of cell values has no way to carry, since `discover` has no spreadsheet-formatting awareness at all. Result: 19 flat fields, all candidates included, exactly as predicted — but everything textually present (types, lengths, descriptions, the join/filter logic surfaced honestly into `unresolved_notes` rather than guessed at) came out essentially perfectly.
+2. **The same run, with the exclusion signal made explicit in the text.** Confirmed the extraction logic itself wasn't the limitation: given the same information in words instead of color, it correctly excluded exactly the right 5 fields and said why. The real gap was entirely in step 1's input preparation, not in `discover`'s reasoning.
+3. **Hand-modeling the real IR** (`source_table`, `sources`, `joins`, `filter`) and diffing generated output against the hand-built reference SQL field-by-field. This surfaced two distinct things, not one: a real structural IR gap (below), and a self-inflicted modeling mistake (relying on `source_column`'s default-to-field-name behavior for primary-source fields that had been intentionally renamed away from their physical column name — the mechanism to avoid this already existed, it just wasn't obvious it was needed on the *primary* source specifically).
+
+The real, structural finding: `DatasetSpec` had no way to express a filter on its *primary* source — `source_table` was a bare string, and only a joined-in `SourceRef` carried a `filter`. Naively "just add a trailing `WHERE`" would have been wrong, not merely inelegant: the real dataset's primary and joined-in sources shared a column name (a "valid to" date), so a `WHERE` applied after the join would have been genuinely ambiguous in any real engine, not a hypothetical risk.
+
+## What Was Done
+
+Added `source_filter: Optional[str] = None` to `DatasetSpec` — same trust model as `SourceRef.filter` and `source_table` (raw SQL, inlined as-is, validated only for non-blankness). Wired into `yaml.py` from the start this time (see the entry above for what happens when that step gets skipped). `ModelGenerator` wraps the primary source in its own CTE, filtered *before* any join, whenever `source_filter` is set alongside `sources`/`joins` — matching how the real hand-written reference SQL was itself structured, not an invented shape. A plain trailing `WHERE` remains correct (and is what's generated) for the simpler case of a filter with no joins at all, where the ambiguity risk doesn't exist.
+
+Verified two ways: unit tests asserting the exact SQL shape in all four combinations (filter alone, filter+joins, and both `unchanged` regression cases), and a real DuckDB/PostgreSQL execution test using data specifically designed to prove the ambiguity risk is actually avoided — a shared column name, one active and one expired primary-source row, an independently-filtered joined-source row present for *both*, so a wrong implementation would either error or silently include the expired row. Final generated SQL, once correctly modeled, matched the real hand-built reference field-for-field, alias-for-alias, modulo dbt-specific syntax (`{{ source() }}`, inline comments) that isn't part of what Structifact generates.
+
+Two more findings from the same exercise were fixed as documentation corrections, not code: `--requirements` was documented (and used as informal shorthand in several other docs) as if it were a real CLI flag — routing to requirements-document extraction has always been automatic, based on `.md`/`.txt` extension plus `--ai`. And the `anthropic` package has no setup step called out anywhere prominent despite being required for any `--ai` usage.
+
+## Why This Is Worth Recording
+
+This is the outcome the whole "stop, audit, wait for a real trigger" sequence was built to produce, and it's worth noting that it produced exactly the *shape* of finding the project's discipline has always aimed for: small, real, evidence-backed, and immediately testable against actual ground truth — not a speculative capability added because it seemed plausible. The layered experiment design mattered as much as the fix: separating "did the AI extraction fail" from "was the input missing information" from "is there a real IR gap" from "did I make a modeling mistake" turned one vague "the aliasing/filtering didn't quite work" impression into four distinct, individually-actionable findings, only one of which needed a code change at all. That's the same discipline this project has applied to every prior IR addition, now demonstrated end to end starting from a real requirements document instead of a synthetic one.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:

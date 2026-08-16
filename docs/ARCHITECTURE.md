@@ -694,7 +694,7 @@ structifact generate examples/customers/customers.yml [-o output_dir] [-g genera
 Runs the default generator set, or an explicitly selected subset via `-g` (comma-separated generator names). An unknown name lists what's available rather than failing silently.
 
 structifact discover some_data.csv [-o output.yml] [-n sample_size] [--ai] [-y]
-structifact discover requirements.md --requirements --ai [-y]
+structifact discover requirements.md --ai [-y]
 
 Infers a draft schema from raw CSV sample data, or extracts one from a freeform requirements document (always requires `--ai` for the latter — no deterministic path exists for freeform text). Writes to a file for human review. Never validates or generates from the draft automatically. `--ai` is off by default, shows a cost estimate, and requires confirmation (or `-y`) before any real request.
 

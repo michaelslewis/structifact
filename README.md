@@ -273,11 +273,12 @@ reasoning behind these choices.
   richer format available via `-g catalog_extended`
 * Markdown documentation generation (`-g docs`)
 * `structifact discover` — infers a draft schema from raw CSV sample
-  data, or (with `--requirements --ai`) from a freeform requirements
-  document — for human review before it becomes real metadata.
-  AI assistance is entirely optional, bring-your-own-key
-  (`ANTHROPIC_API_KEY`), cost-estimated and confirmed before any
-  request, and every non-AI command works with zero setup
+  data, or (passing a `.md`/`.txt` file with `--ai`) from a freeform
+  requirements document — for human review before it becomes real
+  metadata. AI assistance is entirely optional, bring-your-own-key
+  (`ANTHROPIC_API_KEY`, and the `ai` extra — `pip install -e ".[ai]"`),
+  cost-estimated and confirmed before any request, and every non-AI
+  command works with zero setup
 * **`structifact validate-data`** — checks real CSV data against a
   schema's declared rules: required fields, uniqueness, accepted
   values, numeric ranges, regex patterns, and foreign-key

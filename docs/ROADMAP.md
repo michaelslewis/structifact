@@ -876,6 +876,61 @@ contributor documentation.
 
 ---
 
+# Real-World Validation (post-1.0)
+
+## Goal
+
+Not a numbered phase in the original sense — after the 1.0 readiness
+audit closed with an empty backlog, the project's own stated next
+step was to stop building speculatively and wait for a real use case
+to surface real gaps, rather than picking the next feature from the
+roadmap. This section exists to record what that produced.
+
+## Status
+
+**First real trigger, and it worked exactly as intended.** A real
+work ticket (a SAP-shaped profit-center data source, defined by an
+actual xlsx requirements document, with hand-built SQL/dbt-YAML/
+catalog already produced by hand as ground truth) was run through
+Structifact's actual pipeline — `discover --ai`, then hand-modeling
+the real IR, then `generate` — as a genuine, adversarial usability
+test, not a demo. It surfaced one real, structural IR gap:
+
+* **`DatasetSpec.source_filter`** — the primary source table had no
+  way to carry its own filter (e.g. "current records only"); only a
+  joined-in `SourceRef` could. Added as a plain, trusted-raw-SQL
+  string field, same shape as `source_table`. The real dataset also
+  proved *why* the generation logic can't treat it as a trailing
+  `WHERE`: the primary source and a joined-in source shared a column
+  name, so a post-join `WHERE` on that column would be genuinely
+  ambiguous, not just theoretically risky. `ModelGenerator` now wraps
+  the primary source in its own CTE, filtered before any join
+  happens, when `source_filter` is set alongside `sources`/`joins` —
+  matching how the real hand-written reference SQL was itself
+  structured. Verified against real data specifically designed to
+  prove the ambiguity risk is actually avoided (a shared column name,
+  one active and one expired primary-source row, an independently-
+  filtered joined-source row for each) on both DuckDB and PostgreSQL.
+  See `DECISION_HISTORY.md` for the full account, including what the
+  same exercise found that *didn't* need a code change.
+
+Also surfaced, and fixed as small documentation corrections rather
+than code changes: `--requirements` was documented (README,
+EXAMPLES.md, and used as informal shorthand in several other docs) as
+if it were a real CLI flag — it never was; routing to requirements-
+document extraction is automatic based on `.md`/`.txt` file extension
+plus `--ai`. And the `anthropic` package (the `ai` extra) has no
+setup step called out anywhere prominent, despite being required for
+any `--ai` usage.
+
+## Design Requirement
+
+Real usage, not the roadmap, decides what's next. This section should
+only grow when an actual use produces an actual finding — not be
+pre-populated with anticipated gaps.
+
+---
+
 # Long-Term Vision
 
 The long-term goal is a metadata-driven engineering framework where:

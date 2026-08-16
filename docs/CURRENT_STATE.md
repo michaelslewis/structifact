@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (397 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (427 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -113,7 +113,7 @@ structifact/                        (repo root)
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (34 files, 397 tests)
+├── tests/                          (37 files, 427 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -222,6 +222,8 @@ Building this slice's real fixtures surfaced a genuine, previously-invisible bug
 
 Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 Release" section: a real Snowflake (or other) engine implementation, connection pooling (no usage pattern in the codebase motivates it — exactly one `Executor` instance is ever constructed, per CLI invocation), a `--retry` flag, and a standalone read-only model-preview command.
 
+**`DatasetSpec.source_filter`** (post-1.0, "Real-World Validation" — see `ROADMAP.md`) is the first feature added purely from real use, not the roadmap: a real work ticket surfaced that the *primary* source had no way to carry its own filter, only a joined-in `SourceRef` could. Added as a plain trusted-raw-SQL string field, same shape as `source_table`. The real dataset also proved the generation logic can't treat it as a trailing `WHERE`: the primary and a joined-in source shared a column name, so a post-join `WHERE` would be genuinely ambiguous. `ModelGenerator` wraps the primary source in its own CTE, filtered before any join, whenever `source_filter` is set alongside `sources`/`joins` — matching how real hand-written SQL for this pattern is actually structured. Verified against real DuckDB and PostgreSQL data specifically designed to prove the ambiguity risk is avoided, not just asserted. See `DECISION_HISTORY.md` for the full account.
+
 ---
 
 ## Discover / AI-Assisted Discovery
@@ -242,7 +244,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 ## CLI
 
-`structifact/cli.py` — seven commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `--requirements`, `-y`), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--materialize`, `--drop-if-exists`).
+`structifact/cli.py` — seven commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `-y`; a `.md`/`.txt` `spec` argument routes automatically to requirements-document extraction — there's no separate `--requirements` flag), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--materialize`, `--drop-if-exists`).
 
 ---
 

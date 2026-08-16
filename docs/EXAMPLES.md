@@ -306,16 +306,16 @@ $ structifact discover raw_customers.csv
 
 The draft is clearly labeled as unverified and is never automatically validated or generated from — a human reviews and fixes it, then runs `structifact validate` on it like any other metadata file. Adding `--ai` (off by default, cost-estimated, requires confirmation) asks an LLM to suggest field descriptions for the same draft.
 
-Any `--ai` usage requires an `ANTHROPIC_API_KEY` environment variable — Structifact never ships or hardcodes a key. Without one set, `--ai` fails with a clear error rather than a confusing downstream failure; every other command, including plain `discover` with no `--ai`, works with zero setup and zero network access. Declining the cost-estimate confirmation prompt (or omitting `--ai` entirely) makes genuinely zero API calls.
+Any `--ai` usage requires an `ANTHROPIC_API_KEY` environment variable — Structifact never ships or hardcodes a key — and the `ai` extra installed (`pip install -e ".[ai]"`; it's optional so plain `discover` and every non-AI command work without it). Without a key set, `--ai` fails with a clear error rather than a confusing downstream failure; every other command, including plain `discover` with no `--ai`, works with zero setup and zero network access. Declining the cost-estimate confirmation prompt (or omitting `--ai` entirely) makes genuinely zero API calls.
 
 ---
 
 # Example 9 — Bootstrapping a Schema from a Requirements Document
 
-For a freeform requirements document (a table-based spec, prose, bullet points, or a mix — see `examples/workorder_demo/REQUIREMENTS_workorder.md` for a real, complex example), there's no deterministic parsing path — `--ai` is required:
+For a freeform requirements document (a table-based spec, prose, bullet points, or a mix — see `examples/workorder_demo/REQUIREMENTS_workorder.md` for a real, complex example), there's no deterministic parsing path — `--ai` is required. There's no separate `--requirements` flag either: a `.md`/`.txt` file passed to `discover` is routed to this path automatically, based on its extension:
 
 ```bash
-$ structifact discover REQUIREMENTS_workorder.md --requirements --ai
+$ structifact discover REQUIREMENTS_workorder.md --ai
 
 AI-assisted requirements-document extraction requested.
 Estimate: ~2,400 input tokens, ~1,800 output tokens (~$0.02)
