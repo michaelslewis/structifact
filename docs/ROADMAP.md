@@ -940,15 +940,9 @@ internally inconsistent about it anyway (a dot where the real
 physical column has an underscore), a sign it was manually typed
 rather than a rule to encode.
 
-**Deliberately deferred, not built**: the reference dbt YAML also has
-dataset-level metadata with no representation in `DatasetSpec` at
-all — `config`/tags, `schema`, a dataset-level `description`, and
-`meta` fields like `datasource_name`/`datasource_project`/
-`datasource_extract`/`data_catalog`. Matching this would mean adding
-several new `DatasetSpec` fields (and likely a `dbt_extended`
-generator, the same pattern `catalog_extended` already established)
-from a single example — not enough evidence yet, per this project's
-own real-example-first discipline. See `FUTURE_WORK.md`.
+**A second real example arrived and confirmed the deferred shape, so it's now built.** A second, independent real requirements ticket (`internal_order_master`, a single-source SAP dataset, structurally different from the first — no join, no filter) was run through the exact same process. Its hand-built dbt YAML had the identical dataset-level shape as the first — `config.tags`, `schema`, a dataset `description`, and `meta.datasource_name`/`datasource_project`/`datasource_extract`/`data_catalog` — with several values *identical* across both real files (`schema: PUBLIC`, `datasource_project: Public`, `datasource_extract: true`, `data_catalog: true`), and `tags`/`datasource_name` both mechanically derivable from the dataset's own name in both cases. That was real, cross-example evidence the shape generalizes, not an artifact of one file — so `DatasetSpec` gained six `dbt_`-prefixed fields (`dbt_schema`, `dbt_tags`, `dbt_datasource_name`, `dbt_datasource_project`, `dbt_datasource_extract`, `dbt_data_catalog`; the dataset-level `description` reuses the field the IR already had), and a new opt-in `DBTExtendedYAMLGenerator` (`-g dbt_extended`) emits them — the same relationship `catalog_extended` already has to the plain catalog generator, not a modification to the default `dbt` generator. `dbt_tags` always gets the dataset's own name appended as the final tag automatically, and `dbt_datasource_name` defaults to a title-cased version of the dataset name when unset — both confirmed identical in both real examples, so nothing forces retyping what Structifact already knows. Every other field is omitted entirely when unset, never fabricated, even though both real examples happened to share the same values — that reflects one project's convention, not a universal default.
+
+**The same second example also corrected a mistake, and found a genuine gap.** Comparing `source_field` against the second file proved the first implementation's assumption wrong: it's not derived from the physical `source`/`source_column` at all — it's simply the field's own display name with every underscore turned into a dot (confirmed identically, including the disambiguating case where the real physical column itself contains an underscore). Fixed. Separately, the second dataset — single-source, every column renamed via `source_column`, no filter, no join, no computed field — revealed that `ModelGenerator`'s "is there anything to generate" check never considered a plain rename by itself, so this exact real, legitimate case silently returned `None`, which also silently broke `execute --materialize` for it. Fixed by adding a fourth condition alongside computed/sources/filter. See `DECISION_HISTORY.md` for the full account of all three findings from this second example.
 
 ## Design Requirement
 
