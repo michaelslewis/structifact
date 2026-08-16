@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (432 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (462 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -108,12 +108,13 @@ structifact/                        (repo root)
 │       ├── base.py
 │       ├── sql.py
 │       ├── dbt_yaml.py
+│       ├── dbt_yaml_extended.py
 │       ├── catalog.py
 │       ├── catalog_extended.py
 │       ├── docs.py
 │       └── model.py                Phase 7: SELECT-based transformation model
 │
-├── tests/                          (37 files, 432 tests)
+├── tests/                          (40 files, 462 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -224,7 +225,9 @@ Deliberately, explicitly NOT built yet — see `FUTURE_WORK.md`'s "Before a 1.0 
 
 **`DatasetSpec.source_filter`** (post-1.0, "Real-World Validation" — see `ROADMAP.md`) is the first feature added purely from real use, not the roadmap: a real work ticket surfaced that the *primary* source had no way to carry its own filter, only a joined-in `SourceRef` could. Added as a plain trusted-raw-SQL string field, same shape as `source_table`. The real dataset also proved the generation logic can't treat it as a trailing `WHERE`: the primary and a joined-in source shared a column name, so a post-join `WHERE` would be genuinely ambiguous. `ModelGenerator` wraps the primary source in its own CTE, filtered before any join, whenever `source_filter` is set alongside `sources`/`joins` — matching how real hand-written SQL for this pattern is actually structured. Verified against real DuckDB and PostgreSQL data specifically designed to prove the ambiguity risk is avoided, not just asserted. See `DECISION_HISTORY.md` for the full account.
 
-**`DBTYAMLGenerator`** (same real-world exercise, comparing every generated artifact against the full set of hand-built reference files, not just the model SQL) was found to silently drop information the IR already had: `FieldSpec.role` was never emitted, and there was no way to see which physical source/column a dbt column actually came from. Both now appear per column — `role` when set, `source_field` as `<source>.<source_column>` built from the exact same resolution `ModelGenerator` already uses to qualify SELECT columns. Deliberately does not attempt dataset-level dbt metadata (`config`/tags, `schema`, a dataset `description`, `datasource_name`/etc.) — none of it exists anywhere in `DatasetSpec`, and one real example isn't enough evidence to add several new IR fields for it; logged in `FUTURE_WORK.md` instead.
+**`DBTYAMLGenerator`** (same real-world exercise, comparing every generated artifact against the full set of hand-built reference files, not just the model SQL) was found to silently drop information the IR already had: `FieldSpec.role` was never emitted, and there was no `source_field` showing which column a dbt column came from. Both now appear per column — `role` when set, and `source_field` as the field's own display name with every underscore turned into a dot (e.g. `struct_cepc_verak_user` → `struct.cepc.verak.user`).
+
+**A second, independent real example** (`internal_order_master` — single-source, no join, no filter) was then run through the same process and confirmed three things: first, that `source_field`'s *initial* implementation — derived from the physical `source`/`source_column`, matching `ModelGenerator`'s own qualification logic — was actually wrong; both real files show it's purely a function of the field's own display name, corrected accordingly. Second, that the dataset-level dbt metadata the first example's reference file had (`config.tags`, `schema`, a dataset `description`, `meta.datasource_name`/`datasource_project`/`datasource_extract`/`data_catalog`) recurred identically in the second — real cross-example evidence, not a one-off — so `DatasetSpec` gained six `dbt_`-prefixed fields and a new opt-in `DBTExtendedYAMLGenerator` (`-g dbt_extended`) was built, mirroring `catalog_extended`'s exact relationship to the plain catalog generator. `dbt_tags` auto-appends the dataset's own name as the final tag; `dbt_datasource_name` defaults to a title-cased dataset name when unset — both confirmed identical in both real files. Everything else is omitted when unset, never fabricated. Third, that `ModelGenerator` couldn't handle a dataset whose *only* transformation is renaming columns via `source_column` (no computed field, no sources/joins, no filter) — exactly what `internal_order_master` needed — which also silently broke `execute --materialize` for that shape; fixed by adding a fourth condition to the "is there anything to generate" check. See `DECISION_HISTORY.md` for the full account.
 
 ---
 

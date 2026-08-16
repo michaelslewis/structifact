@@ -361,6 +361,32 @@ This is the outcome the whole "stop, audit, wait for a real trigger" sequence wa
 
 ---
 
+# Decision: A Second Real Example — One Correction, One New Feature, One New Gap
+
+## What Happened
+
+The previous entry deliberately deferred adding dataset-level dbt metadata (`config.tags`, `schema`, a dataset `description`, `meta.datasource_name`/`datasource_project`/`datasource_extract`/`data_catalog`) to the IR, on the grounds that one reference file wasn't evidence a shape generalizes. A second, independent real work ticket (`internal_order_master` — single-source, no join, no filter, structurally different from the first) tested that directly: its hand-built dbt YAML had the *identical* dataset-level shape, with several values byte-for-byte identical across both real files (`schema: PUBLIC`, `datasource_project: Public`, `datasource_extract: true`, `data_catalog: true`), and `tags`/`datasource_name` both following the exact same mechanical derivation from the dataset's own name in both cases. That's the evidence the first entry said was missing.
+
+The same second example also did two things the first pass couldn't have: it *disproved* an assumption, and it surfaced a gap the first dataset's shape never could have exposed.
+
+The disproof: `DBTYAMLGenerator`'s `source_field` had been built as `<source>.<source_column>`, deliberately matching `ModelGenerator`'s own column-qualification logic — a principled choice, but untested against a second data point. The second reference file's `source_field` values (`biz.aufk.mandt`, etc.) turned out to follow a different, simpler rule: the field's own display name with underscores replaced by dots, with no reference to the physical source at all. Re-checking the first file against this rule confirmed it fit there too, including the one field that had looked like an inconsistency (`struct_cepc_verak_user` → `struct.cepc.verak.user`) — it wasn't inconsistent, it was the *display name* being split, and the "physical column" theory just happened to produce the same three-segment result for every other field in that file, so the difference was invisible until a second file with a similarly-named physical column existed to check against.
+
+The new gap: `internal_order_master`'s SQL is a real, legitimate case that has no analog in the first dataset — a single source, every column renamed via `source_column`, but no filter, no join, and no computed field anywhere. `ModelGenerator`'s "is there anything to generate" check only tested for those three conditions, never for a plain rename, so this exact real shape silently returned `None` — and since `generate_insert()` builds on `generate()`, `execute --materialize` was silently unusable for it too.
+
+## What Was Done
+
+Added six `dbt_`-prefixed fields to `DatasetSpec` (`dbt_schema`, `dbt_tags`, `dbt_datasource_name`, `dbt_datasource_project`, `dbt_datasource_extract`, `dbt_data_catalog`; the dataset-level `description` reuses the field the IR already had) and a new opt-in `DBTExtendedYAMLGenerator` (`-g dbt_extended`), duplicating the small per-column loop from the plain generator (sharing one helper, `_source_field`) rather than wrapping it — the exact relationship `catalog_extended.py` already has to `catalog.py`. `dbt_tags` auto-appends the dataset's own name as the final tag; `dbt_datasource_name` defaults to a title-cased dataset name when unset — both because both real examples confirmed these derivations identically, so there's nothing to make the user retype. Every other field is omitted entirely from the output when unset; the fact that both real examples happened to share the same `schema`/`datasource_project`/`datasource_extract`/`data_catalog` values reflects one person's two datasets in one project, not a universal default every Structifact user would want.
+
+`source_field` was corrected to the simpler, now-doubly-confirmed rule. `ModelGenerator` gained a fourth condition (`has_renaming`, alongside computed/sources/filter) to its "generate or return None" check. Both were verified against real DuckDB (and, for the model-execution case, PostgreSQL) data, and the full `internal_order_master` fixture was hand-modeled and run through `validate`/`generate` end to end — its model SQL, dbt YAML, dbt_extended YAML, and catalog CSV all now match the real hand-built reference files closely, the same standard applied to the first example.
+
+One more real-world wrinkle, unrelated to Structifact: the reference SQL for this dataset had one more field (`biz_aufk_user6`) than the reference YAML and catalog CSV did, and the requirements document didn't mention it at all. Confirmed with the user this was stale — added to the SQL at some point and never propagated, or no longer needed and never removed — and excluded from the acceptance fixture accordingly. Not every discrepancy an adversarial real-world test turns up is a Structifact question.
+
+## Why This Is Worth Recording
+
+This is the payoff of insisting on a *second* real example before building the dataset-level dbt metadata, rather than accepting "it seems plausible" after the first: the second example didn't just confirm the deferred feature, it corrected something the first example had made look more confident than it actually was, and found a completely different gap the first dataset structurally couldn't have exposed (no dataset with only renaming, no filter, no join, had been tried yet). None of that would have surfaced from theorizing harder about the first file — it required a genuinely different real shape to check against. The general lesson: one real example proves a capability is needed; it does not prove the *exact shape* of the fix is right, and it especially can't prove a negative ("nothing else is missing") — only a second, differently-shaped real example can do that work.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
