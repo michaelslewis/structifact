@@ -285,6 +285,44 @@ class DatasetSpec:
     sources: List[SourceRef] = field(default_factory=list)
     joins: List[JoinSpec] = field(default_factory=list)
 
+    # Found via real-world use, confirmed by a second independent real
+    # example before being added (not from one file alone): dbt-target
+    # metadata a downstream dbt-based catalog/BI tool expects, with no
+    # representation anywhere in the IR. Deliberately prefixed `dbt_`
+    # rather than given generic names — these are dbt-target concepts,
+    # not general Structifact ones, matching how catalog_extended's
+    # fields are scoped to one specific downstream catalog format
+    # rather than folded into the core IR. Consumed by
+    # DBTExtendedYAMLGenerator (`-g dbt_extended`) only — the plain
+    # `dbt` generator (run by default) never touches these.
+    #
+    # dbt_tags holds only the EXTRA tags beyond the dataset's own name
+    # — DBTExtendedYAMLGenerator always appends `name` as the final
+    # tag automatically (confirmed identical in both real examples:
+    # tags always ended with the dataset's own name), so there's
+    # nothing to repeat here that Structifact already knows.
+    #
+    # dbt_datasource_name, if unset, is derived from `name` (title-
+    # cased, underscores to spaces) — also confirmed identical in both
+    # real examples (a mechanical transform of the dataset name, not a
+    # guess about anything external). Every other field here has no
+    # safe default — schema/datasource_project/datasource_extract/
+    # data_catalog were identical across both real examples, but that
+    # reflects one person's two datasets in one project, not a
+    # universal default every Structifact user would want; omitted
+    # entirely (never fabricated) when unset, same as pii/comments in
+    # ExtendedCatalogCSVGenerator.
+    #
+    # The dataset-level `description` this maps onto in the generated
+    # YAML deliberately reuses the existing `description` field above
+    # rather than adding a second one — it's the same concept.
+    dbt_schema: Optional[str] = None
+    dbt_tags: List[str] = field(default_factory=list)
+    dbt_datasource_name: Optional[str] = None
+    dbt_datasource_project: Optional[str] = None
+    dbt_datasource_extract: Optional[bool] = None
+    dbt_data_catalog: Optional[bool] = None
+
     # Phase 7 remainder — dataset dependency tracking. Names of
     # other Structifact-defined datasets this dataset depends on.
     # NOT the same thing as a computed field's own depends_on (which

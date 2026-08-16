@@ -1,5 +1,6 @@
 from .sql import SQLGenerator
 from .dbt_yaml import DBTYAMLGenerator
+from .dbt_yaml_extended import DBTExtendedYAMLGenerator
 from .catalog import CatalogCSVGenerator
 from .catalog_extended import ExtendedCatalogCSVGenerator
 from .docs import DocsGenerator
@@ -27,6 +28,7 @@ GENERATORS = [
 # let it settle here before it's ever a default.
 OPTIONAL_GENERATORS = [
     ExtendedCatalogCSVGenerator(),
+    DBTExtendedYAMLGenerator(),
     DocsGenerator(),
     ModelGenerator(),
 ]

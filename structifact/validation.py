@@ -234,6 +234,33 @@ def validate_table(table: DatasetSpec):
             "entirely if the primary source needs no filter"
         )
 
+    # dbt-target metadata well-formedness (found via real-world use,
+    # confirmed by a second independent real example). Same reasoning
+    # as source_table/source_filter above for the plain strings; an
+    # explicitly-set but blank value is almost certainly a mistake.
+    if table.dbt_schema is not None and not table.dbt_schema.strip():
+        errors.append(
+            "dbt_schema, if set, cannot be blank — omit it entirely "
+            "if DBTExtendedYAMLGenerator shouldn't emit a schema"
+        )
+
+    if table.dbt_datasource_name is not None and not table.dbt_datasource_name.strip():
+        errors.append(
+            "dbt_datasource_name, if set, cannot be blank — omit it "
+            "entirely to fall back to a title-cased dataset name"
+        )
+
+    if table.dbt_datasource_project is not None and not table.dbt_datasource_project.strip():
+        errors.append(
+            "dbt_datasource_project, if set, cannot be blank — omit "
+            "it entirely if DBTExtendedYAMLGenerator shouldn't emit one"
+        )
+
+    for tag in table.dbt_tags:
+        if not tag.strip():
+            errors.append("dbt_tags entries cannot be blank")
+            break
+
     # sources/joins relationship validation (Phase 7 — sources/joins
     # milestone). Structifact doesn't parse or validate the raw SQL
     # fragments (filter, on, order_by) — only the metadata
