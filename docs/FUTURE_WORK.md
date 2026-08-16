@@ -201,6 +201,14 @@ Impact-analysis queries ("what depends on X?") are now real — Phase 9, v1: `im
 
 What's still genuinely future: a rendered lineage *view* and dependency-graph visualization. Worth revisiting once there's a concrete use case for either, rather than designing them in the abstract now — the same discipline that let impact analysis wait until the dependency graph existed to build on.
 
+Dataset-Level dbt Metadata (`dbt_extended`?)
+
+Found during real-world validation (see ROADMAP.md's "Real-World Validation" section, DECISION_HISTORY.md): a real hand-built dbt YAML had dataset-level concepts `DatasetSpec` has no representation for at all — `config`/tags, `schema`, a dataset-level `description` (distinct from the per-field ones the IR already has), and `meta` fields like `datasource_name`/`datasource_project`/`datasource_extract`/`data_catalog`.
+
+`DBTYAMLGenerator` was extended to emit `role` and a `source_field` per column, since both were already real, validated IR data (`FieldSpec.role`, `source`/`source_column`) the generator simply wasn't using — a generator fix, not an IR change. This is different: matching it would mean adding several new `DatasetSpec` fields for concepts that don't exist anywhere else in the IR, from a single reference file. Not enough evidence yet, per this project's real-example-first discipline — the same reasoning that scoped `catalog_extended` only once a real downstream format justified it, and the same discipline that kept the sources/joins milestone from growing beyond what `workorder_demo` actually needed.
+
+If a second real example shows the same dataset-level shape is needed again, the natural move is a `dbt_extended` generator (mirroring `catalog_extended`'s precedent exactly) plus the corresponding `DatasetSpec` fields — not modifying `DBTYAMLGenerator` itself, matching how the catalog case kept the minimal default generator minimal.
+
 Plugin Architecture
 
 As Structifact grows, a plugin architecture may become valuable.
