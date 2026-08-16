@@ -151,6 +151,48 @@ def test_load_yaml_source_table_absent_defaults_to_none(tmp_path):
     assert dataset.source_table is None
 
 
+def test_load_yaml_parses_dbt_target_metadata(tmp_path):
+    yaml_file = tmp_path / "profit_center.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: profit_center
+  description: Model for Profit Centers.
+
+dbt_schema: PUBLIC
+dbt_tags: [tableau, sap]
+dbt_datasource_name: Profit Center
+dbt_datasource_project: Public
+dbt_datasource_extract: true
+dbt_data_catalog: true
+
+fields:
+  - name: struct_cepc_mandt
+    type: string
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.dbt_schema == "PUBLIC"
+    assert dataset.dbt_tags == ["tableau", "sap"]
+    assert dataset.dbt_datasource_name == "Profit Center"
+    assert dataset.dbt_datasource_project == "Public"
+    assert dataset.dbt_datasource_extract is True
+    assert dataset.dbt_data_catalog is True
+
+
+def test_load_yaml_dbt_target_metadata_absent_defaults(tmp_path):
+    dataset = load_yaml("tests/fixtures/customers.yml")
+
+    assert dataset.dbt_schema is None
+    assert dataset.dbt_tags == []
+    assert dataset.dbt_datasource_name is None
+    assert dataset.dbt_datasource_project is None
+    assert dataset.dbt_datasource_extract is None
+    assert dataset.dbt_data_catalog is None
+
+
 def test_load_yaml_parses_sources_and_joins(tmp_path):
     yaml_file = tmp_path / "work_order_source.yml"
     yaml_file.write_text(

@@ -90,35 +90,47 @@ def test_dbt_yaml_generator_omits_role_when_unset():
     assert "role:" not in content
 
 
-def test_dbt_yaml_generator_source_field_defaults_to_dataset_name_and_field_name():
-    table = DatasetSpec(
-        name="customers",
-        fields=[FieldSpec(name="customer_id", type="string")],
-    )
-
-    content = DBTYAMLGenerator().generate(table).content
-
-    assert "source_field: customers.customer_id" in content
-
-
-def test_dbt_yaml_generator_source_field_uses_source_table_override():
-    table = DatasetSpec(
-        name="customers",
-        source_table="raw_customers",
-        fields=[FieldSpec(name="customer_id", type="string")],
-    )
-
-    content = DBTYAMLGenerator().generate(table).content
-
-    assert "source_field: raw_customers.customer_id" in content
-
-
-def test_dbt_yaml_generator_source_field_uses_field_source_and_source_column():
+def test_dbt_yaml_generator_source_field_is_field_name_with_dots_for_underscores():
     """
-    Matches ModelGenerator's own qualification logic exactly -- a
-    field with an explicit `source`/`source_column` (a joined-in
-    source, renamed away from its physical column name) resolves the
-    same way in both generators, not two different conventions.
+    Confirmed by two independent real reference files, identically:
+    source_field is the field's own display name with every
+    underscore replaced by a dot -- NOT derived from the physical
+    source/source_column (the first, incorrect implementation's
+    assumption). See DECISION_HISTORY.md.
+    """
+    table = DatasetSpec(
+        name="customers",
+        fields=[FieldSpec(name="struct_cepc_mandt", type="string")],
+    )
+
+    content = DBTYAMLGenerator().generate(table).content
+
+    assert "source_field: struct.cepc.mandt" in content
+
+
+def test_dbt_yaml_generator_source_field_splits_the_display_name_not_the_physical_column():
+    """
+    The exact disambiguating real case: a field whose PHYSICAL column
+    (verak_user, one word) contains an underscore that doesn't appear
+    in a table.column sense at all -- the real reference file still
+    split it into `verak.user`, proving the split operates on the
+    field's own declared name, not on any physical column reference.
+    """
+    table = DatasetSpec(
+        name="profit_center",
+        fields=[FieldSpec(name="struct_cepc_verak_user", type="string")],
+    )
+
+    content = DBTYAMLGenerator().generate(table).content
+
+    assert "source_field: struct.cepc.verak.user" in content
+
+
+def test_dbt_yaml_generator_source_field_ignores_source_table_source_and_source_column():
+    """
+    Regression guard: source_table/source/source_column must NOT
+    affect source_field at all, now that it's confirmed to be a pure
+    function of the field's own display name.
     """
     table = DatasetSpec(
         name="profit_center",
@@ -133,4 +145,5 @@ def test_dbt_yaml_generator_source_field_uses_field_source_and_source_column():
 
     content = DBTYAMLGenerator().generate(table).content
 
-    assert "source_field: cepct.ktext" in content
+    assert "source_field: struct.cepct.ktext" in content
+    assert "source_field: cepct.ktext" not in content

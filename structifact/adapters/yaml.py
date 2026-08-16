@@ -120,6 +120,19 @@ def load_yaml(path: str) -> DatasetSpec:
     source_table = data.get("source_table")
     source_filter = data.get("source_filter")
 
+    # dbt-target metadata (also real-world-use-driven, confirmed by a
+    # second independent real example before being added — see
+    # DECISION_HISTORY.md). Flat top-level keys, same placement
+    # precedent as source_table/source_filter above, one-to-one with
+    # the DatasetSpec field names. Wired in from the start, same as
+    # source_filter was.
+    dbt_schema = data.get("dbt_schema")
+    dbt_tags = [str(v) for v in data.get("dbt_tags", [])]
+    dbt_datasource_name = data.get("dbt_datasource_name")
+    dbt_datasource_project = data.get("dbt_datasource_project")
+    dbt_datasource_extract = data.get("dbt_datasource_extract")
+    dbt_data_catalog = data.get("dbt_data_catalog")
+
     sources = [
         SourceRef(
             name=source["name"],
@@ -154,6 +167,12 @@ def load_yaml(path: str) -> DatasetSpec:
         depends_on=dataset_depends_on,
         source_table=source_table,
         source_filter=source_filter,
+        dbt_schema=dbt_schema,
+        dbt_tags=dbt_tags,
+        dbt_datasource_name=dbt_datasource_name,
+        dbt_datasource_project=dbt_datasource_project,
+        dbt_datasource_extract=dbt_datasource_extract,
+        dbt_data_catalog=dbt_data_catalog,
         sources=sources,
         joins=joins,
     )

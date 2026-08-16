@@ -99,13 +99,24 @@ class ModelGenerator(Generator):
     like the reference example's FX-rate COALESCE pattern.
 
     Returns None — not an Artifact — for a dataset with no computed
-    fields, no sources/joins, AND no source_filter declared. There is
-    nothing to transform in that case, and emitting a no-op
+    fields, no sources/joins, no source_filter, AND no field renamed
+    away from its physical column via source_column declared. There
+    is nothing to transform in that case, and emitting a no-op
     `SELECT * FROM x` model would just be clutter with no value over
     the dataset's own DDL. See base.py for the generate() contract
     change this relies on. Not run by default (see
     generators/registry.py) — new generator type, shouldn't silently
     add output for existing users.
+
+    The `source_column`-alone case (found via real-world use — a real
+    single-source dataset with every field renamed from its physical
+    column but no filter, join, or computed field at all) was
+    originally missed here: `_select_line` already qualified and
+    renamed columns correctly whenever this generator ran, but nothing
+    checked whether a plain rename alone justified running it, so a
+    dataset needing exactly this — and nothing else — silently got
+    `None`, which also silently made `execute --materialize`
+    unusable for it. See DECISION_HISTORY.md.
     """
 
     name = "model"
@@ -114,8 +125,12 @@ class ModelGenerator(Generator):
         has_computed = any(f.computed for f in dataset.fields)
         has_sources = bool(dataset.sources) or bool(dataset.joins)
         has_filter = bool(dataset.source_filter)
+        has_renaming = any(
+            f.source_column and f.source_column != f.name
+            for f in dataset.fields
+        )
 
-        if not has_computed and not has_sources and not has_filter:
+        if not has_computed and not has_sources and not has_filter and not has_renaming:
             return None
 
         primary = dataset.source_table or dataset.name
