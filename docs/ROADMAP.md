@@ -923,6 +923,33 @@ plus `--ai`. And the `anthropic` package (the `ai` extra) has no
 setup step called out anywhere prominent, despite being required for
 any `--ai` usage.
 
+**A second real finding from the same exercise**: comparing every
+generated artifact against the full set of hand-built reference files
+(not just the model SQL) found `DBTYAMLGenerator` was silently
+dropping information the IR already had. `FieldSpec.role` was never
+emitted at all, and there was no way to see which physical
+source/column a dbt column actually came from. Both are now emitted
+per column — `role` when set, and `source_field` as
+`<source>.<source_column>`, built from exactly the same
+`source`/`source_column` resolution `ModelGenerator` already uses to
+qualify SELECT columns, not a separately-invented convention.
+Deliberately did *not* try to reproduce the reference file's own
+`source_field` prefix convention (`struct.cepc.mandt`) — nothing in
+the IR carries a "struct" concept, and one field in the reference was
+internally inconsistent about it anyway (a dot where the real
+physical column has an underscore), a sign it was manually typed
+rather than a rule to encode.
+
+**Deliberately deferred, not built**: the reference dbt YAML also has
+dataset-level metadata with no representation in `DatasetSpec` at
+all — `config`/tags, `schema`, a dataset-level `description`, and
+`meta` fields like `datasource_name`/`datasource_project`/
+`datasource_extract`/`data_catalog`. Matching this would mean adding
+several new `DatasetSpec` fields (and likely a `dbt_extended`
+generator, the same pattern `catalog_extended` already established)
+from a single example — not enough evidence yet, per this project's
+own real-example-first discipline. See `FUTURE_WORK.md`.
+
 ## Design Requirement
 
 Real usage, not the roadmap, decides what's next. This section should
