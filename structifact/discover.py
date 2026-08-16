@@ -279,6 +279,47 @@ def render_draft_yaml(discovered: DiscoveredDataset, ai_suggestions: dict = None
 # ---------------------------------------------------------------------
 
 
+def extract_text_from_xlsx(path: str) -> str:
+    """
+    Convert a raw .xlsx requirements document into plain text, for the
+    same LLM-extraction path used for .md/.txt (build_requirements_prompt
+    below). Dumps every sheet's grid, in workbook order, as one
+    " | "-joined line per non-blank row under a "## Sheet: <name>"
+    header — the same shape a human would get converting the workbook
+    to Markdown by hand, just automated.
+
+    This has no awareness of cell *formatting* — fill color, bold,
+    strikethrough. A real requirements workbook can use formatting to
+    carry meaning (e.g. a grey fill marking a field as a join-key/
+    filter-only, not a real output column) that this plain-text dump
+    cannot represent; see DECISION_HISTORY.md for a real case where
+    exactly that caused several fields to be silently included in the
+    AI's draft that the source document had marked, via color alone,
+    as excluded. Formatting-aware extraction is deferred — see
+    FUTURE_WORK.md — until a real example justifies the added
+    complexity.
+
+    Requires the `excel` extra (pandas, openpyxl) — raises ImportError
+    if unavailable, left to the caller to turn into a clear message.
+    """
+    import pandas as pd
+
+    sheets = pd.read_excel(path, sheet_name=None, header=None)
+
+    blocks = []
+    for sheet_name, df in sheets.items():
+        rows = []
+        for _, row in df.iterrows():
+            cells = ["" if pd.isna(v) else str(v).strip() for v in row.tolist()]
+            if any(cells):
+                rows.append(" | ".join(cells))
+
+        if rows:
+            blocks.append(f"## Sheet: {sheet_name}\n\n" + "\n".join(rows))
+
+    return "\n\n".join(blocks)
+
+
 def build_requirements_prompt(text: str) -> str:
     """
     Build the prompt sent to an LLM asking it to extract a draft

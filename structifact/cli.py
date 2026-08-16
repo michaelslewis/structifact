@@ -14,7 +14,7 @@ from .generators.model import ModelGenerator
 from .discover import (
     discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
     build_requirements_prompt, parse_requirements_draft,
-    render_requirements_draft_yaml,
+    render_requirements_draft_yaml, extract_text_from_xlsx,
 )
 
 def validate(args):
@@ -433,13 +433,13 @@ def execute(args):
 
 
 def discover(args, ai_client=None):
-    if args.spec.lower().endswith((".md", ".txt")):
+    if args.spec.lower().endswith((".md", ".txt", ".xlsx")):
         return discover_requirements(args, ai_client=ai_client)
 
     if not args.spec.lower().endswith(".csv"):
         print(
             "\nstructifact discover currently only supports raw CSV "
-            "input, or a requirements document (.md/.txt) with --ai."
+            "input, or a requirements document (.md/.txt/.xlsx) with --ai."
         )
         return False
 
@@ -503,9 +503,10 @@ def discover(args, ai_client=None):
 def discover_requirements(args, ai_client=None):
     """
     AI-assisted schema extraction from a raw requirements document
-    (.md/.txt). Unlike raw-data discovery, there is no deterministic
-    half here — a requirements document has no data rows to sample —
-    so this path always requires --ai and does nothing without it.
+    (.md/.txt/.xlsx). Unlike raw-data discovery, there is no
+    deterministic half here — a requirements document has no data
+    rows to sample — so this path always requires --ai and does
+    nothing without it.
     """
     if not getattr(args, "ai", False):
         print(
@@ -517,10 +518,19 @@ def discover_requirements(args, ai_client=None):
         return False
 
     try:
-        with open(args.spec, "r") as f:
-            text = f.read()
+        if args.spec.lower().endswith(".xlsx"):
+            text = extract_text_from_xlsx(args.spec)
+        else:
+            with open(args.spec, "r") as f:
+                text = f.read()
     except FileNotFoundError as e:
         print(f"\nFile not found: {e.filename}")
+        return False
+    except ImportError:
+        print(
+            "\nReading a .xlsx requirements document requires the "
+            '\'excel\' extra: pip install -e ".[excel]"'
+        )
         return False
 
     if ai_client is None:
