@@ -259,6 +259,19 @@ class DatasetSpec:
     # they do match, so this costs nothing for most users.
     source_table: Optional[str] = None
 
+    # Found via real-world use (a real SAP-shaped requirements doc,
+    # not a hypothetical): the primary source had its own filter
+    # ("current records only") with no field to express it anywhere
+    # in the IR -- only a joined-in SourceRef could carry a `filter`.
+    # Same trust model as SourceRef.filter/source_table: a raw SQL
+    # predicate, inlined as-is, never parsed. Deliberately a plain
+    # string on DatasetSpec rather than promoting source_table into a
+    # full SourceRef -- the real need was "filter the primary source,"
+    # not "unify the primary/secondary source model," and the latter
+    # would have been solving a bigger problem than what an actual
+    # example asked for.
+    source_filter: Optional[str] = None
+
     # Phase 7 — sources/joins milestone. Additional joinable sources
     # beyond the dataset's own primary source (source_table/name),
     # and the joins connecting them in. Both default to empty lists,

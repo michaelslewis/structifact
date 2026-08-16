@@ -83,18 +83,29 @@ class ModelGenerator(Generator):
        stays valid and semantically equivalent, but its generated SQL
        now gains qualification too.
 
+    3. A primary-source filter (`DatasetSpec.source_filter`, found via
+       real-world use) — a raw SQL predicate applied to the primary
+       source, same trust model as `SourceRef.filter`. When combined
+       with any `sources`/`joins`, the primary source is wrapped in
+       its own CTE and filtered *before* the join happens, not via a
+       trailing `WHERE` — a post-join `WHERE` would be ambiguous
+       whenever the filtered column name also exists on a joined-in
+       source, which real requirements docs actually do produce, not
+       just hypothetically.
+
     Deliberately NOT yet supported (scoped to a later milestone, not
     snuck into this one): a computed field's `expression` referencing
     a joined-in field by source alias, and conditional-fallback logic
     like the reference example's FX-rate COALESCE pattern.
 
     Returns None — not an Artifact — for a dataset with no computed
-    fields AND no sources/joins declared. There is nothing to
-    transform in that case, and emitting a no-op `SELECT * FROM x`
-    model would just be clutter with no value over the dataset's own
-    DDL. See base.py for the generate() contract change this relies
-    on. Not run by default (see generators/registry.py) — new
-    generator type, shouldn't silently add output for existing users.
+    fields, no sources/joins, AND no source_filter declared. There is
+    nothing to transform in that case, and emitting a no-op
+    `SELECT * FROM x` model would just be clutter with no value over
+    the dataset's own DDL. See base.py for the generate() contract
+    change this relies on. Not run by default (see
+    generators/registry.py) — new generator type, shouldn't silently
+    add output for existing users.
     """
 
     name = "model"
@@ -102,24 +113,32 @@ class ModelGenerator(Generator):
     def generate(self, dataset: DatasetSpec) -> Optional[Artifact]:
         has_computed = any(f.computed for f in dataset.fields)
         has_sources = bool(dataset.sources) or bool(dataset.joins)
+        has_filter = bool(dataset.source_filter)
 
-        if not has_computed and not has_sources:
+        if not has_computed and not has_sources and not has_filter:
             return None
 
         primary = dataset.source_table or dataset.name
 
         if not dataset.sources and not dataset.joins:
             # No joins declared: simpler single-source shape, no CTE
-            # wrapper needed. Still qualified (see _select_line).
+            # wrapper needed. Still qualified (see _select_line). A
+            # primary-source filter, if present, is a plain trailing
+            # WHERE here -- no join means no risk of the filtered
+            # column colliding with a joined-in source's column of
+            # the same name (see the CTE-wrapped case below for why
+            # that risk is real, not hypothetical, once a join exists).
             select_lines = [
                 self._select_line(f, primary, indent="    ")
                 for f in dataset.fields
             ]
             joined_columns = ',\n'.join(select_lines)
 
+            where_clause = f"\nwhere {dataset.source_filter}" if dataset.source_filter else ""
+
             sql = f"""select
 {joined_columns}
-from {primary};"""
+from {primary}{where_clause};"""
 
             return Artifact(
                 filename=f"{dataset.name}_model.sql",
@@ -132,9 +151,28 @@ from {primary};"""
         ]
         joined_columns = ',\n'.join(select_lines)
 
-        source_ctes = ",\n\n".join(
-            _source_cte(source) for source in dataset.sources
-        )
+        source_ctes = [_source_cte(source) for source in dataset.sources]
+
+        # A primary-source filter can't be a trailing WHERE once a
+        # join is involved: found via real-world use -- a real
+        # requirements doc had the same column name (a "valid to"
+        # date) on both the primary source and a joined-in source, so
+        # a post-join WHERE on that column name would be genuinely
+        # ambiguous, not just theoretically risky. Wrapping the
+        # primary source in its own CTE, filtered before any join
+        # happens, avoids the ambiguity and matches how real
+        # hand-written SQL for this exact pattern is structured.
+        if dataset.source_filter:
+            primary_cte = (
+                f"{primary} as (\n"
+                f"    select *\n"
+                f"    from {primary}\n"
+                f"    where {dataset.source_filter}\n"
+                f")"
+            )
+            source_ctes.insert(0, primary_cte)
+
+        source_ctes_sql = ",\n\n".join(source_ctes)
 
         join_lines = []
         for j in dataset.joins:
@@ -144,7 +182,7 @@ from {primary};"""
 
         sql = (
             f"with\n\n"
-            f"{source_ctes},\n\n"
+            f"{source_ctes_sql},\n\n"
             f"final as (\n\n"
             f"    select\n"
             f"{joined_columns}\n\n"

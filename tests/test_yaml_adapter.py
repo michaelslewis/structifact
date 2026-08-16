@@ -118,6 +118,33 @@ fields:
     assert dataset.source_table == "raw_order_items"
 
 
+def test_load_yaml_parses_source_filter(tmp_path):
+    yaml_file = tmp_path / "profit_center.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: profit_center
+
+source_table: cepc
+source_filter: "datbi = '9999-12-31'"
+
+fields:
+  - name: prctr
+    type: string
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.source_filter == "datbi = '9999-12-31'"
+
+
+def test_load_yaml_source_filter_absent_defaults_to_none(tmp_path):
+    dataset = load_yaml("tests/fixtures/customers.yml")
+
+    assert dataset.source_filter is None
+
+
 def test_load_yaml_source_table_absent_defaults_to_none(tmp_path):
     dataset = load_yaml("tests/fixtures/customers.yml")
 

@@ -106,15 +106,19 @@ def load_yaml(path: str) -> DatasetSpec:
         else []
     )
 
-    # Phase 7 — sources/joins milestone, and source_table (also Phase
-    # 7). Top-level keys, siblings to `constraints`/`depends_on` above
-    # — same placement precedent, and matching ARCHITECTURE.md's own
-    # documented DatasetSpec shape. Previously never actually parsed
-    # here despite being fully supported by validation.py/ModelGenerator
-    # ever since Phase 7 — every existing sources/joins test only ever
-    # constructed DatasetSpec directly, so this gap was invisible until
-    # a real YAML file exercised it (see DECISION_HISTORY.md).
+    # Phase 7 — sources/joins milestone, and source_table/source_filter
+    # (also Phase 7, the latter added from real-world use). Top-level
+    # keys, siblings to `constraints`/`depends_on` above — same
+    # placement precedent, and matching ARCHITECTURE.md's own
+    # documented DatasetSpec shape. `source_table` was previously never
+    # actually parsed here despite being fully supported by
+    # validation.py/ModelGenerator ever since Phase 7 — every existing
+    # sources/joins test only ever constructed DatasetSpec directly, so
+    # the gap was invisible until a real YAML file exercised it (see
+    # DECISION_HISTORY.md) -- `source_filter` is wired in from the
+    # start this time, learning from that.
     source_table = data.get("source_table")
+    source_filter = data.get("source_filter")
 
     sources = [
         SourceRef(
@@ -149,6 +153,7 @@ def load_yaml(path: str) -> DatasetSpec:
         constraints=constraints,
         depends_on=dataset_depends_on,
         source_table=source_table,
+        source_filter=source_filter,
         sources=sources,
         joins=joins,
     )

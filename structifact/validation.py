@@ -223,6 +223,17 @@ def validate_table(table: DatasetSpec):
             "entirely to fall back to the dataset name"
         )
 
+    # source_filter well-formedness (found via real-world use). Same
+    # reasoning as source_table above: None means no filter, an empty
+    # string is almost certainly a mistake. The filter expression
+    # itself is a trusted raw SQL fragment, same as SourceRef.filter —
+    # not parsed or semantically checked here.
+    if table.source_filter is not None and not table.source_filter.strip():
+        errors.append(
+            "source_filter, if set, cannot be blank — omit it "
+            "entirely if the primary source needs no filter"
+        )
+
     # sources/joins relationship validation (Phase 7 — sources/joins
     # milestone). Structifact doesn't parse or validate the raw SQL
     # fragments (filter, on, order_by) — only the metadata
