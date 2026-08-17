@@ -409,6 +409,26 @@ The prior entries in this section all treated "real-world validation" as somethi
 
 ---
 
+# Decision: Reconciliation v1 — A Paper-Contract Correction, Caught Before Any Code
+
+## What Happened
+
+Following this project's real-example-first discipline, reconciliation's exact paper contract — synthetic "old vs. new" data, an old<->new field mapping shape, and the literal expected report output — was drafted and agreed before any implementation, the same process every other IR-adjacent addition in this project has gone through (see "Build Incrementally" above).
+
+The first draft of that contract planted three deliberate differences in the synthetic `orders_legacy`/`orders_new` example: one row dropped in the migration (`1004`), one row newly added (`1006`), and one row whose amount genuinely changed on an otherwise-matched key (`1005`: `60.00` → `65.00`). The proposed aggregate check summed the *full* old and new populations and reported the difference — which, worked out on paper before implementation, came to `-255.00`. That number is real, but not useful: it's overwhelmingly the dropped row's `$300` and the added row's `$40` netting against the `$5` value change, and a reader looking at `-255.00` has no way to tell a genuine migration defect (`1005`'s value drifted) from ordinary migration noise (rows legitimately added or removed) — the three are just summed together into one undifferentiated number.
+
+The fix, caught on paper before any code existed: restrict the aggregate comparison to the **matched population only** — keys present on both sides. Reworking the same synthetic numbers over matched keys alone (`1001`, `1002`, `1003`, `1005`) gives old sum `485.50`, new sum `490.50`, diff `+5.00` — exactly and only the planted `1005` discrepancy, with the row-coverage check (already reporting `1004`/`1006` separately, by key) carrying the structural-noise signal instead.
+
+## Why This Is Worth Recording
+
+This is a second, independent confirmation of "Prioritize Validation Before Advanced Generation" and "Build Incrementally"'s real-example-first discipline: working the exact numbers on paper, before writing `reconcile_data()`, surfaced a genuine design flaw (a diagnostically confounded aggregate) that a green test suite would never have caught on its own — a test written against the *original* flawed contract would have "passed" while still shipping a report that couldn't do the one thing reconciliation exists for: distinguishing a real migration defect from harmless population drift. The fix wasn't a bigger feature (e.g. jumping straight to full column-level comparison) — it was a smaller, more precise scope for the exact same v1: aggregate over matched rows, and let row-population coverage — a check the contract already had — carry the structural-difference signal it was always better suited to carry. `ReconciliationResult`'s report deliberately keeps row-coverage and aggregate issues in visibly separate sections for the same reason, rather than one undifferentiated issue list.
+
+The corrected contract also made explicit, and kept explicit in `reconcile_data()`'s docstring and the example's `README.md`, a scope boundary worth stating outright: v1 does not claim two datasets are semantically equivalent. It establishes row-population coverage, key correspondence, and aggregate equivalence on declared measures for the matched population — not that every individual field value is identical. That's the honest boundary a matched-population aggregate can actually support, and it's also exactly why a full column-level v2 remains open, real, and deliberately unscoped rather than folded into v1 to make the boundary look less real than it is.
+
+Reconciliation itself is being treated explicitly as an experiment, not an automatically-continuing subsystem — see `ROADMAP.md`'s Phase 12 section. The next real validation step is running v1 against a real, sanitized legacy-migration example (never real employer data or systems, per this project's standing IP-separation discipline) to see whether it actually catches the kinds of mistakes that motivated building it, before any v2 work is scoped at all.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
