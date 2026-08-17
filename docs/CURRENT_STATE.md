@@ -88,7 +88,8 @@ structifact/                        (repo root)
 │   │                               impact / execute
 │   ├── __main__.py
 │   ├── ir.py                       DatasetSpec / FieldSpec / ConstraintSpec /
-│   │                               SourceRef / JoinSpec / DedupRule
+│   │                               SourceRef / JoinSpec / DedupRule /
+│   │                               AggregateRule
 │   ├── types.py
 │   ├── utils.py
 │   ├── validation.py
@@ -145,7 +146,7 @@ A dataset definition can now express, well beyond the original name/fields/types
 * computed/derived fields (`computed`, `expression`, `depends_on`)
 * value-level data-quality rules (`min_value`, `max_value`, `pattern`)
 * cross-source field attribution (`source`, `source_column`) for datasets that join in other sources
-* dataset-level `source_table`, `sources` (`SourceRef`), and `joins` (`JoinSpec`) — a dataset can be built from more than one physical source, including the same physical table joined in multiple times under different roles, each with its own filter and a priority-based dedup rule (`DedupRule`)
+* dataset-level `source_table`, `sources` (`SourceRef`), and `joins` (`JoinSpec`) — a dataset can be built from more than one physical source, including the same physical table joined in multiple times under different roles, each with its own filter and either a priority-based dedup rule (`DedupRule`) or an aggregation rule (`AggregateRule`) — the two mutually exclusive ways to collapse a joined source to one row per key before the join happens
 * dataset-level `depends_on` — a dataset can declare that it depends on other Structifact-defined datasets (distinct from `FieldSpec.depends_on`, which refers to fields within the same dataset)
 * constraints: `primary_key`, `unique`, `foreign_key` (with `target_table`/`target_column`), `check` (with `expression`)
 
@@ -159,7 +160,7 @@ Implemented adapters: YAML (primary/canonical), CSV, Excel. CSV and Excel are at
 
 ## Intermediate Representation
 
-`structifact/ir.py` holds `DatasetSpec` / `FieldSpec` / `ConstraintSpec`, plus the sources/joins additions (`SourceRef`, `JoinSpec`, `DedupRule`) and `DatasetSpec.depends_on`. This is now a substantially larger IR than the original "table + fields" model — see `ARCHITECTURE.md` for the full shape and the reasoning behind each addition.
+`structifact/ir.py` holds `DatasetSpec` / `FieldSpec` / `ConstraintSpec`, plus the sources/joins additions (`SourceRef`, `JoinSpec`, `DedupRule`, `AggregateRule`) and `DatasetSpec.depends_on`. This is now a substantially larger IR than the original "table + fields" model — see `ARCHITECTURE.md` for the full shape and the reasoning behind each addition.
 
 ---
 
@@ -274,6 +275,8 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 `Generator.generate()` may now return `None` to mean "nothing to generate for this dataset" (e.g. `ModelGenerator` on a dataset with no computed fields and no joins) — the CLI's `generate` loop skips writing when that happens, rather than every generator being required to always produce an artifact.
 
+**`AggregateRule`** (found via real-world use — a real SAP-shaped customer-credit source; see `DECISION_HISTORY.md`) is the second, mutually exclusive way `SourceRef` can collapse a joined source to one row per key before the join happens, alongside `DedupRule`'s priority-based row selection. Where `DedupRule` picks a single winning row, `AggregateRule` aggregates every row in the group: `group_by` names the columns to group on, and `aggregates` maps an output column alias to a raw SQL aggregate expression (e.g. a plain `SUM(col)`, or something more involved like a conditional debit/credit sign-flip). `ModelGenerator` renders this as a `GROUP BY` CTE, pre-aggregating the source before it's joined in — deliberately not a change to `ModelGenerator`'s own final-select shape, which stays a flat, ungrouped `SELECT` exactly as before. The real reference SQL this was scoped against actually needed two different-looking aggregation shapes (one already pre-aggregated before its join, one aggregated via a `GROUP BY` spanning the entire final select) — confirmed mathematically equivalent before implementation, so one mechanism covers both rather than requiring a second, materially bigger change to `ModelGenerator`'s core select generation. Verified against real DuckDB and PostgreSQL data specifically designed to prove the sign-flip aggregation and the one-to-many-row collapsing both hold, and that a `LEFT JOIN` still preserves a customer with nothing to aggregate as `NULL` rather than being silently dropped by the pre-aggregation step.
+
 ---
 
 ## CLI
@@ -302,7 +305,6 @@ Structifact still does not provide:
 * data-type validation (verifying a "decimal" column's values are actually numeric at all) — deliberately deferred; range/pattern checking in `quality.py` skips values that fail to parse rather than flagging them
 * composite (multi-column) foreign keys, joins, or dedup rules beyond what's already scoped — the IR intentionally supports only the shapes real examples have needed so far
 * cross-dataset value resolution — one dataset consuming another's computed/resolved value (e.g. an FX-rate lookup with conditional fallback); dependency *declaration* and *ordering* are done, but not this
-* aggregated joined sources — `SourceRef`/`JoinSpec`/`DedupRule` assume every joined-in source is already at 1:1 cardinality (naturally, or reduced via `DedupRule`); there is no way to express a joined source that needs `SUM(...) GROUP BY` before or during a join, and `ModelGenerator`'s flat, ungrouped SELECT can't absorb this via a computed field's raw `expression` either. Found via a real third-example requirements ticket — see `FUTURE_WORK.md`
 * column-level, per-field reconciliation between two matched rows — `reconciliation.py` v1 checks row-population coverage and matched-population aggregate equivalence on declared measures only; it does not (yet) tell you *which* field disagrees on a matched row beyond what an aggregate mismatch implies
 * real, credentialed execution against anything beyond DuckDB (Postgres, Snowflake, etc.) — the `Executor` interface is designed for it, but only DuckDB is actually implemented
 * transaction management, connection pooling, or retry logic in the execution layer — a single connect/run/close per `structifact execute` invocation only

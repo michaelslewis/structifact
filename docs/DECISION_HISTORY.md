@@ -455,6 +455,26 @@ This is the strongest evidence yet that the real-example-first discipline scales
 
 ---
 
+# Decision: `AggregateRule` — One Mechanism for Two Real Aggregation Shapes
+
+## What Happened
+
+The third real-world-validation round's headline finding (see the entry above) was that `SourceRef`/`JoinSpec`/`DedupRule` had no way to express a joined source needing `SUM(...) GROUP BY` — deliberately left unscoped and unimplemented in that same round. Once explicitly asked to scope and build it, the real reference SQL's two aggregation-dependent joined sources were re-examined side by side: `s066`/`s067` were already written as pre-aggregated CTEs (`SUM(...) GROUP BY <keys>`, joined normally afterward), while `bsid` was joined raw and aggregated via a `GROUP BY` spanning the *entire final select* — a materially different-looking shape, collapsing a one-to-many join at the end rather than before it.
+
+Working through the semantics on paper rather than assuming two mechanisms were needed: `bsid`'s final-level `GROUP BY` only "works" because `knkk` (the primary source) is already unique per `(kunnr, kkber)` — the same grain `bsid` would be aggregated to if it were pre-aggregated the way `s066`/`s067` already are. Once that's true, joining a pre-aggregated `bsid` (grouped by `kunnr, kkber`, with the same conditional sign-flip `SUM` as the aggregate expression) to `knkk` produces an identical result set to the reference SQL's join-then-final-`GROUP BY` approach — the two shapes are mathematically equivalent for this data, not just superficially similar. That meant the two "distinct" real requirements the previous entry described were actually one requirement observed twice, in two different but equivalent hand-written forms.
+
+## What Was Done
+
+Added `AggregateRule` to `ir.py` — structurally parallel to `DedupRule` (`SourceRef.dedup`/`SourceRef.aggregate`, mutually exclusive, checked in `validation.py`) rather than a new concept bolted onto `SourceRef` directly. `group_by: List[str]` names the columns the source is aggregated down to one row per; `aggregates: Dict[str, str]` maps an output column alias to a raw SQL aggregate expression — same trust model as `DedupRule.order_by`/`FieldSpec.expression`, inlined as-is, checked only for non-blankness. `ModelGenerator._source_cte()` gained a third branch (alongside plain-passthrough and `DedupRule`'s `ROW_NUMBER()` shape) rendering a `GROUP BY` CTE. Deliberately, this required **zero changes** to `ModelGenerator`'s own final-select generation — it stays a flat, ungrouped `SELECT` exactly as before; the aggregation happens entirely inside the pre-joined CTE, the same architectural boundary `DedupRule` already established (collapse-to-1:1 happens before the join, not after).
+
+Verified against real DuckDB and PostgreSQL data specifically designed to prove two things beyond "the query didn't error": a conditional debit/credit sign-flip (`SUM(CASE WHEN shkzg = 'S' THEN dmbtr WHEN shkzg = 'H' THEN -dmbtr ELSE 0 END)`) collapses multiple real rows to the correct signed total, and a `LEFT JOIN` against the pre-aggregated CTE still preserves a key with zero matching rows as `NULL`, rather than the `GROUP BY` step silently excluding it (a real risk worth checking explicitly, since a `GROUP BY` naturally only ever produces groups for keys actually present in the raw data).
+
+## Why This Is Worth Recording
+
+The previous entry's discipline — stop, write the finding down, don't design a fix under the momentum of the round that found it — paid off directly here: taking the extra step of re-deriving the reference SQL's two shapes from first principles, once actually asked to scope a fix, revealed they weren't two problems at all. Implementing two separate mechanisms (a pre-aggregation CTE option, and a second, much bigger change letting `ModelGenerator`'s final select become a grouped query) would have been solving a problem that didn't actually exist — real evidence of a need is not automatically evidence of the *shape* the fix should take, the same lesson the second real example ("A Second Real Example — One Correction, One New Feature, One New Gap") already recorded from a different angle. The smaller, later-arriving design is also the more architecturally conservative one: it extends the existing `DedupRule` collapse-before-join boundary rather than introducing a second, competing way for `ModelGenerator` to shape its output.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:

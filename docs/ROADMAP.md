@@ -208,6 +208,14 @@ They are now implemented, tested, and covered by CI:
   round, not caught by that round's actual reference-comparison
   discipline, since none of the three real examples came with
   hand-built DDL to diff against — see `DECISION_HISTORY.md`.
+* **`AggregateRule`** — `SourceRef` gained a second, mutually
+  exclusive alternative to `DedupRule` (`group_by` + `aggregates`,
+  rendered as a `GROUP BY` CTE pre-aggregating a joined source before
+  it's joined in). Found via a real third real-world-validation
+  ticket (a SAP-shaped customer-credit source); what first looked
+  like two distinct aggregation shapes the real reference SQL needed
+  turned out to be mathematically equivalent, so this one mechanism
+  covers both — see Phase 7's section below for the full account.
 * **Reconciliation, v1** (New Direction — Phase 12) — a new
   `structifact/reconciliation.py` subsystem, following the same
   precedent as `quality.py`/`dependencies.py`, given two datasets
@@ -424,18 +432,38 @@ Move from describing datasets toward describing data workflows.
 
 ## Status
 
-**Done, matching the phase's originally planned scope.** Four things
-are now real: a single computed field can be represented and emitted
-as executable SQL (`ModelGenerator`); a dataset can be assembled from
-multiple sources, including the same physical table joined in
-multiple times under different roles, each independently filtered and
-deduplicated (`SourceRef`/`JoinSpec`/`DedupRule`); and — closing what
-was previously this phase's one remaining piece — a dataset can
-declare dependencies on other Structifact-defined datasets, with the
-resulting collection validated (unresolved references, cycles) and
-resolved into a deterministic execution order (`DatasetSpec.depends_on`,
+**Done, matching the phase's originally planned scope — plus one
+real-world-driven addition beyond it.** Four things are now real: a
+single computed field can be represented and emitted as executable
+SQL (`ModelGenerator`); a dataset can be assembled from multiple
+sources, including the same physical table joined in multiple times
+under different roles, each independently filtered and either
+deduplicated or aggregated (`SourceRef`/`JoinSpec`/`DedupRule`/
+`AggregateRule` — the latter found via a real third real-world-
+validation ticket, see below); and — closing what was previously this
+phase's one remaining piece — a dataset can declare dependencies on
+other Structifact-defined datasets, with the resulting collection
+validated (unresolved references, cycles) and resolved into a
+deterministic execution order (`DatasetSpec.depends_on`,
 `structifact/dependencies.py`, `structifact deps`). See "Recently
 Completed" above for full detail.
+
+**`AggregateRule`**, closing the real third-round finding
+(`FUTURE_WORK.md`, `DECISION_HISTORY.md`): `SourceRef` gained a second,
+mutually exclusive alternative to `DedupRule` for collapsing a joined
+source to one row per key before the join happens — `group_by` plus
+`aggregates` (an output-alias-to-raw-SQL-aggregate-expression map),
+rendered by `ModelGenerator` as a `GROUP BY` CTE. The real reference
+SQL this was scoped against needed what first looked like two
+distinct aggregation shapes (pre-aggregated before the join, and
+aggregated via a `GROUP BY` spanning the entire final select) —
+confirmed mathematically equivalent before implementation, so one
+mechanism covers both without any change to `ModelGenerator`'s own
+final-select shape. Verified against real DuckDB and PostgreSQL data
+specifically designed to prove a conditional sign-flip aggregation
+(a debit/credit `CASE WHEN`) collapses multiple rows correctly, and
+that a `LEFT JOIN` still preserves a key with nothing to aggregate as
+`NULL` rather than the pre-aggregation step silently dropping it.
 
 What was scoped as "dependency graphs, execution ordering" below is
 now done. **Impact analysis** — understanding what else is affected
@@ -1053,7 +1081,7 @@ rather than a rule to encode.
 
 Investigating the second gap surfaced a real capability gap, not just a documentation one: `structifact discover --ai` could not read a `.xlsx` requirements document directly at all — both real tickets in this section required manually converting the source Excel file to Markdown first, a step nothing in the docs called out and the CLI gave no indication was necessary. Fixed: `discover` now routes `.xlsx` (alongside `.md`/`.txt`) to requirements-document extraction, reading every sheet's grid as plain text via a new `discover.extract_text_from_xlsx()` (the `excel` extra). Deliberately scoped to *text* extraction only, not cell-formatting awareness — the earlier finding in this section (the grey-fill exclusion signal a plain-text dump can't see) is a real, separately-scoped problem, tracked as still-open in `FUTURE_WORK.md` rather than folded into this fix. Verified with synthetic multi-sheet fixtures in the automated test suite, and re-run against both real scratchpad requirements workbooks — confirming the automated extraction reproduces the same text a human manually converting the file to Markdown would produce, including the document's own "Grey color = not included in table" note, which the AI still can't act on since it's only visible as text, not as an actual color.
 
-**A third, materially bigger real example confirmed the pattern scales, and found a real boundary just past it.** A third real ticket (a SAP-shaped customer-credit source, five joined sources, two of them needing pre-aggregation before joining, one aggregated via a conditional sign-flip at the final select level) was run through the same process. `discover --ai` correctly scoped itself to only the ~44 fields the requirements document actually described, confirmed by reading the raw extracted text directly rather than trusting the AI's summary — it did not fabricate the ~90 additional fields the real reference file also carried, because those come from a separate, already-existing model this document was never meant to describe. The 35 fields not dependent on unsupported aggregation were hand-modeled and matched the real reference exactly — every field's role/description/`source_field`, and every dataset-level `dbt_extended` field — verified programmatically, the third consecutive exact match. But the aggregation-dependent fields exposed a real, evidenced gap: `SourceRef`/`JoinSpec`/`DedupRule` has no way to express a joined source that needs `SUM(...) GROUP BY` before or during a join — materially bigger than any prior real-world finding, since it touches core join/select-shape generation rather than additive metadata. Deliberately NOT scoped or implemented in the same round that found it — see `FUTURE_WORK.md`'s "Aggregated joined sources" and `DECISION_HISTORY.md` for the full account, including two smaller findings correctly separated from the headline one: a self-caught hand-modeling mistake (not a Structifact bug), and a real but separately-evidenced `SQLGenerator` gap (string `length` silently dropped in DDL) that none of the three real tickets' reference materials ever actually tested against.
+**A third, materially bigger real example confirmed the pattern scales, and found a real boundary just past it.** A third real ticket (a SAP-shaped customer-credit source, five joined sources, two of them needing pre-aggregation before joining, one aggregated via a conditional sign-flip at the final select level) was run through the same process. `discover --ai` correctly scoped itself to only the ~44 fields the requirements document actually described, confirmed by reading the raw extracted text directly rather than trusting the AI's summary — it did not fabricate the ~90 additional fields the real reference file also carried, because those come from a separate, already-existing model this document was never meant to describe. The 35 fields not dependent on unsupported aggregation were hand-modeled and matched the real reference exactly — every field's role/description/`source_field`, and every dataset-level `dbt_extended` field — verified programmatically, the third consecutive exact match. But the aggregation-dependent fields exposed a real, evidenced gap: `SourceRef`/`JoinSpec`/`DedupRule` has no way to express a joined source that needs `SUM(...) GROUP BY` before or during a join — materially bigger than any prior real-world finding, since it touches core join/select-shape generation rather than additive metadata. Deliberately NOT scoped or implemented in the same round that found it — see `DECISION_HISTORY.md` for the full account, including two smaller findings correctly separated from the headline one: a self-caught hand-modeling mistake (not a Structifact bug), and a real but separately-evidenced `SQLGenerator` gap (string `length` silently dropped in DDL) that none of the three real tickets' reference materials ever actually tested against. **Both since fixed** — `SQLGenerator` now emits `VARCHAR(length)`, and the aggregation gap is now `AggregateRule` (see this document's Phase 7 section and "Recently Completed" above) — once each was explicitly scoped and requested, not folded into the round that found them.
 
 ## Design Requirement
 
