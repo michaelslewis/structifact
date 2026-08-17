@@ -1,0 +1,36 @@
+# SYNTHETIC EXAMPLE (fictional data) — paper-contract/acceptance
+# fixture for the reconciliation subsystem's v1 slice
+# (structifact/reconciliation.py). Represents an "old system" export
+# with legacy-style column naming, meant to be reconciled against
+# orders_new.yml/orders_new.csv, which represents the same logical
+# output from a replacement system.
+
+dataset:
+  name: orders_legacy
+  description: >
+    Legacy-naming order export, standing in for an old ETL/BI
+    system's output being retired in favor of a new one.
+
+fields:
+  - name: ORD_ID
+    type: string
+    nullable: false
+
+  - name: CUST_NBR
+    type: string
+    nullable: false
+
+  - name: ORD_AMT
+    type: decimal
+    precision: 9
+    scale: 2
+    role: measure
+    nullable: false
+
+  - name: ORD_DT
+    type: date
+    nullable: false
+
+constraints:
+  - type: primary_key
+    columns: ["ORD_ID"]
