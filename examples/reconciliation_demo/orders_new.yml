@@ -1,0 +1,36 @@
+# SYNTHETIC EXAMPLE (fictional data) — see orders_legacy.yml for the
+# full context. This is the "new system" side of the same logical
+# output, using modern column naming — meant to be reconciled against
+# orders_legacy.yml/orders_legacy.csv via reconciliation.yml's field
+# mapping (legacy and modern column names essentially never match in
+# a real migration, so a mapping is required, not name-inferred).
+
+dataset:
+  name: orders_new
+  description: >
+    Modern-naming order export, standing in for a new warehouse's
+    replacement output for the same logical dataset as orders_legacy.
+
+fields:
+  - name: order_id
+    type: string
+    nullable: false
+
+  - name: customer_number
+    type: string
+    nullable: false
+
+  - name: order_amount
+    type: decimal
+    precision: 9
+    scale: 2
+    role: measure
+    nullable: false
+
+  - name: order_date
+    type: date
+    nullable: false
+
+constraints:
+  - type: primary_key
+    columns: ["order_id"]

@@ -1,0 +1,17 @@
+# Old<->new field mapping for reconciling orders_legacy against
+# orders_new. Legacy and modern column names are assumed never to
+# match in a real migration, so every compared field is named
+# explicitly on both sides -- see reconciliation.py's
+# ReconciliationMapping.
+
+key:
+  old: ORD_ID
+  new: order_id
+
+fields:
+  - old: CUST_NBR
+    new: customer_number
+  - old: ORD_AMT
+    new: order_amount
+  - old: ORD_DT
+    new: order_date

@@ -7,6 +7,9 @@ from .utils import write_file
 from .generators.registry import GENERATORS, ALL_GENERATORS
 from .validation import validate_table
 from .quality import load_data_rows, check_data, resolve_references
+from .reconciliation import (
+    load_reconciliation_mapping, validate_mapping, reconcile_data,
+)
 from .dependencies import execution_order, impacted_by
 from .executors.registry import EXECUTORS
 from .generators.sql import SQLGenerator
@@ -199,6 +202,120 @@ def validate_data(args):
     result = check_data(table, rows, referenced_values=referenced_values)
 
     _format_quality_report(result, fk_target_labels=fk_target_labels)
+    return True
+
+
+def _parse_schema_data_arg(raw):
+    """
+    Parses schema.yml:data.csv into (schema_path, data_path) — the
+    same colon-pair convention --ref already uses, minus the
+    alias= prefix (reconcile's old/new positional args are
+    unambiguous by position, unlike --ref's repeatable list).
+    """
+    if ":" not in raw:
+        raise ValueError(
+            f"Invalid argument '{raw}' — expected format: schema.yml:data.csv"
+        )
+    schema_path, data_path = raw.split(":", 1)
+    return schema_path, data_path
+
+
+def _format_reconciliation_report(result):
+    """
+    Formats a ReconciliationResult into the human-readable report.
+    Kept separate from reconciliation.py's reconcile_data() the same
+    way _format_quality_report is kept separate from check_data() —
+    the checker returns structured data and never prints.
+    """
+    print()
+    print("Row counts:")
+    print(f"  old: {result.old_count}")
+    print(f"  new: {result.new_count}")
+    print(f"  matched: {result.matched_count}")
+
+    if result.is_reconciled:
+        print("\n✓ No reconciliation issues found")
+        return
+
+    print(f"\n✗ {len(result.issues)} issue(s) found")
+
+    row_coverage = [i for i in result.issues if i.category == "row_coverage"]
+    aggregate = [i for i in result.issues if i.category == "aggregate"]
+
+    if row_coverage:
+        print("\nRow matching:")
+        for issue in row_coverage:
+            label = "row" if len(issue.keys) == 1 else "rows"
+            print(f"  - {issue.rule}: {len(issue.keys)} {label}")
+            for key in issue.keys:
+                print(f"      key={key}")
+
+    if aggregate:
+        print("\nAggregate comparison (matched rows):")
+        for issue in aggregate:
+            print(
+                f"  - {issue.field}: old_sum={issue.old_value}  "
+                f"new_sum={issue.new_value}  diff={issue.diff}"
+            )
+
+
+def reconcile(args):
+    """
+    New-direction, v1 — given two datasets meant to represent the
+    same logical output (e.g. a legacy system's output and its
+    Snowflake replacement), reports row-population coverage
+    (missing_in_new / missing_in_old, by key) and aggregate
+    equivalence on declared measures, restricted to the matched
+    population. Does not claim per-field semantic equivalence — see
+    reconciliation.py's reconcile_data() docstring for the exact
+    scope boundary and why aggregates are computed on matched rows
+    only, not the full old/new populations.
+    """
+    try:
+        old_schema_path, old_data_path = _parse_schema_data_arg(args.old)
+        new_schema_path, new_data_path = _parse_schema_data_arg(args.new)
+    except ValueError as e:
+        print(f"\n{e}")
+        return False
+
+    try:
+        old_table = load_spec(old_schema_path)
+        validate_table(old_table)
+        new_table = load_spec(new_schema_path)
+        validate_table(new_table)
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
+    except ValueError as e:
+        print("\nSchema validation failed:\n")
+        print(e)
+        return False
+
+    print(f"✓ Loaded schemas: {old_table.name} (old), {new_table.name} (new)")
+
+    try:
+        mapping = load_reconciliation_mapping(args.mapping)
+        validate_mapping(mapping, old_table, new_table)
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
+    except ValueError as e:
+        print("\nMapping configuration error:\n")
+        print(e)
+        return False
+
+    try:
+        old_rows = load_data_rows(old_data_path)
+        new_rows = load_data_rows(new_data_path)
+    except FileNotFoundError as e:
+        print(f"\nFile not found: {e.filename}")
+        return False
+
+    print(f"✓ Loaded data: {len(old_rows)} old row(s), {len(new_rows)} new row(s)")
+
+    result = reconcile_data(old_table, old_rows, new_table, new_rows, mapping)
+
+    _format_reconciliation_report(result)
     return True
 
 
@@ -709,6 +826,36 @@ def main():
     )
 
     generate_parser.set_defaults(func=generate)
+
+    reconcile_parser = subparsers.add_parser(
+        "reconcile",
+        help=(
+            "Compare two datasets meant to represent the same logical "
+            "output (e.g. a legacy system's data and its replacement's) "
+            "and report row-population coverage (rows only in one side) "
+            "and aggregate equivalence on declared measures, restricted "
+            "to rows present on both sides. Does not compare individual "
+            "field values row by row -- see docs for the exact v1 scope."
+        ),
+    )
+
+    reconcile_parser.add_argument(
+        "old", help="old_schema.yml:old_data.csv"
+    )
+    reconcile_parser.add_argument(
+        "new", help="new_schema.yml:new_data.csv"
+    )
+    reconcile_parser.add_argument(
+        "--mapping", required=True,
+        help=(
+            "Path to a reconciliation mapping YAML file declaring the "
+            "old<->new key field and any other old<->new field pairs "
+            "to compare (aggregate comparison uses whichever mapped "
+            "fields the new schema declares role: measure)."
+        ),
+    )
+
+    reconcile_parser.set_defaults(func=reconcile)
 
     deps_parser = subparsers.add_parser(
         "deps",
