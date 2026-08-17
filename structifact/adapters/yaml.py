@@ -63,6 +63,7 @@ def load_yaml(path: str) -> DatasetSpec:
                 type=parsed["type"],
                 raw_type=field["type"],
                 description=field.get("description"),
+                comment=field.get("comment"),
                 role=field.get("role"),
                 accepted_values=accepted_values,
 

@@ -24,7 +24,11 @@ class DBTYAMLGenerator(Generator):
     """
     Generates dbt-compatible YAML metadata: name/description per
     column, plus (found via real-world use, confirmed by a second
-    independent real example) `role` and `source_field`.
+    independent real example) `role` and `source_field`, and (found
+    via real-world use, confirmed by a second, differently-shaped
+    real example) `comment` — a second, independently-authored text
+    label some downstream tooling expects alongside `description`.
+    Omitted when unset, same as `role`.
 
     Still does NOT emit dataset-level dbt concepts (`config`/tags,
     `schema`, a dataset `description`, `meta` fields like
@@ -45,6 +49,8 @@ class DBTYAMLGenerator(Generator):
             if f.role:
                 meta["role"] = f.role
             meta["source_field"] = _source_field(f)
+            if f.comment:
+                meta["comment"] = f.comment
 
             columns.append({
                 "name": f.name,
