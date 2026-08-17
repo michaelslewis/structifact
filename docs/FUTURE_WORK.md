@@ -37,7 +37,12 @@ up beyond the narrowest proven case:
   as of Phase 8A, PostgreSQL are both real, tested implementations
   (PostgreSQL verified with real integration tests against an actual
   server, CI-enforced via a `postgres:16` service container — see
-  ROADMAP.md); Snowflake remains unimplemented.
+  ROADMAP.md); Snowflake remains unimplemented. No longer just an
+  abstract gap: see "Legacy Migration and Reconciliation" below for a
+  concrete real-world need now motivating it. To be validated against
+  a personal free-trial Snowflake account, matching how PostgreSQL was
+  validated against a real, personally-run server rather than any
+  employer's instance — never a work account or work data.
 * **Retry logic** (Phase 8C-v2) — now done. `structifact/executors/base.py`
   gained `retry_transaction(executor, fn, retry_on, max_attempts)`, a
   module-level function (not a new `Executor` method — retrying means
@@ -105,6 +110,23 @@ up beyond the narrowest proven case:
   documented, not a rewrite of the other three.
 
 A note on how this document has been kept: several sections below described work that has since actually shipped (AI-assisted discovery, documentation generation, the first Transformation Framework step, and a real Data Quality Framework going well beyond what was originally sketched here). Those sections have been trimmed or removed rather than left describing already-completed work as "future." See ROADMAP.md's "Recently Completed" section for the authoritative current list of what's done.
+
+Legacy Migration and Reconciliation (New Direction — Real-World Trigger)
+
+A real, current problem at the author's day job reframed part of Structifact's ambition, without changing its independence from that job (see DECISION_HISTORY.md's "Real-World Validation" entries for the examples that motivated this, and PROJECT_CONTEXT.md for why this project is deliberately kept separate from any employer). Retiring a legacy ETL/BI tool (Data Services feeding Tableau) in favor of a modern warehouse (Snowflake) is slow specifically because *proving* the new data source produces results the business already trusts — not writing the SQL itself — is where weeks turn into months. That's a common shape of pain, not a company-specific one: any organization retiring an aging ETL tool eventually hits it.
+
+Three new fronts, in priority order, each meant to be validated only against personal or synthetic infrastructure — never real company data or systems, the same discipline this project has held to from the start:
+
+* **Reconciliation** — given two datasets meant to represent the same logical output (an old system's and a new one's), report where and how they actually disagree: row counts, aggregate-level differences, column-by-column mismatches. Nothing like this exists today — `validate-data` checks data against a schema's *declared* rules, not one dataset against another. Zero infrastructure dependency: fully testable against synthetic "old vs. new" data made up for the purpose. The most direct answer to the actual bottleneck described (manual, Tableau-side confirmation that a migrated source matches) of everything on this list — first priority, once scoped with a real paper contract the same way every other IR addition has been.
+* **Snowflake Executor** — see "Before a 1.0 Release" above; an already-acknowledged, designed-for gap, now with a concrete real motivating need rather than an abstract one.
+* **Tableau workbook introspection** — a new `discover`-style input reading a `.twb`/`.twbx` file (plain XML) to infer the fields, joins, and calculated-field logic an existing report actually depends on — potentially replacing days of manual requirements-gathering with something closer to what `discover --requirements --ai` already does for a written document. Genuinely unstarted; before any design, needs an exploration pass against a real workbook (Tableau's own public sample workbooks, e.g. Superstore, or the Tableau Public gallery — never a real company workbook) to see what's actually parseable, per this project's real-example-first discipline.
+
+Two smaller, related ideas surfaced in the same conversation, worth recording even though neither is close to being worked on:
+
+* **Configurable generation** — e.g. a per-alias naming convention, or which output artifacts (SQL/YAML/CSV/others) a given project actually wants, as a project-level config file rather than something fixed. Separable from, and much smaller than, the structifact.com/GUI question below (see "Web Interface Exploration" and "IDE Integration" further down) — worth a real design pass once there's enough real usage to know what actually needs to be configurable, not designed from guessing now.
+* **Who this is actually for, beyond one person's own employer** — the working thesis is that "define once, generate consistently, and prove the new thing matches the old thing" generalizes to any legacy-ETL retirement, not just a Data-Services-to-Snowflake one. That's untested against any example outside the author's own situation, and deserves real thought (concrete personas, the adjacent tool/consulting landscape, what's actually differentiated) before being assumed true.
+
+Deliberately still not started, and deliberately not pursued opportunistically alongside the above: structifact.com deployment and any GUI. The project's own standing discipline already defers this until the core engine has more maturity — see "Web Interface Exploration" and "IDE Integration" below — and that's more true now, not less, with a whole new capability area about to be added on top of the existing one.
 
 AI-Assisted Metadata Discovery
 
