@@ -41,6 +41,16 @@ rather than philosophy — read those two files for the "why."
 
 ## Working practices
 
+- **Update the GitHub project board (user michaelslewis, project 1)
+  alongside doc commits, not as a separate thing to remember.** It
+  went stale for an extended stretch (last current around "Phase 9
+  v1 / Phase 8D v4") before being caught and backfilled — real work
+  (a full 1.0 readiness audit, two real-world-validation rounds,
+  native `.xlsx` discovery, reconciliation v1) had shipped and been
+  documented without ever reaching the board. When you finish a
+  feature's docs commit, also add/update the corresponding board item
+  (`gh project item-create 1 --owner michaelslewis --title "..."`,
+  then `gh project item-edit` to set Status) in the same pass.
 - **Run the test suite before considering any change done.**
   `python3 -m pytest -q` (or the manual verification pattern used in
   this project's history if `pytest` isn't installed) — every change
