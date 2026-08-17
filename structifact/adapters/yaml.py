@@ -2,7 +2,10 @@ from decimal import Decimal
 
 import yaml
 
-from ..ir import DatasetSpec, FieldSpec, ConstraintSpec, SourceRef, JoinSpec, DedupRule
+from ..ir import (
+    DatasetSpec, FieldSpec, ConstraintSpec, SourceRef, JoinSpec, DedupRule,
+    AggregateRule,
+)
 from ..types import parse_type
 
 
@@ -144,6 +147,17 @@ def load_yaml(path: str) -> DatasetSpec:
                     order_by=[str(v) for v in source["dedup"]["order_by"]],
                 )
                 if source.get("dedup") is not None
+                else None
+            ),
+            aggregate=(
+                AggregateRule(
+                    group_by=[str(v) for v in source["aggregate"]["group_by"]],
+                    aggregates={
+                        str(k): str(v)
+                        for k, v in source["aggregate"]["aggregates"].items()
+                    },
+                )
+                if source.get("aggregate") is not None
                 else None
             ),
         )

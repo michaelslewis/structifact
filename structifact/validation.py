@@ -284,6 +284,15 @@ def validate_table(table: DatasetSpec):
                 f"Source '{source.name}' requires a table"
             )
 
+        if source.dedup is not None and source.aggregate is not None:
+            errors.append(
+                f"Source '{source.name}' has both a dedup rule and an "
+                f"aggregate rule — a source is collapsed to one row "
+                f"per key either by picking a single winner (dedup) "
+                f"or by aggregating every row in the group "
+                f"(aggregate), never both"
+            )
+
         if source.dedup is not None:
             if not source.dedup.partition_by:
                 errors.append(
@@ -298,6 +307,34 @@ def validate_table(table: DatasetSpec):
                     f"an empty order_by — a dedup rule requires at "
                     f"least one order_by entry to break ties"
                 )
+
+        if source.aggregate is not None:
+            if not source.aggregate.group_by:
+                errors.append(
+                    f"Source '{source.name}' has an aggregate rule "
+                    f"with an empty group_by — an aggregate rule "
+                    f"requires at least one group_by column"
+                )
+
+            if not source.aggregate.aggregates:
+                errors.append(
+                    f"Source '{source.name}' has an aggregate rule "
+                    f"with no aggregates declared — an aggregate rule "
+                    f"requires at least one output column"
+                )
+
+            for alias, expression in source.aggregate.aggregates.items():
+                if not alias.strip():
+                    errors.append(
+                        f"Source '{source.name}' has an aggregate "
+                        f"rule with a blank output column name"
+                    )
+                if not expression or not expression.strip():
+                    errors.append(
+                        f"Source '{source.name}' has an aggregate "
+                        f"rule whose '{alias}' entry has a blank "
+                        f"expression"
+                    )
 
     for join in table.joins:
         if join.source not in source_names:

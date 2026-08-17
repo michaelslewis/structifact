@@ -12,15 +12,42 @@ JOIN_KEYWORDS = {
 
 def _source_cte(source: SourceRef) -> str:
     """
-    Renders one SourceRef as a CTE. Two shapes, matching
-    examples/workorder_demo's hand-written reference SQL exactly:
+    Renders one SourceRef as a CTE. Three shapes:
 
-    - No dedup: a plain (optionally filtered) passthrough select.
+    - No dedup, no aggregate: a plain (optionally filtered)
+      passthrough select, matching examples/workorder_demo's
+      hand-written reference SQL exactly.
     - With dedup: a ROW_NUMBER()-ranked inner select, filtered down
       to rn = 1 in the outer select — the priority-based
       deduplication pattern DedupRule represents.
+    - With aggregate (found via real-world use — see AggregateRule in
+      ir.py): a GROUP BY select over aggregate.group_by, with each
+      aggregate.aggregates entry rendered as a raw SQL expression
+      aliased to its output column name. Pre-aggregates the source to
+      one row per group before the join happens, rather than
+      requiring ModelGenerator's own final select to become a grouped
+      query — validation.py guarantees dedup and aggregate are never
+      both set on the same source.
     """
     where_clause = f"\n        where {source.filter}" if source.filter else ""
+
+    if source.aggregate is not None:
+        group_cols = ", ".join(source.aggregate.group_by)
+        agg_lines = ",\n        ".join(
+            f"{expr} as {alias}"
+            for alias, expr in source.aggregate.aggregates.items()
+        )
+
+        return (
+            f"{source.name} as (\n"
+            f"    select\n"
+            f"        {group_cols},\n"
+            f"        {agg_lines}\n"
+            f"    from {source.table}"
+            f"{where_clause}\n"
+            f"    group by {group_cols}\n"
+            f")"
+        )
 
     if source.dedup is None:
         return (
@@ -72,7 +99,9 @@ class ModelGenerator(Generator):
        `source_column`) — a dataset can declare additional joinable
        sources, including the same physical table joined in multiple
        times under different roles with independent filters and
-       priority-based dedup rules (see SourceRef/JoinSpec/DedupRule
+       priority-based dedup rules, or — found via real-world use, see
+       AggregateRule in ir.py — pre-aggregated via a GROUP BY before
+       the join happens (see SourceRef/JoinSpec/DedupRule/AggregateRule
        in ir.py). A field with `source` set is qualified with that
        source's alias; a field with neither is qualified with the
        dataset's own primary source instead of left bare — column
