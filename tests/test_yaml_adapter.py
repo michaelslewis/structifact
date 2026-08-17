@@ -280,6 +280,72 @@ def test_load_yaml_sources_joins_absent_default_to_empty_lists(tmp_path):
     assert dataset.joins == []
 
 
+def test_load_yaml_parses_aggregate_rule(tmp_path):
+    yaml_file = tmp_path / "customer_credit.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: customer_credit
+
+source_table: knkk
+
+fields:
+  - name: kunnr
+    type: string
+  - name: struct_bsid_sum_dmbtr
+    type: decimal
+    source: bsid
+    source_column: struct_bsid_sum_dmbtr
+
+sources:
+  - name: bsid
+    table: bsid
+    aggregate:
+      group_by: [kunnr, kkber]
+      aggregates:
+        struct_bsid_sum_dmbtr: "SUM(case when shkzg = 'S' then dmbtr when shkzg = 'H' then -dmbtr else 0 end)"
+
+joins:
+  - source: bsid
+    "on": "knkk.kunnr = bsid.kunnr and knkk.kkber = bsid.kkber"
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    source = dataset.sources[0]
+    assert source.dedup is None
+    assert source.aggregate.group_by == ["kunnr", "kkber"]
+    assert source.aggregate.aggregates == {
+        "struct_bsid_sum_dmbtr": (
+            "SUM(case when shkzg = 'S' then dmbtr "
+            "when shkzg = 'H' then -dmbtr else 0 end)"
+        ),
+    }
+
+
+def test_load_yaml_source_without_aggregate_leaves_aggregate_none(tmp_path):
+    yaml_file = tmp_path / "orders.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: orders
+
+fields:
+  - name: order_id
+    type: integer
+
+sources:
+  - name: customers
+    table: cust_mst
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.sources[0].aggregate is None
+
+
 def test_load_yaml_source_without_dedup_leaves_dedup_none(tmp_path):
     yaml_file = tmp_path / "orders.yml"
     yaml_file.write_text(

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 @dataclass
@@ -172,6 +172,55 @@ class DedupRule:
 
 
 @dataclass
+class AggregateRule:
+    """
+    Collapses a joined-in source to one row per group via aggregation,
+    rather than DedupRule's priority-based row selection -- the other
+    way a joined source can be reduced to 1:1 cardinality with the
+    primary source. Mutually exclusive with DedupRule on the same
+    SourceRef (checked in validation.py): a group of rows sharing the
+    same key is reduced to one row either by picking a single winner
+    (DedupRule) or by aggregating every row in the group
+    (AggregateRule), never both.
+
+    Found via real-world use (a real SAP-shaped customer-credit
+    source, see DECISION_HISTORY.md): the reference SQL needed a
+    joined source pre-aggregated (SUM(...) GROUP BY <keys>) before
+    the join, which neither DedupRule nor a computed field's
+    `expression` can express -- ModelGenerator's generated model is
+    always a flat, ungrouped SELECT, so a bare SUM(...) inside a raw
+    expression would be invalid SQL once mixed with non-aggregated
+    columns at the same select level. The same real SQL also had a
+    second joined source aggregated via a GROUP BY spanning the
+    *entire final select*, collapsing a one-to-many join at the end
+    rather than before it -- confirmed to be mathematically
+    equivalent to pre-aggregating that source to the join-key grain
+    first, so this one mechanism covers both real shapes rather than
+    needing a second, materially bigger change to ModelGenerator's
+    own select-shape.
+
+    `group_by` is the set of columns the source is aggregated down
+    to one row per (typically the columns the join condition matches
+    on). `aggregates` maps an output column alias to a raw SQL
+    aggregate expression (e.g. "SUM(oeikw)", or something more
+    involved like a conditional sign-flip:
+    "SUM(CASE WHEN shkzg = 'S' THEN dmbtr WHEN shkzg = 'H' THEN
+    -dmbtr ELSE 0 END)") -- same trust model as DedupRule.order_by
+    and FieldSpec.expression: inlined as-is, not parsed or validated
+    beyond non-blankness.
+
+    A field pulled from an aggregated source references either a
+    `group_by` column or an `aggregates` key via `source_column` --
+    there is no way to reach a raw, non-aggregated column of that
+    source once `aggregate` is set, matching how the generated CTE
+    itself only ever exposes those two things.
+    """
+
+    group_by: List[str]
+    aggregates: Dict[str, str]
+
+
+@dataclass
 class SourceRef:
     """
     A named, joinable source within a dataset's transformation
@@ -193,12 +242,18 @@ class SourceRef:
     `filter` is an optional raw SQL predicate scoping this instance
     of the source (e.g. "role_code = 'REQ'"). Same trust model as
     `expression`/`on` elsewhere in the IR — not parsed or validated.
+
+    `dedup` and `aggregate` are the two mutually exclusive ways to
+    collapse this source to one row per key before it's joined in —
+    see DedupRule and AggregateRule respectively. At most one may be
+    set (checked in validation.py).
     """
 
     name: str
     table: str
     filter: Optional[str] = None
     dedup: Optional[DedupRule] = None
+    aggregate: Optional[AggregateRule] = None
 
 
 @dataclass
