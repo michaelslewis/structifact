@@ -198,6 +198,16 @@ They are now implemented, tested, and covered by CI:
   pooling/retry handling — see `FUTURE_WORK.md`'s "Before a 1.0
   Release" section. See the dedicated Phase 8 section below for full
   detail.
+* **`SQLGenerator` honors string `length`** — `_sql_type()` now emits
+  `VARCHAR(length)` for a string field with a declared `length`, the
+  same way it already emits `DECIMAL(precision,scale)` for a decimal
+  field with `precision`/`scale` set (same gating: only when the
+  value is actually present, otherwise the existing bare `TEXT`
+  fallback is unchanged). A real, verifiable gap — found by spot-
+  checking generated DDL during the third real-world validation
+  round, not caught by that round's actual reference-comparison
+  discipline, since none of the three real examples came with
+  hand-built DDL to diff against — see `DECISION_HISTORY.md`.
 * **Reconciliation, v1** (New Direction — Phase 12) — a new
   `structifact/reconciliation.py` subsystem, following the same
   precedent as `quality.py`/`dependencies.py`, given two datasets
