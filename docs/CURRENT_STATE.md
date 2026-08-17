@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (471 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (~490 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -38,6 +38,7 @@ Beyond the original schema-definition/generation pipeline, Structifact now also:
 * declares and validates dependencies between datasets, and derives a safe
   execution order (with cycle detection) across a collection of them
 * answers impact-analysis queries — what depends on a given dataset, directly or transitively — on top of that same dependency graph
+* reconciles two independently-defined datasets meant to represent the same logical output — row-population coverage and matched-population aggregate equivalence (v1; see the dedicated section below)
 
 The framework is not a production data platform and isn't intended to become one in the near term. The current objective remains a strong, trustworthy architectural foundation, now with several genuinely complete capability areas rather than only foundational scaffolding.
 
@@ -74,13 +75,17 @@ structifact/                        (repo root)
 │   │    work_order_catalog.csv, work_order_source.discovered.yml)
 │   ├── data_quality_demo/          Phase 6 example
 │   │   (orders_data.yml/csv, dq_customers.yml/csv)
-│   └── dependency_demo/            Phase 7 remainder example
-│       (customers/transactions/customer_summary/daily_report chain,
-│        cyclic_broken/ deliberately-broken variant)
+│   ├── dependency_demo/            Phase 7 remainder example
+│   │   (customers/transactions/customer_summary/daily_report chain,
+│   │    cyclic_broken/ deliberately-broken variant)
+│   └── reconciliation_demo/        Reconciliation v1 example
+│       (orders_legacy/orders_new, old<->new field mapping,
+│        planted missing-row and matched-row-value differences)
 │
 ├── structifact/
 │   ├── cli.py                      validate / generate / discover /
-│   │                               validate-data / deps / impact / execute
+│   │                               validate-data / reconcile / deps /
+│   │                               impact / execute
 │   ├── __main__.py
 │   ├── ir.py                       DatasetSpec / FieldSpec / ConstraintSpec /
 │   │                               SourceRef / JoinSpec / DedupRule
@@ -88,6 +93,9 @@ structifact/                        (repo root)
 │   ├── utils.py
 │   ├── validation.py
 │   ├── quality.py                  Phase 6: real-data checking (new subsystem,
+│   │                               not a Generator)
+│   ├── reconciliation.py           New Direction, v1: cross-dataset
+│   │                               reconciliation (another new subsystem,
 │   │                               not a Generator)
 │   ├── dependencies.py             Phase 7 remainder: cross-dataset dependency
 │   │                               graph, cycle detection, execution ordering;
@@ -177,6 +185,25 @@ All three report structured `QualityIssue`/`QualityResult` data; human-readable 
 
 ---
 
+## Reconciliation (New Direction, v1 — new since the last full rewrite of this document)
+
+`structifact/reconciliation.py` is a new subsystem, following the same precedent as `quality.py`/`dependencies.py`: reconciling two independently-defined datasets is a genuinely different question from checking one dataset's data against its own declared rules, so it isn't shoehorned into `quality.py`, `validation.py`, or the `Generator` interface. Triggered by a real day-job problem — see `docs/FUTURE_WORK.md`'s "Legacy Migration and Reconciliation" — but built and validated entirely against a synthetic example (`examples/reconciliation_demo/`), matching this project's IP-separation discipline.
+
+Given two datasets meant to represent the same logical output (e.g. an old system's export and its replacement's), v1 checks:
+
+* **row-population coverage** — via an explicit old<->new key field mapping (`ReconciliationMapping`, loaded from a small standalone YAML file — deliberately not a `DatasetSpec`, since it describes a relationship between two datasets' fields, not one dataset's own structure), which keys exist in the old dataset but not the new (`missing_in_new`) and vice versa (`missing_in_old`)
+* **aggregate equivalence on the matched population** — for every mapped field the *new* schema declares `role: measure`, sums both sides but restricted to keys present on both sides, and reports a mismatch. Deliberately matched-population, not full-population: summing everything would conflate a genuine value discrepancy on a matched row with the structural noise of legitimately added/dropped rows (already reported, exactly, by row-population coverage above) — this was a real correction made during scoping, not the original design (see `DECISION_HISTORY.md`).
+
+An explicit field mapping is required from the start (not deferred to a later version) because legacy-vs-modern column naming essentially never matches automatically — the real motivating problem has this shape directly. `validate_mapping()` resolves every mapped field name against both loaded schemas before any checking runs, the same "never trust a bare name" discipline `quality.py`'s `resolve_references()` established for foreign-key checking — a bad mapping is a hard configuration error, never a silently-misleading report.
+
+v1 does **not** claim semantic equivalence between the two datasets — it establishes row-population coverage, key correspondence, and matched-population aggregate equivalence on declared measures, not that every individual field value is identical. Full column-level comparison on matched rows is a deliberately deferred v2, not yet built (see `FUTURE_WORK.md`).
+
+Exposed via a new CLI command, `structifact reconcile old_schema.yml:old_data.csv new_schema.yml:new_data.csv --mapping reconciliation.yml`. Reports structured `ReconciliationResult`/`ReconciliationIssue` data; human-readable formatting lives entirely in `cli.py`, same separation as `quality.py`.
+
+Treated explicitly as an experiment, not an automatically-committed permanent subsystem — the next real validation step (not yet done) is running it against a real, sanitized legacy-migration example, the same real-example-first discipline every other IR-adjacent addition in this project has followed, rather than continuing to build it out speculatively.
+
+---
+
 ## Dataset Dependency Tracking (Phase 7 remainder — new since the last full rewrite of this document)
 
 `structifact/dependencies.py` is a new subsystem, following the same precedent as `quality.py`: it operates on a *collection* of `DatasetSpec`s, which is a genuinely different question from single-dataset metadata validation, so it isn't shoehorned into `validation.py` or the `Generator` interface.
@@ -251,7 +278,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 ## CLI
 
-`structifact/cli.py` — seven commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `-y`; a `.md`/`.txt`/`.xlsx` `spec` argument routes automatically to requirements-document extraction — there's no separate `--requirements` flag), `validate-data` (`--ref`, repeatable), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--materialize`, `--drop-if-exists`).
+`structifact/cli.py` — eight commands: `validate`, `generate` (`-g/--generators`), `discover` (`--ai`, `-y`; a `.md`/`.txt`/`.xlsx` `spec` argument routes automatically to requirements-document extraction — there's no separate `--requirements` flag), `validate-data` (`--ref`, repeatable), `reconcile` (New Direction, v1 — `old` and `new`, each `schema.yml:data.csv`, plus a required `--mapping`), `deps` (resolves dependencies across multiple dataset files into a safe execution order), `impact` (Phase 9 v1 — reports every dataset that depends on a given dataset, directly or transitively), and `execute` (Phase 8 — runs generated DDL against a real database; `--engine`, `--connection`, `--data`, `--materialize`, `--drop-if-exists`).
 
 ---
 
@@ -275,6 +302,7 @@ Structifact still does not provide:
 * data-type validation (verifying a "decimal" column's values are actually numeric at all) — deliberately deferred; range/pattern checking in `quality.py` skips values that fail to parse rather than flagging them
 * composite (multi-column) foreign keys, joins, or dedup rules beyond what's already scoped — the IR intentionally supports only the shapes real examples have needed so far
 * cross-dataset value resolution — one dataset consuming another's computed/resolved value (e.g. an FX-rate lookup with conditional fallback); dependency *declaration* and *ordering* are done, but not this
+* column-level, per-field reconciliation between two matched rows — `reconciliation.py` v1 checks row-population coverage and matched-population aggregate equivalence on declared measures only; it does not (yet) tell you *which* field disagrees on a matched row beyond what an aggregate mismatch implies
 * real, credentialed execution against anything beyond DuckDB (Postgres, Snowflake, etc.) — the `Executor` interface is designed for it, but only DuckDB is actually implemented
 * transaction management, connection pooling, or retry logic in the execution layer — a single connect/run/close per `structifact execute` invocation only
 * executing `ModelGenerator`'s transformation SQL — only `SQLGenerator`'s schema DDL is currently executable
@@ -289,8 +317,11 @@ Phase 6 (Data Quality Framework) and Phase 7 (Transformation Framework, includin
 
 Phase 9 (Lineage and Observability) now has a first real slice done: impact analysis (`impacted_by()`, above). Source-to-output lineage rendering and dependency-graph visualization remain open — both bigger, less concretely scoped, deliberately left for a real need to justify picking one.
 
+Reconciliation (New Direction) now has a first real slice done: v1, above — treated explicitly as an experiment, not an automatically-continuing subsystem. Its own next step isn't v2 (column-level comparison) by default — it's testing v1 against a real, sanitized legacy-migration example first, to see whether it actually catches the kinds of mistakes that motivated it, before investing in a bigger v2.
+
 Open threads:
 
+* **Reconciliation v2** (column-level comparison on matched rows) and the real-migration validation step above — neither started; the real-migration test is the higher-priority of the two, per this project's real-example-first discipline.
 * **Cross-dataset value resolution** (deliberately deferred out of Phase 7's dependency-tracking milestone) — a real synthetic example (`workorder_demo`) motivates this via an FX-rate-lookup pattern; should only be scoped once a differently-shaped example is available, per this project's real-example-first discipline.
 * **8B — Snowflake Executor**, **8C-v3 — connection pooling** (see `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist) — deliberately parked pending a real, concrete need.
 * **Lineage view / dependency-graph visualization** (Phase 9 remainder) — bigger, less concretely scoped than impact analysis; worth revisiting once a real use case surfaces.
@@ -306,6 +337,6 @@ Unchanged from earlier versions of this document: the priority is a trustworthy 
 
 # Summary
 
-Structifact currently represents a working metadata-driven framework: adapters normalize three input formats into a shared IR; validation checks that IR's own well-formedness; generators produce SQL, dbt-shaped YAML, catalogs, docs, and (for datasets with computed fields or joins) real executable transformation SQL; `discover` can bootstrap a draft schema from raw data or a freeform requirements document, optionally AI-assisted; `validate-data` checks real data rows — including across two related datasets — against everything the schema declares; `deps` resolves and safely orders dependencies across a collection of related datasets; and `execute` runs generated SQL against a real database (DuckDB or PostgreSQL today), proving it actually works rather than just looking plausible.
+Structifact currently represents a working metadata-driven framework: adapters normalize three input formats into a shared IR; validation checks that IR's own well-formedness; generators produce SQL, dbt-shaped YAML, catalogs, docs, and (for datasets with computed fields or joins) real executable transformation SQL; `discover` can bootstrap a draft schema from raw data or a freeform requirements document, optionally AI-assisted; `validate-data` checks real data rows — including across two related datasets — against everything the schema declares; `reconcile` compares two independently-defined datasets meant to represent the same logical output (v1: row-population coverage and matched-population aggregate equivalence); `deps` resolves and safely orders dependencies across a collection of related datasets; and `execute` runs generated SQL against a real database (DuckDB or PostgreSQL today), proving it actually works rather than just looking plausible.
 
 The project has moved from "architectural design" through "deeper implementation" into what's now a genuinely complete first version of several major capability areas, not just scaffolding for them.

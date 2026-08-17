@@ -66,8 +66,8 @@ pip install -e .
 
 Requires Python 3.10+ (CI runs 3.11 and 3.12). The base install has
 no dependencies beyond PyYAML — `validate`, `generate`, `deps`,
-`impact`, and CSV-based `discover`/`validate-data` all work
-immediately, no further setup.
+`impact`, `reconcile`, and CSV-based `discover`/`validate-data` all
+work immediately, no further setup.
 
 Everything else is opt-in, via extras:
 
@@ -191,17 +191,48 @@ Table 'customers' created successfully.
 
 (Omit `--connection` for a throwaway in-memory database, as above, or pass a file path — e.g. `--connection customers.duckdb` — to persist it.)
 
+Reconcile two datasets meant to represent the same logical output — e.g. a legacy system's export and its replacement's, with different column naming on each side:
+
+```bash
+$ structifact reconcile \
+    examples/reconciliation_demo/orders_legacy.yml:examples/reconciliation_demo/orders_legacy.csv \
+    examples/reconciliation_demo/orders_new.yml:examples/reconciliation_demo/orders_new.csv \
+    --mapping examples/reconciliation_demo/reconciliation.yml
+✓ Loaded schemas: orders_legacy (old), orders_new (new)
+✓ Loaded data: 5 old row(s), 5 new row(s)
+
+Row counts:
+  old: 5
+  new: 5
+  matched: 4
+
+✗ 3 issue(s) found
+
+Row matching:
+  - missing_in_new: 1 row
+      key=1004
+  - missing_in_old: 1 row
+      key=1006
+
+Aggregate comparison (matched rows):
+  - order_amount: old_sum=485.50  new_sum=490.50  diff=+5.00
+```
+
 One definition, several independently-correct outcomes — generated
-artifacts, real-data validation, dependency resolution, and real
-database execution — all from the same source, with no duplicated
-column descriptions or rules to keep in sync by hand. See
-[`examples/customers/`](examples/customers/) for the generation
-walkthrough, [`examples/data_quality_demo/`](examples/data_quality_demo/)
-for the data-quality walkthrough (including checking a foreign-key
-relationship against a second dataset), and
+artifacts, real-data validation, dependency resolution, real database
+execution, and cross-dataset reconciliation — all from the same
+source, with no duplicated column descriptions or rules to keep in
+sync by hand. See [`examples/customers/`](examples/customers/) for
+the generation walkthrough,
+[`examples/data_quality_demo/`](examples/data_quality_demo/) for the
+data-quality walkthrough (including checking a foreign-key
+relationship against a second dataset),
 [`examples/dependency_demo/`](examples/dependency_demo/) for the
 dependency-resolution walkthrough (including a deliberately-broken
-cyclic example).
+cyclic example), and
+[`examples/reconciliation_demo/`](examples/reconciliation_demo/) for
+the reconciliation walkthrough above, including the exact scope
+boundary of what v1 does and doesn't claim.
 
 ---
 
@@ -276,6 +307,29 @@ Generated Artifacts (SQL DDL, transformation SELECT)
     exactly as it was before)
 ```
 
+A fifth flow compares two independently-defined datasets meant to
+represent the same logical output — e.g. an old system's export and
+its replacement's:
+
+```text
+Old Metadata + Data   New Metadata + Data
+        |                    |
+        +--------+  +--------+
+                 |  |
+                 v  v
+         structifact reconcile
+          (+ old<->new field
+             mapping)
+                 |
+                 v
+        Reconciliation Report
+   (row-population coverage,
+    aggregate equivalence on
+    declared measures — matched
+    rows only; not a claim of
+    full semantic equivalence)
+```
+
 The Intermediate Representation (IR) is the architectural core: every
 input format is normalized into the same `DatasetSpec` model before
 anything downstream touches it, so adapters and generators can evolve
@@ -346,9 +400,19 @@ reasoning behind these choices.
   sources-joins SELECT, written into a real typed target table) — all
   atomic, so a failure partway through leaves the database exactly as
   it was before the invocation, not half-populated
-* A seven-command CLI (`validate`, `generate`, `discover`,
-  `validate-data`, `deps`, `impact`, `execute`)
-* Continuous integration running the full test suite (~470 tests,
+* **`structifact reconcile`** (v1, new) — given two datasets meant to
+  represent the same logical output (e.g. a legacy system's export
+  and its replacement's), reports row-population coverage (rows only
+  in one side, by key) and aggregate equivalence on declared measures,
+  restricted to the matched population — via an explicit old<->new
+  field mapping, since legacy and modern column naming essentially
+  never match automatically. Does not compare individual field values
+  row by row; see
+  [`examples/reconciliation_demo/`](examples/reconciliation_demo/)
+  for the exact v1 scope boundary
+* An eight-command CLI (`validate`, `generate`, `discover`,
+  `validate-data`, `reconcile`, `deps`, `impact`, `execute`)
+* Continuous integration running the full test suite (~490 tests,
   including real PostgreSQL integration tests via a service
   container) on every push, across Python 3.11 and 3.12
 
@@ -380,8 +444,10 @@ Structifact/
 │   │                        meant to run)
 │   ├── data_quality_demo/  validate-data example, incl. a
 │   │                        foreign-key reference dataset
-│   └── dependency_demo/    deps/impact example, incl. a deliberately
-│                            cyclic variant
+│   ├── dependency_demo/    deps/impact example, incl. a deliberately
+│   │                        cyclic variant
+│   └── reconciliation_demo/ reconcile example (old/new field mapping,
+│                            planted row-coverage and value diffs)
 │
 ├── structifact/
 │   ├── adapters/            input format integrations
@@ -394,12 +460,13 @@ Structifact/
 │   │                         SourceRef / JoinSpec / DedupRule
 │   ├── validation.py         metadata well-formedness
 │   ├── quality.py            real-data checking (validate-data)
+│   ├── reconciliation.py     cross-dataset reconciliation (reconcile)
 │   ├── dependencies.py       dependency resolution (deps / impact)
 │   ├── discover.py           schema/requirements inference
 │   ├── llm.py                 provider-agnostic AI client
 │   └── cli.py
 │
-├── tests/                  automated test suite (~470 tests)
+├── tests/                  automated test suite (~490 tests)
 ├── docs/                   architecture and design documentation
 ├── AGENTS.md                working rules for AI assistants in this repo
 └── pyproject.toml
@@ -428,12 +495,19 @@ implemented, tested, and covered by CI, alongside a complete
 real-data quality framework (required fields through cross-dataset
 foreign-key checking), cross-dataset dependency resolution and impact
 analysis (execution ordering with cycle detection, and the reverse
-question), AI-assisted schema/requirements discovery, and real
-execution against DuckDB and PostgreSQL — DDL creation, atomic
-multi-step writes, retry on a real transient database error, and
-materializing a dataset's transformation model into a real table. See
+question), AI-assisted schema/requirements discovery, real execution
+against DuckDB and PostgreSQL — DDL creation, atomic multi-step
+writes, retry on a real transient database error, and materializing a
+dataset's transformation model into a real table — and a first,
+explicitly-scoped-v1 slice of cross-dataset reconciliation (row-
+population coverage and matched-population aggregate equivalence
+between two datasets meant to represent the same logical output,
+triggered by a real legacy-ETL-to-warehouse migration problem — see
+`docs/FUTURE_WORK.md`'s "Legacy Migration and Reconciliation"). See
 `docs/ROADMAP.md` for what's next; `docs/FUTURE_WORK.md`'s "Before a
 1.0 Release" section tracks what's deliberately still open (a
-Snowflake executor, connection pooling).
+Snowflake executor, connection pooling), and reconciliation v2
+(column-level comparison on matched rows) remains a deliberately
+deferred next slice, not yet scoped.
 
 > Define structure once. Generate reliable systems from it.

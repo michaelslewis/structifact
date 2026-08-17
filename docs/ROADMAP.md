@@ -198,6 +198,24 @@ They are now implemented, tested, and covered by CI:
   pooling/retry handling — see `FUTURE_WORK.md`'s "Before a 1.0
   Release" section. See the dedicated Phase 8 section below for full
   detail.
+* **Reconciliation, v1** (New Direction — Phase 12) — a new
+  `structifact/reconciliation.py` subsystem, following the same
+  precedent as `quality.py`/`dependencies.py`, given two datasets
+  meant to represent the same logical output (e.g. an old system's
+  export and its replacement's), reports row-population coverage
+  (`missing_in_new`/`missing_in_old`, by key, via a required explicit
+  old<->new field mapping) and aggregate equivalence on declared
+  measures, restricted to the matched population specifically (not
+  the full old/new populations — see the dedicated Phase 12 section
+  below for why that distinction matters). New `structifact reconcile`
+  command. Triggered by a real day-job problem (retiring a legacy
+  ETL/BI tool for a Snowflake warehouse, where proving the new
+  source's output matches the old one is the actual bottleneck) but
+  built and validated entirely against a synthetic example
+  (`examples/reconciliation_demo/`) — see
+  `docs/FUTURE_WORK.md`'s "Legacy Migration and Reconciliation" and
+  `docs/DECISION_HISTORY.md` for the full account, including a real
+  correction made to the paper contract before any code was written.
 * **Documentation refresh** — this document and its siblings
   (`CURRENT_STATE.md`, `CURRENT_IMPLEMENTATION.md`,
   `PROJECT_CONTEXT.md`, `EXAMPLES.md`, `DECISION_HISTORY.md`,
@@ -873,6 +891,83 @@ not yet started.
 project initialization, improved CLI workflows, configuration
 management, IDE support, metadata templates, richer examples,
 contributor documentation.
+
+---
+
+# Phase 12 — Legacy Migration and Reconciliation (New Direction)
+
+## Goal
+
+Directly target the actual bottleneck in retiring a legacy ETL/BI
+tool for a modern warehouse: not writing the replacement SQL, but
+*proving* the new source produces results the business already
+trusts. See `docs/FUTURE_WORK.md`'s "Legacy Migration and
+Reconciliation" for the full motivation and the two further fronts
+(Snowflake executor, Tableau workbook introspection) this direction
+also names, both still unstarted.
+
+## Status
+
+**v1 (reconciliation) done.** `structifact/reconciliation.py` — given
+two independently-defined datasets meant to represent the same
+logical output, checks row-population coverage (which keys exist on
+one side but not the other) and aggregate equivalence on declared
+measures, restricted to the matched population. An explicit old<->new
+field mapping (`ReconciliationMapping`, its own small YAML shape, not
+a `DatasetSpec`) is required from the start, not deferred — legacy
+and modern column naming essentially never match automatically, and
+the real motivating problem has exactly this shape. New CLI command:
+`structifact reconcile old_schema.yml:old_data.csv
+new_schema.yml:new_data.csv --mapping reconciliation.yml`.
+
+The matched-population-only aggregate design was a real correction
+made to the paper contract before any code was written, not the
+original plan: summing the full old/new populations would report a
+diff dominated by legitimately added/dropped rows (already reported,
+exactly, by row-population coverage) and would bury a genuine
+value discrepancy on a matched row inside that larger number.
+Restricting the aggregate to matched rows isolates "do the numbers
+agree for the records both systems agree exist" — the diagnostically
+useful question, and the one that actually motivated this feature.
+See `docs/DECISION_HISTORY.md` for the full scoping account.
+
+v1 does **not** claim semantic equivalence between the two datasets —
+it establishes row-population coverage, key correspondence, and
+matched-population aggregate equivalence on declared measures, not
+that every individual field value is identical. Verified against a
+synthetic acceptance fixture (`examples/reconciliation_demo/`) with
+the exact expected report output agreed before implementation, same
+discipline as every other IR-adjacent addition in this project — and
+against the real CLI, not just the unit test suite.
+
+**Explicitly treated as an experiment, not an automatically-continuing
+subsystem.** Per this project's own stated discipline (see
+`DECISION_HISTORY.md`'s "1.0 Readiness Audit" and "Real-World
+Validation" entries), the next step is not v2 by default — it's
+running v1 against a real, sanitized legacy-migration example (never
+real employer data or systems — see the IP-separation discipline in
+this project's persistent memory) to see whether it actually catches
+the kinds of mistakes that motivated building it at all. That
+experiment's outcome, not the roadmap, should decide whether
+reconciliation deserves a v2, a redesign, or nothing further.
+
+Deliberately, explicitly still open:
+
+* **v2 — column-level comparison on matched rows.** Would tell you
+  *which* field disagrees on a matched row (e.g. `1005`'s amount
+  changed from 60.00 to 65.00), rather than only inferring a
+  discrepancy exists via an aggregate mismatch. Not yet scoped —
+  should wait for the real-migration experiment above, per this
+  project's real-example-first discipline.
+* **Tolerance/normalization policy** — numeric epsilon, date-format
+  equivalence, case-insensitive string comparison. Real migrations
+  hit this constantly, but no real example has yet forced a specific
+  policy choice; baking one in now would be designing from
+  imagination, not evidence, the same trap `source_filter` avoided by
+  waiting for a real dataset to prove the ambiguity risk.
+* **Snowflake Executor** and **Tableau workbook introspection** — the
+  other two fronts of this New Direction, both still entirely
+  unstarted; see `docs/FUTURE_WORK.md`.
 
 ---
 
