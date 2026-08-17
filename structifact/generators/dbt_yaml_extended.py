@@ -24,11 +24,12 @@ class DBTExtendedYAMLGenerator(Generator):
     (not one), which confirmed the same shape recurs — see
     DECISION_HISTORY.md.
 
-    Column-level output (`role`, `source_field`) is identical to the
-    plain `DBTYAMLGenerator` — this generator only adds dataset-level
-    keys on top, duplicating the small per-column loop (sharing
-    `_source_field`) rather than wrapping/calling the plain generator,
-    the same relationship `catalog_extended.py` has to `catalog.py`.
+    Column-level output (`role`, `source_field`, `comment`) is
+    identical to the plain `DBTYAMLGenerator` — this generator only
+    adds dataset-level keys on top, duplicating the small per-column
+    loop (sharing `_source_field`) rather than wrapping/calling the
+    plain generator, the same relationship `catalog_extended.py` has
+    to `catalog.py`.
 
     `dbt_tags` holds only the dataset's *extra* tags — the dataset's
     own name is always appended as the final tag automatically (both
@@ -52,6 +53,8 @@ class DBTExtendedYAMLGenerator(Generator):
             if f.role:
                 meta["role"] = f.role
             meta["source_field"] = _source_field(f)
+            if f.comment:
+                meta["comment"] = f.comment
 
             columns.append({
                 "name": f.name,

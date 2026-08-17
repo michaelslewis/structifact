@@ -77,16 +77,39 @@ def test_extended_catalog_changed_by_blank_when_unspecified(monkeypatch):
     assert all(r["changed_by"] == "" for r in rows)
 
 
-def test_extended_catalog_pii_and_comments_always_blank():
-    # Structifact's IR has no pii/comments concept — must never be
-    # fabricated, always blank
+def test_extended_catalog_pii_always_blank():
+    # Structifact's IR has no pii concept — must never be fabricated,
+    # always blank
     dataset = load_yaml("tests/fixtures/customers_with_roles.yml")
     gen = ExtendedCatalogCSVGenerator(now_fn=_fixed_now)
 
     artifact = gen.generate(dataset)
     rows = list(csv.DictReader(io.StringIO(artifact.content)))
 
-    assert all(r["pii"] == "" and r["comments"] == "" for r in rows)
+    assert all(r["pii"] == "" for r in rows)
+
+
+def test_extended_catalog_comments_blank_when_field_comment_unset():
+    dataset = load_yaml("tests/fixtures/customers_with_roles.yml")
+    gen = ExtendedCatalogCSVGenerator(now_fn=_fixed_now)
+
+    artifact = gen.generate(dataset)
+    rows = list(csv.DictReader(io.StringIO(artifact.content)))
+
+    assert all(r["comments"] == "" for r in rows)
+
+
+def test_extended_catalog_comments_populated_from_field_comment():
+    dataset = DatasetSpec(
+        name="customers",
+        fields=[FieldSpec(name="customer_id", type="string", comment="Cust ID")],
+    )
+    gen = ExtendedCatalogCSVGenerator(now_fn=_fixed_now)
+
+    artifact = gen.generate(dataset)
+    rows = list(csv.DictReader(io.StringIO(artifact.content)))
+
+    assert rows[0]["comments"] == "Cust ID"
 
 
 def test_extended_catalog_changed_on_format():

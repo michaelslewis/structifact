@@ -154,6 +154,18 @@ def test_column_level_output_matches_plain_dbt_generator():
     assert extended["models"][0]["columns"] == plain["models"][0]["columns"]
 
 
+def test_comment_emitted_when_set():
+    dataset = _dataset(
+        fields=[
+            FieldSpec(name="struct_cepc_mandt", type="string", comment="Client"),
+        ],
+    )
+
+    content = DBTExtendedYAMLGenerator().generate(dataset).content
+
+    assert "comment: Client" in content
+
+
 def test_exposures_key_always_present():
     content = DBTExtendedYAMLGenerator().generate(_dataset()).content
     parsed = pyyaml.safe_load(content)

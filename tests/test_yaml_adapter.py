@@ -280,6 +280,33 @@ def test_load_yaml_sources_joins_absent_default_to_empty_lists(tmp_path):
     assert dataset.joins == []
 
 
+def test_load_yaml_parses_field_comment(tmp_path):
+    yaml_file = tmp_path / "customers.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: customers
+
+fields:
+  - name: customer_id
+    type: integer
+    description: Unique customer identifier
+    comment: Cust ID
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.fields[0].description == "Unique customer identifier"
+    assert dataset.fields[0].comment == "Cust ID"
+
+
+def test_load_yaml_field_comment_defaults_to_none(tmp_path):
+    dataset = load_yaml("examples/customers.yml")
+
+    assert dataset.fields[0].comment is None
+
+
 def test_load_yaml_parses_aggregate_rule(tmp_path):
     yaml_file = tmp_path / "customer_credit.yml"
     yaml_file.write_text(

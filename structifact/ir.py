@@ -21,6 +21,18 @@ class FieldSpec:
     description: Optional[str] = None
     label: Optional[str] = None
 
+    # Found via real-world use, confirmed by a second independent real
+    # example before being added (not from one file alone, matching
+    # the same discipline dbt_extended followed) -- a second,
+    # genuinely distinct text label some downstream dbt/catalog
+    # tooling expects alongside `description`, not derived from it.
+    # The two real examples disagreed on which was the "fuller"
+    # label and which was the "short" one, confirming they're two
+    # independently-authored values, not one mechanically derived
+    # from the other. Omitted entirely when unset -- never
+    # fabricated, matching every other optional text attribute here.
+    comment: Optional[str] = None
+
     role: Optional[str] = None  # dimension | measure
     length: Optional[int] = None
     precision: Optional[int] = None

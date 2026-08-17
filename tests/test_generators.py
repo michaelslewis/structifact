@@ -127,6 +127,30 @@ def test_dbt_yaml_generator_omits_role_when_unset():
     assert "role:" not in content
 
 
+def test_dbt_yaml_generator_emits_comment_when_set():
+    table = DatasetSpec(
+        name="customers",
+        fields=[
+            FieldSpec(name="customer_id", type="string", comment="Cust ID"),
+        ],
+    )
+
+    content = DBTYAMLGenerator().generate(table).content
+
+    assert "comment: Cust ID" in content
+
+
+def test_dbt_yaml_generator_omits_comment_when_unset():
+    table = DatasetSpec(
+        name="customers",
+        fields=[FieldSpec(name="customer_id", type="string")],
+    )
+
+    content = DBTYAMLGenerator().generate(table).content
+
+    assert "comment:" not in content
+
+
 def test_dbt_yaml_generator_source_field_is_field_name_with_dots_for_underscores():
     """
     Confirmed by two independent real reference files, identically:

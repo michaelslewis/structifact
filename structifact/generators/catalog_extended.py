@@ -20,13 +20,17 @@ class ExtendedCatalogCSVGenerator(Generator):
     needs this exact shape, so it's opt-in via `structifact generate
     -g catalog_extended`, not assumed.
 
-    Structifact's IR has no concept of "pii" or a separate "comments"
-    field distinct from description, so those columns are always
-    blank rather than guessed. `changed_by` is blank unless supplied
-    (constructor argument, or the STRUCTIFACT_CHANGED_BY environment
-    variable) — never fabricated. `changed_on` is the one column that
-    can be honestly populated automatically, since it's simply the
-    real moment this file was generated.
+    `comments` is populated from `FieldSpec.comment` (found via
+    real-world use, confirmed by a second independent real example —
+    see DECISION_HISTORY.md) — a second, independently-authored text
+    label some downstream tooling expects alongside `description`,
+    not derived from it. Structifact's IR still has no concept of
+    "pii", so that column stays blank rather than guessed.
+    `changed_by` is blank unless supplied (constructor argument, or
+    the STRUCTIFACT_CHANGED_BY environment variable) — never
+    fabricated. `changed_on` is the one column that can be honestly
+    populated automatically, since it's simply the real moment this
+    file was generated.
     """
 
     name = "catalog_extended"
@@ -58,7 +62,7 @@ class ExtendedCatalogCSVGenerator(Generator):
                 f.type,
                 _length_display(f),
                 "",  # pii — not tracked by the IR, never guessed
-                "",  # comments — not tracked by the IR, never guessed
+                f.comment or "",
                 self.changed_by,
                 changed_on,
             ])
