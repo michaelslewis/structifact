@@ -208,6 +208,13 @@ They are now implemented, tested, and covered by CI:
   round, not caught by that round's actual reference-comparison
   discipline, since none of the three real examples came with
   hand-built DDL to diff against — see `DECISION_HISTORY.md`.
+* **`FieldSpec.comment`** — a second, genuinely distinct text label
+  some downstream dbt/catalog tooling expects per field, alongside
+  `description` (not derived from it — confirmed by two independent
+  real reference files that disagree on which one is the "fuller"
+  label). Emitted by both dbt generators (`meta.comment`) and, for
+  the first time, `ExtendedCatalogCSVGenerator`'s `comments` column
+  — previously always blank since the IR had no source for it.
 * **`AggregateRule`** — `SourceRef` gained a second, mutually
   exclusive alternative to `DedupRule` (`group_by` + `aggregates`,
   rendered as a `GROUP BY` CTE pre-aggregating a joined source before

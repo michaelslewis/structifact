@@ -493,6 +493,26 @@ This reframes the finding materially: it isn't "the AI drops these six specific 
 
 ---
 
+# Decision: `FieldSpec.comment` — Closing a Gap `catalog_extended` Had Since It Was First Built
+
+## What Happened
+
+Scoping a fourth real example (`deliveries`, a materially larger and structurally different ticket — a delivery-header/item dataset assembled from four joined SAP tables, its requirements document containing a later-added section that overrides specific fields' descriptions and adds comments while leaving their earlier-declared role/type/length untouched) surfaced that its reference catalog CSV uses a non-blank `comments` column throughout. That prompted checking `customer_credit`'s reference file too, not just assuming it was `deliveries`-specific: 42 of its 50 fields also carry a `comment` value in `meta`, distinct from `description` — a real attribute this project had already generated output for (twice) without ever comparing against.
+
+This had gone completely undetected through the third real example's own "full match" claim (see the correction appended to that entry above) for a concrete, explainable reason: `customer_credit`'s 42 comment-bearing fields are *all* in the "General"/customer-master section that example deliberately excluded from its hand-model (out of scope, belonging to a separate `customer_master_general` model never provided). The gap wasn't hiding — the fields that would have exposed it were never modeled in the first place.
+
+## What Was Done
+
+Added `FieldSpec.comment: Optional[str] = None` — an intrinsic field property, same category as `description`, not a relationship (see "Keep FieldSpec Focused on Intrinsic Field Properties" above). Wired into `yaml.py` from the start, learning from the repeated lesson elsewhere in this document about IR fields that exist but are never actually parsed. Emitted by both `DBTYAMLGenerator` and `DBTExtendedYAMLGenerator` in `meta.comment`, alongside `role`/`source_field`, only when set. `ExtendedCatalogCSVGenerator`'s `comments` column — always blank since that generator was first built, documented at the time as "Structifact's IR has no pii/comments concept" — now has a real source for one of those two; `pii` remains blank, since no real example has yet given the IR anything to put there.
+
+Verified against a real reference field (`struct_kna1_katr1` from the `customer_credit` ticket, description "Sales Forecast Group (CM)", comment "Sales Forecast Group") before being considered done, not just the synthetic test suite — both generators reproduced the exact real values.
+
+## Why This Is Worth Recording
+
+Two things, not one. First: this is the same second-example discipline `dbt_extended` followed, now demonstrated a second time on a genuinely different attribute — one real file is evidence a concept might matter; a second, independently-authored file confirming the same shape (and, here, actively disagreeing with the first about which value is the "short" one and which is the "full" one) is what actually justifies adding IR surface for it. Second, and more uncomfortable: a real, user-visible gap sat in two already-shipped generators for two full real-world-validation rounds, undetected, because the specific real data that would have exposed it was — for an entirely different, well-reasoned reason — never modeled. "Verify against something real" only closes the gap it's actually pointed at; it doesn't prove there's nothing else missing, the same lesson the second real example's `source_field` correction already recorded from a different angle. The fix here isn't procedural (there's no missed step to add to a checklist) — it's a reminder that a clean comparison against real data is only as complete as the real data's own coverage, not a substitute for it.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
