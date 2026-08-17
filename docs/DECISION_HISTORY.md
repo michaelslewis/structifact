@@ -513,6 +513,22 @@ Two things, not one. First: this is the same second-example discipline `dbt_exte
 
 ---
 
+# Decision: A Fourth Real Example Finds a Scale Limit, Not a Bug — Logged, Not Patched Mid-Round
+
+## What Happened
+
+Scoping a fourth real example (`deliveries`, a materially larger and structurally different ticket than any of the first three — roughly 500 fields, four joined SAP tables, and a requirements document with a later-added section overriding specific fields' description/comment while leaving their earlier-declared role/type/length untouched) hit a real, mechanical failure before extraction could even be evaluated: `discover --ai`'s response was cut off entirely by `AnthropicLLMClient`'s `_APPROX_OUTPUT_TOKEN_CAP`. That constant already carried its own documented history of being raised twice before (500 → 4000 → 8000) after real truncations — but on documents an order of magnitude smaller than this one. A rough estimate from this document's actual prompt size (~57,000 input tokens) put the output genuinely needed at roughly 27,000 tokens.
+
+Rather than assume a bigger constant would fix it, a diagnostic test was run first: the cap was raised to 32,000 (in-memory only, at the user's explicit request to test but never commit the change) and the same request re-attempted. It failed before any network call was made — the Anthropic SDK itself raises `ValueError: Streaming is required for operations that may take longer than 10 minutes`, since `AnthropicLLMClient.complete()` only ever makes a plain, non-streaming request. No cost was incurred; the diagnostic edit was reverted immediately after, confirmed via `git diff` showing no residual change.
+
+## Why This Is Worth Recording
+
+This is a different *kind* of finding than anything else in this document's "Real-World Validation" entries so far — not a bug with one fix, but a genuine scale boundary: the current `AnthropicLLMClient` implementation was never designed to handle a response this large, and the fix (real streaming support, likely with progress feedback for a long-running extraction) is materially bigger than raising a number, the same shape of realization `AggregateRule`'s scoping already produced once for a different subsystem. Consistent with that precedent, and with this project's standing discipline against designing a fix mid-round under the momentum of the round that found it, this was deliberately left uninvestigated further — logged in `FUTURE_WORK.md` as its own future paper-contract candidate, not scoped or implemented here.
+
+Also worth recording as its own small data point: asked to test something the user explicitly did not want kept, the right sequence was diagnose → test empirically → revert immediately → report the finding, not diagnose-and-assume, and not silently leave a "temporary" change in the tree pending a later cleanup that might not happen. The revert was verified (`git diff` showing the file byte-for-byte unchanged), not just assumed to have worked.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
