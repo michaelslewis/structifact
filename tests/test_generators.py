@@ -52,6 +52,43 @@ def test_sql_generator_decimal_uses_precision_and_scale():
     assert "amount DECIMAL(13,2)" in artifact.content
 
 
+def test_sql_generator_string_uses_length():
+    table = DatasetSpec(
+        name="customers",
+        fields=[
+            FieldSpec(
+                name="mandt",
+                type="string",
+                length=3,
+            ),
+        ]
+    )
+
+    artifact = SQLGenerator().generate(table)
+
+    assert "mandt VARCHAR(3)" in artifact.content
+
+
+def test_sql_generator_string_without_length_stays_text():
+    # No real-world reference has ever motivated an unbounded-string
+    # default other than TEXT -- only presence of a declared length
+    # changes the emitted type, matching decimal's own
+    # precision/scale-gated behavior above.
+    table = DatasetSpec(
+        name="customers",
+        fields=[
+            FieldSpec(
+                name="notes",
+                type="string",
+            ),
+        ]
+    )
+
+    artifact = SQLGenerator().generate(table)
+
+    assert "notes TEXT" in artifact.content
+
+
 def test_dbt_yaml_generator():
     table = create_customer_table()
 

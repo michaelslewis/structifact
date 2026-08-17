@@ -16,6 +16,9 @@ def _sql_type(f) -> str:
     if f.type == "decimal" and f.precision is not None and f.scale is not None:
         return f"DECIMAL({f.precision},{f.scale})"
 
+    if f.type == "string" and f.length is not None:
+        return f"VARCHAR({f.length})"
+
     return SQL_TYPE_MAP.get(f.type, "TEXT")
 
 
