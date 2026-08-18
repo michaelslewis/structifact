@@ -377,19 +377,23 @@ def build_requirements_prompt(text: str) -> str:
         "or reasonably inferable from the text below.",
         "",
         "Respond with ONLY valid YAML matching this shape — no prose "
-        "before or after it, no markdown code fences:",
+        "before or after it, no markdown code fences. Double-quote "
+        "EVERY string value, with no exceptions, even ones that look "
+        "simple — a real field description or note can contain a "
+        "colon (e.g. 'Credit Management: Risk Category'), and an "
+        "unquoted colon inside a value breaks YAML parsing:",
         "",
-        "dataset: <inferred dataset name>",
+        'dataset: "<inferred dataset name>"',
         "fields:",
-        "  - name: <string>",
-        "    description: <string>",
+        '  - name: "<string>"',
+        '    description: "<string>"',
         "    role: dimension | measure",
-        "    type: <string, optional>",
+        '    type: "<string, optional>"',
         "    computed: <true, only if applicable>",
-        "    expression: <string, only if computed is true>",
-        "    note: <string, optional>",
+        '    expression: "<string, only if computed is true>"',
+        '    note: "<string, optional>"',
         "unresolved_notes:",
-        "  - <string>",
+        '  - "<string>"',
         "",
         "--- REQUIREMENTS DOCUMENT ---",
         "",

@@ -177,6 +177,17 @@ def test_prompt_instructs_yaml_only_response():
     assert "unresolved_notes" in prompt
 
 
+def test_prompt_instructs_double_quoting_every_string():
+    # Found via real-world use (a ~500-field document): an unquoted
+    # colon inside a field description (e.g. "Credit Management: Risk
+    # Category") breaks YAML parsing, since a bare colon starts a new
+    # mapping key. Never surfaced in earlier, smaller real examples --
+    # none of their descriptions happened to contain a literal colon.
+    prompt = build_requirements_prompt(PROSE_DOC)
+    assert "Double-quote" in prompt
+    assert "colon" in prompt
+
+
 # ---------------------------------------------------------------------
 # parse_requirements_draft — across all three shapes
 # ---------------------------------------------------------------------
@@ -193,6 +204,25 @@ def test_parse_handles_all_three_shapes(response, expected_dataset, expected_fie
     parsed = parse_requirements_draft(response)
     assert parsed["dataset"] == expected_dataset
     assert len(parsed["fields"]) == expected_field_count
+
+
+def test_parse_handles_quoted_value_containing_a_colon():
+    # Regression for the real ~500-field-document failure: a properly
+    # double-quoted description containing a colon must parse fine --
+    # it's specifically an UNQUOTED colon that breaks YAML.
+    response = (
+        'dataset: "deliveries"\n'
+        "fields:\n"
+        '  - name: "struct_likp_stlan"\n'
+        '    description: "Credit Management: Risk Category"\n'
+        "    role: dimension\n"
+        '    type: "varchar(2)"\n'
+        "unresolved_notes: []\n"
+    )
+
+    parsed = parse_requirements_draft(response)
+
+    assert parsed["fields"][0]["description"] == "Credit Management: Risk Category"
 
 
 def test_parse_flags_computed_field_with_raw_logic():

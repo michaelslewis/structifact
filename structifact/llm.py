@@ -114,14 +114,25 @@ class AnthropicLLMClient(LLMClient):
     # 500 truncated a real response for a requirements-document
     # extraction with ~20 fields; 4000 ALSO truncated one on a
     # different run of the same document, purely from normal
-    # run-to-run output-length variance — a fixed cap can't fully
-    # eliminate this risk, only push the odds down. Raised again with
-    # real headroom; the marginal cost of an unused higher ceiling
-    # remains negligible (well under a cent at Haiku's output
-    # pricing) next to the cost of another truncated, unusable
-    # response. complete() also now surfaces stop_reason ==
-    # "max_tokens" explicitly if this cap is ever hit again.
-    _APPROX_OUTPUT_TOKEN_CAP = 8000
+    # run-to-run output-length variance; 8000 in turn was nowhere
+    # close for a real ~500-field document (a rough estimate from
+    # that document's own prompt size put the actual need around
+    # 27,000 tokens) — found via real-world use, not a hypothetical.
+    # Raised again with real headroom (confirmed the API actually
+    # accepts this value for this model before hardcoding it); the
+    # marginal cost of an unused higher ceiling remains negligible
+    # next to the cost of another truncated, unusable response.
+    # complete() also now surfaces stop_reason == "max_tokens"
+    # explicitly if this cap is ever hit again.
+    #
+    # A cap this size is why complete() uses the streaming API rather
+    # than a single blocking request: the Anthropic SDK itself refuses
+    # a non-streaming request whose max_tokens implies it could run
+    # past 10 minutes, which a real ~500-field document's extraction
+    # genuinely can (confirmed directly — a non-streaming attempt at a
+    # smaller cap than this one was rejected client-side before any
+    # request was even sent). Streaming has no such restriction.
+    _APPROX_OUTPUT_TOKEN_CAP = 64000
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -159,11 +170,29 @@ class AnthropicLLMClient(LLMClient):
 
         client = anthropic.Anthropic(api_key=self.api_key)
 
-        response = client.messages.create(
+        # Streaming, not a single blocking create() call — required by
+        # the SDK itself once max_tokens is large enough that a
+        # response could plausibly run past 10 minutes (a real
+        # ~500-field requirements document does), and also lets a
+        # long-running real extraction show visible progress instead
+        # of sitting silent for however long it takes.
+        chars_since_dot = 0
+        with client.messages.stream(
             model=self.MODEL,
             max_tokens=self._APPROX_OUTPUT_TOKEN_CAP,
             messages=[{"role": "user", "content": prompt}],
-        )
+        ) as stream:
+            for chunk in stream.text_stream:
+                # One dot per ~500 received characters, not per chunk
+                # (chunks are typically a few tokens each -- printing
+                # one dot per chunk on a large response would just be
+                # noise, not useful progress feedback).
+                chars_since_dot += len(chunk)
+                while chars_since_dot >= 500:
+                    print(".", end="", flush=True)
+                    chars_since_dot -= 500
+            response = stream.get_final_message()
+        print()
 
         if response.stop_reason == "max_tokens":
             # Authoritative, not a guess: the API itself is telling us
