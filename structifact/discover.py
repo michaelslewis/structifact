@@ -340,7 +340,17 @@ def build_requirements_prompt(text: str) -> str:
         "otherwise write a concise, reasonable description from the "
         "field name and surrounding context. Never invent business "
         "meaning that isn't supported by the text.",
-        "  - role: dimension or measure",
+        "  - role: dimension or measure. IMPORTANT: if a candidate "
+        "column has NO role marker while other real fields in the "
+        "same table/section clearly do (e.g. a dimension/measure "
+        "column that's blank for this row but filled in for "
+        "neighboring rows), do NOT guess a role and include it "
+        "anyway — that blank is very likely a real, deliberate signal "
+        "that this column is a join key, a filter-only column, or a "
+        "raw input to some other field's aggregation, not an output "
+        "field at all. Leave it out of fields entirely and mention it "
+        "in unresolved_notes instead, rather than defaulting to "
+        "including everything you can find a name for.",
         "  - comment: optional. Only include this if the document "
         "genuinely gives a SECOND, separate short label for the field "
         "distinct from its description — e.g. a 'short name', "
