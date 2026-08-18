@@ -177,6 +177,26 @@ def test_prompt_instructs_yaml_only_response():
     assert "unresolved_notes" in prompt
 
 
+def test_prompt_instructs_comment_extraction():
+    prompt = build_requirements_prompt(PROSE_DOC)
+    assert "comment" in prompt
+    assert "Never duplicate the description" in prompt
+
+
+def test_prompt_instructs_applying_later_override_sections():
+    # Found via a real ~500-field document: a later section revising
+    # specific already-defined fields' description/comment was being
+    # ignored entirely, with the original main-section values used
+    # instead. The document's own header text isn't hardcoded here --
+    # the instruction describes the general pattern (a later section
+    # revising earlier fields, matched by name correspondence even
+    # across a differing prefix) so it isn't overfit to one document's
+    # exact wording.
+    prompt = build_requirements_prompt(PROSE_DOC)
+    assert "REPLACE that field's description" in prompt
+    assert "not a new set of fields" in prompt
+
+
 def test_prompt_instructs_double_quoting_every_string():
     # Found via real-world use (a ~500-field document): an unquoted
     # colon inside a field description (e.g. "Credit Management: Risk
@@ -284,6 +304,29 @@ def test_render_marks_computed_field_and_preserves_logic():
     rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
     assert "computed: true" in rendered
     assert "RET" in rendered
+
+
+def test_render_includes_comment_when_present():
+    parsed = parse_requirements_draft(
+        'dataset: "orders"\n'
+        "fields:\n"
+        '  - name: "struct_likp_stafo"\n'
+        '    description: "Statistics Update Grp (DN Hdr)"\n'
+        "    role: dimension\n"
+        '    comment: "Update Group for Statistics Update"\n'
+        '    type: "varchar(6)"\n'
+        "unresolved_notes: []\n"
+    )
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert 'comment: "Update Group for Statistics Update"' in rendered
+
+
+def test_render_omits_comment_when_absent():
+    parsed = parse_requirements_draft(GRID_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert "comment:" not in rendered
 
 
 def test_render_includes_unresolved_notes():

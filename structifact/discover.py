@@ -341,6 +341,13 @@ def build_requirements_prompt(text: str) -> str:
         "field name and surrounding context. Never invent business "
         "meaning that isn't supported by the text.",
         "  - role: dimension or measure",
+        "  - comment: optional. Only include this if the document "
+        "genuinely gives a SECOND, separate short label for the field "
+        "distinct from its description — e.g. a 'short name', "
+        "'Tableau name', or 'comments' column that exists alongside a "
+        "fuller description column. Never duplicate the description "
+        "into this field just to fill it in; omit it entirely when "
+        "the document only gives one label per field.",
         "  - type: e.g. varchar(10), decimal(9,2), date, integer — this "
         "MUST use this exact key name 'type' (not 'datatype'), "
         "matching Structifact's real metadata schema, so a "
@@ -373,6 +380,23 @@ def build_requirements_prompt(text: str) -> str:
         "not drop information: if it doesn't fit under a field, it "
         "belongs in unresolved_notes instead.",
         "",
+        "IMPORTANT — some documents define every field once, then "
+        "later contain a SEPARATE section that revises specific "
+        "already-defined fields' description and/or comment (for "
+        "example a section titled something like 'updated field "
+        "names/descriptions', appearing well after the main field "
+        "list). If you find such a section: it is not a new set of "
+        "fields — match each entry back to the field it revises "
+        "(names may use a different prefix or slightly different "
+        "spelling than the main definition; match by the part of the "
+        "name that clearly corresponds, e.g. shared suffix, not exact "
+        "string equality), and REPLACE that field's description "
+        "and/or comment with the revised value. Keep everything else "
+        "about that field (role, type, computed, expression) from its "
+        "original definition. Output exactly one entry per field, "
+        "never a duplicate for the same field with its old values "
+        "still present alongside the revision.",
+        "",
         "Do not invent fields, values, or logic that are not present "
         "or reasonably inferable from the text below.",
         "",
@@ -388,6 +412,7 @@ def build_requirements_prompt(text: str) -> str:
         '  - name: "<string>"',
         '    description: "<string>"',
         "    role: dimension | measure",
+        '    comment: "<string, optional>"',
         '    type: "<string, optional>"',
         "    computed: <true, only if applicable>",
         '    expression: "<string, only if computed is true>"',
@@ -548,6 +573,10 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         role = f.get("role")
         if role:
             lines.append(f"    role: {_yaml_str(role)}")
+
+        comment = f.get("comment")
+        if comment:
+            lines.append(f"    comment: {_yaml_str(comment)}")
 
         field_type = f.get("type")
         if not field_type:
