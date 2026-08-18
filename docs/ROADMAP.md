@@ -918,6 +918,25 @@ rule-checking `quality.py` already does), transformation suggestions
 still not built), and AI-assisted documentation beyond what
 `DocsGenerator` already renders deterministically.
 
+**Extraction reliability, an ongoing thread rather than a one-time
+milestone.** Three real prompt gaps have been found and fixed via
+real (and, once, deliberately synthetic) documents rather than
+designed in the abstract: requiring double-quoted YAML strings (an
+unquoted colon in a real field description broke parsing outright),
+extracting a `comment` field distinct from `description` (confirmed
+by two independent real reference files), and applying a later
+document section's override of an already-named field's attributes
+(found, and only partially fixed, via `deliveries`). A fourth —
+explicitly excluding a candidate field with no role marker rather
+than guessing one — was found and partially fixed using a synthetic
+document built specifically to isolate that variable (see
+`DECISION_HISTORY.md`), after real documents didn't offer a
+directly-comparable second example on demand. None of these were
+anticipated; each came from actually running the tool against
+something (real or a controlled synthetic stand-in) and checking the
+result against known-correct ground truth, not from reasoning about
+what a prompt "should" say.
+
 ## Design Requirement
 
 AI should suggest, explain, and assist. AI should not replace

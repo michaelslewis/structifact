@@ -535,6 +535,28 @@ With the mechanical path finally clear, the actual question `deliveries` was cho
 
 ---
 
+# Decision: A Synthetic Document to Isolate a Variable Real Documents Couldn't Offer On Demand
+
+## What Happened
+
+The run-to-run-instability finding (see above) had two logged paths forward: wait for a second real document shaped like `customer_credit`, or make a deliberate decision to accept it as an inherent limitation. Neither was satisfying — a matching real document wasn't available on demand, and accepting it as unfixable hadn't actually been tested against anything. Asked directly "what if you generated a doc to test against," a synthetic requirements `.xlsx` (`Rental Fleet.xlsx`, fictional data, built with `openpyxl`, never committed to the repo) was constructed to isolate the one variable actually in question: `customer_credit`'s exact structural shape — four side-by-side "folder" column-groups per row, a blank-vs-marked role column as the only signal distinguishing real output fields from join-key/raw-aggregation-input columns, with real fields sitting sparsely among mostly-blank rows within one block.
+
+This extends a pattern already established elsewhere in this project (`data_quality_demo`, `reconciliation_demo` — synthetic fixtures built specifically to test something under controlled conditions with known-correct expected output) to a new kind of question: not "does this deterministic code produce the right output," but "does this AI extraction behave reliably on this document shape." The ground truth (which 14 of 20 candidate fields should be extracted, and why) was written down and committed to the scratchpad *before* running anything — the same paper-contract-before-implementation discipline this project applies everywhere else, extended to an empirical test rather than a code change.
+
+Two independent runs were made against the identical synthetic document (matching the original `customer_credit` methodology exactly). The result was more informative than either hypothesis being tested predicted: the two runs were *nearly identical to each other* (only prose wording in `unresolved_notes` differed, not field selection) — directly contradicting a "genuine run-to-run randomness" explanation for this document. But both runs made the *same* mistake, consistently: every field with a blank role marker was included anyway, with a confidently guessed role — despite the model's own `unresolved_notes` in both runs explicitly noting things like "hours_used and idle_hours... have no explicit role... inferred as measure." The model recognized the ambiguity in its own stated reasoning and included the field anyway.
+
+## What Was Done
+
+`build_requirements_prompt()`'s role-extraction instruction was made explicit: a blank marker where sibling fields in the same section clearly have one should exclude the candidate field from `fields` entirely, not prompt a guessed role. Re-tested against the same synthetic document (not a new, unrelated one — controlling for everything except the prompt change). Real, partial improvement, confirmed rather than assumed: the model stopped guessing confident roles, and its `unresolved_notes`/`note` reasoning became more precise (even correctly distinguishing three same-named `unit_id` join-key columns across different tables from the one legitimate `unit_id` output field, by context). But the instruction to omit affected fields from `fields` entirely was only partially followed — several still appeared, role-less, rather than absent.
+
+Explicitly decided not to iterate further on prompt wording in the same round: the improvement already made is real and worth keeping, and each further wording tweak has diminishing, harder-to-predict returns without a clear new signal to design against — the same discipline that's governed every other AI-extraction finding in this document.
+
+## Why This Is Worth Recording
+
+The experiment's actual value wasn't confirming the original hypothesis — it disconfirmed the "genuine randomness" framing and replaced it with something more specific and more fixable: not instability, but an implicit convention (blank marker means exclude) that was never made explicit to the model, which happens to manifest as apparent instability on a complex real document where multiple ambiguous signals interact, but manifests as a *consistent* wrong answer on a simpler one where they don't. That's a materially different, more actionable finding than "AI is unpredictable," and it came from being willing to build a controlled instrument rather than wait indefinitely for a real document that might never arrive in exactly the needed shape — a real extension of this project's synthetic-fixture precedent, not a departure from its real-example-first discipline, since the fixture's purpose here was isolating a variable for an already-real, already-evidenced problem, not designing a new IR capability from imagination.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
