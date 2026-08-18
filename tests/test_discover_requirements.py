@@ -177,6 +177,17 @@ def test_prompt_instructs_yaml_only_response():
     assert "unresolved_notes" in prompt
 
 
+def test_prompt_instructs_excluding_fields_with_no_role_marker():
+    # Found via a synthetic document deliberately mimicking a real
+    # document's wide/sparse-grid shape: a candidate column with a
+    # blank dimension/measure marker (while sibling fields in the
+    # same section clearly have one) was consistently included with a
+    # guessed role across two separate runs, rather than treated as
+    # the join-key/raw-column exclusion signal it actually was.
+    prompt = build_requirements_prompt(PROSE_DOC)
+    assert "do NOT guess a role and include it" in prompt
+
+
 def test_prompt_instructs_comment_extraction():
     prompt = build_requirements_prompt(PROSE_DOC)
     assert "comment" in prompt
