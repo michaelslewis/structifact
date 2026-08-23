@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (~490 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (519 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -124,7 +124,7 @@ structifact/                        (repo root)
 │       ├── model.py                Phase 7: SELECT-based transformation model
 │       └── mermaid_erd.py          Phase 0a: Mermaid erDiagram (structifact.com build plan)
 │
-├── tests/                          (41 files, 471 tests)
+├── tests/                          (46 files, 519 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -303,15 +303,15 @@ Structifact still does not provide:
 * production ingestion pipelines or cloud/warehouse execution
 * orchestration
 * automated lineage generation or a documentation *site* (only per-dataset Markdown via `DocsGenerator`)
-* a GUI or hosted product (structifact.com remains unregistered-but-undeployed by design)
+* a GUI or hosted product (structifact.com remains registered-but-undeployed by design)
 * a plugin architecture (the existing adapter/generator registries are still the extension mechanism)
 * data-type validation (verifying a "decimal" column's values are actually numeric at all) — deliberately deferred; range/pattern checking in `quality.py` skips values that fail to parse rather than flagging them
 * composite (multi-column) foreign keys, joins, or dedup rules beyond what's already scoped — the IR intentionally supports only the shapes real examples have needed so far
 * cross-dataset value resolution — one dataset consuming another's computed/resolved value (e.g. an FX-rate lookup with conditional fallback); dependency *declaration* and *ordering* are done, but not this
 * column-level, per-field reconciliation between two matched rows — `reconciliation.py` v1 checks row-population coverage and matched-population aggregate equivalence on declared measures only; it does not (yet) tell you *which* field disagrees on a matched row beyond what an aggregate mismatch implies
-* real, credentialed execution against anything beyond DuckDB (Postgres, Snowflake, etc.) — the `Executor` interface is designed for it, but only DuckDB is actually implemented
-* transaction management, connection pooling, or retry logic in the execution layer — a single connect/run/close per `structifact execute` invocation only
-* executing `ModelGenerator`'s transformation SQL — only `SQLGenerator`'s schema DDL is currently executable
+* real, credentialed execution against a third engine beyond DuckDB and PostgreSQL (e.g. Snowflake) — the `Executor` interface is designed for it (both existing implementations already prove it holds for a real, networked, credentialed engine), but only those two are actually implemented
+* connection pooling or a CLI-exposed `--retry` flag in the execution layer — deliberately not built: connection pooling because no usage pattern in the codebase motivates it (exactly one `Executor` instance is ever constructed, per `structifact execute` invocation), and `--retry` because `retry_transaction()` (Phase 8C-v2) already exists and is verified against a real PostgreSQL transient failure, but no real caller with concurrent writers exists yet to wire it into the CLI
+* a standalone read-only preview of `ModelGenerator`'s transformation SQL — `generate -g model` already shows the generated SQL text, and `execute --materialize` (Phase 8D v1–v4) already runs that same SQL against a real database, atomically, with persisted results verified on both engines; there's no dedicated preview-only command distinct from those two existing paths
 
 These are documented, deliberate scope boundaries, not oversights — see `ROADMAP.md`/`FUTURE_WORK.md` for what's actually planned next versus what's exploratory. The execution-layer items above are also tracked explicitly in `FUTURE_WORK.md`'s "Before a 1.0 Release" checklist.
 

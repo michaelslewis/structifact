@@ -672,7 +672,7 @@ The generator registry distinguishes two sets:
 
 This split exists because Structifact cannot know what any given user's downstream tooling requires — adding a new org-specific output format means writing one more small generator and deciding which set it belongs in, not teaching the framework to guess.
 
-Registries provide extensibility points for supported components. This allows future additions without modifying the framework core. Six generators and three adapters have now been added through this pattern without needing anything more elaborate (see Plugin Architecture in `FUTURE_WORK.md` for the explicit decision to keep it this way until it proves insufficient).
+Registries provide extensibility points for supported components. This allows future additions without modifying the framework core. Every generator and adapter added so far has fit the existing registry pattern without needing anything more elaborate (see Plugin Architecture in `FUTURE_WORK.md` for the explicit decision to keep it this way until it proves insufficient).
 
 Command Line Interface
 

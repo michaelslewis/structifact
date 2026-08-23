@@ -246,7 +246,7 @@ As Structifact grows, a plugin architecture may become valuable.
 
 Possible extension points: input adapters (JSON, database schemas, API definitions, cloud storage metadata), generators (lineage, warehouse-specific models, testing frameworks), validation providers (custom business rules, external validation engines, organization-specific standards).
 
-A plugin architecture should only be introduced when existing extension patterns become insufficient. The current adapter and generator registries remain the preferred mechanism, and have proven sufficient for every extension so far — six generators and three adapters have all fit the existing registry pattern without needing anything more elaborate.
+A plugin architecture should only be introduced when existing extension patterns become insufficient. The current adapter and generator registries remain the preferred mechanism, and have proven sufficient for every extension so far — every generator and adapter added has fit the existing registry pattern without needing anything more elaborate.
 
 IDE Integration: VS Code Extension (and Potentially Other Editors)
 
