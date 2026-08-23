@@ -121,7 +121,8 @@ structifact/                        (repo root)
 │       ├── catalog.py
 │       ├── catalog_extended.py
 │       ├── docs.py
-│       └── model.py                Phase 7: SELECT-based transformation model
+│       ├── model.py                Phase 7: SELECT-based transformation model
+│       └── mermaid_erd.py          Phase 0a: Mermaid erDiagram (structifact.com build plan)
 │
 ├── tests/                          (41 files, 471 tests)
 ├── docs/                           this document and its siblings
@@ -273,7 +274,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 ## Generator Framework
 
-`structifact/generators/` — `SQLGenerator` (type-aware DDL, now including `FOREIGN KEY`/`CHECK` constraint emission), `DBTYAMLGenerator`, two catalog generators (minimal, run by default; extended, opt-in), `DocsGenerator` (Markdown, opt-in), and `ModelGenerator` (Phase 7 first step — emits a real, executable `SELECT` for a dataset's computed fields and joined-in sources, qualifying every column reference by its source; distinct from `SQLGenerator`, which only ever emits schema DDL).
+`structifact/generators/` — `SQLGenerator` (type-aware DDL, now including `FOREIGN KEY`/`CHECK` constraint emission), `DBTYAMLGenerator`, two catalog generators (minimal, run by default; extended, opt-in), `DocsGenerator` (Markdown, opt-in), `ModelGenerator` (Phase 7 first step — emits a real, executable `SELECT` for a dataset's computed fields and joined-in sources, qualifying every column reference by its source; distinct from `SQLGenerator`, which only ever emits schema DDL), and `MermaidERDGenerator` (structifact.com build plan, Phase 0a, opt-in — emits a Mermaid `erDiagram` per dataset: fields with type, `PK`/`FK` markers from `ConstraintSpec`, and one relationship line per `foreign_key` constraint, with crow's-foot cardinality read from the FK column's own `nullable`. Dataset-level `depends_on` is deliberately rendered only as a `%%` comment, never a relationship line — it carries no column mapping or cardinality, unlike a `foreign_key` constraint, and Mermaid's notation has no way to express a relationship without asserting one).
 
 `Generator.generate()` may now return `None` to mean "nothing to generate for this dataset" (e.g. `ModelGenerator` on a dataset with no computed fields and no joins) — the CLI's `generate` loop skips writing when that happens, rather than every generator being required to always produce an artifact.
 

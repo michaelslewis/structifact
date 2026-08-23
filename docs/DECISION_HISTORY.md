@@ -630,6 +630,20 @@ No fix is designed here, consistent with this project's standing discipline agai
 
 ---
 
+# Decision: A Syntactically Valid but Backwards Relationship — `MermaidERDGenerator`'s Cardinality Bug
+
+## What Happened
+
+`MermaidERDGenerator` (Phase 0a, structifact.com build plan) derives a Mermaid `erDiagram` relationship's crow's-foot cardinality from a `foreign_key` column's own `nullable` flag. The first implementation applied that flag to the wrong side of the relationship: it varied the *child*-side token (`orders }|--|| customers` vs. `orders }o--|| customers`) on the assumption that "not nullable" meant "one or many child rows." In Mermaid's crow's-foot notation, the token adjacent to an entity describes that entity's own multiplicity per one instance of the entity on the *other* end — nullable governs how many parents one child row has (the target side), not how many children one parent has (the child side, which a single `foreign_key` constraint never constrains, since it doesn't declare the column unique).
+
+The bug shipped past a test that rendered the generated diagram through `mermaid-cli` (`mmdc`) to confirm it was valid Mermaid. That check passed throughout — `}|--||` and `}o--o|` are both syntactically well-formed relationship lines, so a semantically backwards line renders without error. It was caught by the user reading the diagram's actual meaning, not by any automated check.
+
+## Why This Is Worth Recording
+
+The same "tests prove the logic, not the wiring" shape recorded elsewhere in this document, applied to a new class of check: rendering a diagram is necessary but not sufficient evidence that the diagram is *correct*, the same way a program compiling isn't evidence it's correct. Fixed in `mermaid_erd.py`, with tests now asserting the exact cardinality token on each side rather than only that the diagram renders — recorded here so "rendered without error" is never mistaken for "verified" on output whose entire value is a human reading its meaning, not a machine parsing its syntax.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:

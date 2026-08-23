@@ -116,10 +116,10 @@ Future capabilities should be added through well-defined extension points.
 
 ```text
 Adapters: YAML, CSV, Excel, (future: JSON, database sources)
-Generators: SQL, dbt YAML, 2 catalog variants, docs, model, (future: lineage)
+Generators: SQL, dbt YAML (+ extended), 2 catalog variants, docs, model, Mermaid ERD, (future: lineage)
 ```
 
-Six generators and three adapters have now been added through the same registry pattern without requiring a plugin architecture — a real, positive test of this principle holding up at meaningfully larger scale than when it was first written.
+Eight generators and three adapters have now been added through the same registry pattern without requiring a plugin architecture — a real, positive test of this principle holding up at meaningfully larger scale than when it was first written.
 
 ---
 
@@ -200,7 +200,7 @@ This principle was tested directly: several of these documents drifted out of sy
 
 Structifact is both a framework exploration and a demonstration of engineering capability — clean architecture, thoughtful tradeoffs, maintainable Python, meaningful tests, professional documentation, realistic engineering decisions.
 
-The project's 307-test, CI-enforced suite and its consistent real-example-first design discipline (see `DECISION_HISTORY.md`) are the concrete evidence behind this principle, not just a stated aspiration.
+The project's 519-test, CI-enforced suite and its consistent real-example-first design discipline (see `DECISION_HISTORY.md`) are the concrete evidence behind this principle, not just a stated aspiration.
 
 ---
 

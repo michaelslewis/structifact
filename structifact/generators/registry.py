@@ -5,6 +5,7 @@ from .catalog import CatalogCSVGenerator
 from .catalog_extended import ExtendedCatalogCSVGenerator
 from .docs import DocsGenerator
 from .model import ModelGenerator
+from .mermaid_erd import MermaidERDGenerator
 
 # Run by default on every `structifact generate` — no configuration
 # required, output shape is the same for every user.
@@ -26,11 +27,16 @@ GENERATORS = [
 # reason as DocsGenerator was — it's also the first generator whose
 # generate() can return None (see base.py), so it's a good idea to
 # let it settle here before it's ever a default.
+#
+# MermaidERDGenerator (structifact.com build plan, Phase 0a) is
+# opt-in for the same "new enough, shouldn't silently change default
+# output" reason as DocsGenerator and ModelGenerator above.
 OPTIONAL_GENERATORS = [
     ExtendedCatalogCSVGenerator(),
     DBTExtendedYAMLGenerator(),
     DocsGenerator(),
     ModelGenerator(),
+    MermaidERDGenerator(),
 ]
 
 ALL_GENERATORS = GENERATORS + OPTIONAL_GENERATORS
