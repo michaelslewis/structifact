@@ -208,4 +208,14 @@ class AnthropicLLMClient(LLMClient):
                 f"incomplete, not just possibly malformed."
             )
 
-        return response.content[0].text
+        # NOT response.content[0].text: with extended thinking active,
+        # content[0] can be a ThinkingBlock (no .text attribute at
+        # all), with the real answer in a later block. Filtering for
+        # actual text-type blocks handles that ordering, and returns
+        # "" rather than crashing if a response never produced one
+        # (e.g. max_tokens exhausted during thinking, before any text
+        # was emitted) -- found via a real claude-sonnet-5 call that
+        # crashed here outright.
+        return "".join(
+            block.text for block in response.content if block.type == "text"
+        )

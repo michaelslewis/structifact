@@ -1,7 +1,7 @@
 import argparse
 import io
 import contextlib
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import pytest
 
@@ -139,6 +139,106 @@ def test_anthropic_client_reads_key_from_env_var(monkeypatch):
     client = AnthropicLLMClient()
 
     assert client.api_key == "env-key-for-testing"
+
+
+# --- AnthropicLLMClient.complete(): mocked network, real response-parsing ---
+#
+# Regression coverage for a real bug: claude-sonnet-5 can return a leading
+# ThinkingBlock (no .text attribute) ahead of the actual answer, and
+# complete() used to unconditionally return response.content[0].text --
+# crashing with AttributeError whenever that happened (see
+# DECISION_HISTORY.md's override-merge characterization entry). These mock
+# the Anthropic SDK boundary so the fix is verified without a real call.
+
+class _FakeBlock:
+    def __init__(self, block_type, **attrs):
+        self.type = block_type
+        for k, v in attrs.items():
+            setattr(self, k, v)
+
+
+class _FakeFinalMessage:
+    def __init__(self, content, stop_reason="end_turn"):
+        self.content = content
+        self.stop_reason = stop_reason
+
+
+class _FakeMessageStream:
+    """Mimics the `with client.messages.stream(...) as stream:` context
+    manager -- just enough of it for complete() to drive."""
+
+    def __init__(self, text_chunks, final_message):
+        self._text_chunks = text_chunks
+        self._final_message = final_message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    @property
+    def text_stream(self):
+        return iter(self._text_chunks)
+
+    def get_final_message(self):
+        return self._final_message
+
+
+def _client_with_fake_stream(final_message, text_chunks=("",)):
+    client = AnthropicLLMClient(api_key="fake-key-for-testing")
+    fake_anthropic_client = Mock()
+    fake_anthropic_client.messages.stream.return_value = _FakeMessageStream(
+        text_chunks, final_message
+    )
+    return client, fake_anthropic_client
+
+
+def test_complete_extracts_text_block_after_leading_thinking_block():
+    # The exact real-world shape: a ThinkingBlock ahead of the TextBlock.
+    # Must not raise AttributeError, and must return the real text block's
+    # content, not the thinking block's.
+    final_message = _FakeFinalMessage(content=[
+        _FakeBlock("thinking", thinking="internal reasoning, not the answer"),
+        _FakeBlock("text", text='dataset: "orders"\nfields: []\nunresolved_notes: []\n'),
+    ])
+    client, fake_anthropic_client = _client_with_fake_stream(final_message)
+
+    with patch("anthropic.Anthropic", return_value=fake_anthropic_client):
+        result = client.complete("some prompt")
+
+    assert result == 'dataset: "orders"\nfields: []\nunresolved_notes: []\n'
+
+
+def test_complete_returns_empty_string_when_only_thinking_returned():
+    # Regression for the historical symptom this bug produced: a response
+    # that never got past thinking (budget exhausted first) must come back
+    # as "" -- not crash, and not fabricate text from the thinking block.
+    final_message = _FakeFinalMessage(
+        content=[_FakeBlock("thinking", thinking="ran out of budget here")],
+        stop_reason="max_tokens",
+    )
+    client, fake_anthropic_client = _client_with_fake_stream(final_message)
+
+    with patch("anthropic.Anthropic", return_value=fake_anthropic_client):
+        result = client.complete("some prompt")
+
+    assert result == ""
+
+
+def test_complete_handles_plain_single_text_block_unchanged():
+    # The common case (no thinking block at all) must keep working exactly
+    # as before -- this isn't a thinking-specific rewrite, just no longer
+    # assuming position 0.
+    final_message = _FakeFinalMessage(content=[
+        _FakeBlock("text", text="plain response, no thinking block"),
+    ])
+    client, fake_anthropic_client = _client_with_fake_stream(final_message)
+
+    with patch("anthropic.Anthropic", return_value=fake_anthropic_client):
+        result = client.complete("some prompt")
+
+    assert result == "plain response, no thinking block"
 
 
 # --- CLI: --ai off by default ---
