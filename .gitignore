@@ -230,3 +230,4 @@ output/
 # macOS
 .DS_Store
 examples/enterprise_demo/
+scratch/
