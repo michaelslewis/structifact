@@ -634,13 +634,43 @@ No fix is designed here, consistent with this project's standing discipline agai
 
 ## What Happened
 
-`MermaidERDGenerator` (Phase 0a, structifact.com build plan) derives a Mermaid `erDiagram` relationship's crow's-foot cardinality from a `foreign_key` column's own `nullable` flag. The first implementation applied that flag to the wrong side of the relationship: it varied the *child*-side token (`orders }|--|| customers` vs. `orders }o--|| customers`) on the assumption that "not nullable" meant "one or many child rows." In Mermaid's crow's-foot notation, the token adjacent to an entity describes that entity's own multiplicity per one instance of the entity on the *other* end — nullable governs how many parents one child row has (the target side), not how many children one parent has (the child side, which a single `foreign_key` constraint never constrains, since it doesn't declare the column unique).
+`MermaidERDGenerator` (structifact.com build plan Step 1 — called "Phase 0a" at the time this bug was found and fixed; see the "Two Different Numbering Systems Both Called 'Phase'" entry below) derives a Mermaid `erDiagram` relationship's crow's-foot cardinality from a `foreign_key` column's own `nullable` flag. The first implementation applied that flag to the wrong side of the relationship: it varied the *child*-side token (`orders }|--|| customers` vs. `orders }o--|| customers`) on the assumption that "not nullable" meant "one or many child rows." In Mermaid's crow's-foot notation, the token adjacent to an entity describes that entity's own multiplicity per one instance of the entity on the *other* end — nullable governs how many parents one child row has (the target side), not how many children one parent has (the child side, which a single `foreign_key` constraint never constrains, since it doesn't declare the column unique).
 
 The bug shipped past a test that rendered the generated diagram through `mermaid-cli` (`mmdc`) to confirm it was valid Mermaid. That check passed throughout — `}|--||` and `}o--o|` are both syntactically well-formed relationship lines, so a semantically backwards line renders without error. It was caught by the user reading the diagram's actual meaning, not by any automated check.
 
 ## Why This Is Worth Recording
 
 The same "tests prove the logic, not the wiring" shape recorded elsewhere in this document, applied to a new class of check: rendering a diagram is necessary but not sufficient evidence that the diagram is *correct*, the same way a program compiling isn't evidence it's correct. Fixed in `mermaid_erd.py`, with tests now asserting the exact cardinality token on each side rather than only that the diagram renders — recorded here so "rendered without error" is never mistaken for "verified" on output whose entire value is a human reading its meaning, not a machine parsing its syntax.
+
+---
+
+# Decision: Two Different Numbering Systems Both Called "Phase"
+
+## What Happened
+
+`scratch/BUILD_PLAN.md` (the structifact.com website build plan — a separate initiative from the engine itself: a static demo site that runs the existing engine in-browser via Pyodide) numbered its own steps "Phase 0a," "Phase 0b," "Phase 1," "Phase 2," "Phase 3." `docs/ROADMAP.md` — the engine's own roadmap — already owns "Phase N" and was at Phase 12 by the time the site plan was written. The site plan's first two items were deliberately lettered "0a"/"0b" specifically to dodge that collision, but its remaining three items ("Phase 1 — browser app," "Phase 2 — deploy," "Phase 3 — more formats") reused the numbers 1, 2, and 3 outright — which collide with `ROADMAP.md`'s real "Phase 1 — Strengthen the Metadata Model," "Phase 2 — Expand Validation Framework," and "Phase 3 — CLI User Experience" **by name**, not merely by being nearby in a list. Two unrelated things in the same project were both citable as "Phase 1."
+
+This surfaced when a Cowork session, having just shipped "Phase 0b" (`JSONSchemaGenerator`), described the project as being "in Phase 0" to the user — who had a well-founded recollection of the project being much further along (`ROADMAP.md` was at Phase 12), and reasonably asked how both could be true.
+
+## The Fix
+
+The site build plan's numbering was renamed from "Phase 0a"/"Phase 0b"/"Phase 1"/"Phase 2"/"Phase 3" to "Step 1"/"Step 2"/"Step 3"/"Step 4"/"Step 5" — a different word, not just different numbers, so it can never again collide with `ROADMAP.md`'s "Phase N" regardless of how either sequence grows. The renumbering also let the awkward "0a"/"0b" lettering (itself a symptom of dodging the collision rather than fixing it) collapse into a plain sequential 1–5. Cross-references to the site plan from `docs/ARCHITECTURE.md`, `docs/CURRENT_STATE.md`, `structifact/generators/{mermaid_erd,json_schema,registry}.py`, and both generators' test files were updated to match.
+
+**Old name → new name, for reconciling anything written before this fix:**
+
+| Old | New | What it is |
+|---|---|---|
+| Phase 0a | Step 1 | `MermaidERDGenerator` — commit `2543c5b` |
+| Phase 0b | Step 2 | `JSONSchemaGenerator` — commit `9c38087` |
+| Phase 1 (site plan) | Step 3 | Browser app (not yet built) |
+| Phase 2 (site plan) | Step 4 | Deploy (not yet built) |
+| Phase 3 (site plan) | Step 5 | More formats (not yet built) |
+
+Not rewritten: the two commit messages above, and the GitHub project board item titled "JSONSchemaGenerator (Phase 0b)." Historical labels are a record of what something was called at the time, not a live cross-reference — rewriting commit messages would mean rewriting git history, which this project's working practices already rule out absent an explicit request; the board item is a low-stakes cosmetic leftover, left for an optional later rename rather than treated as urgent.
+
+## Why This Is Worth Recording
+
+Not a naming preference — a real ambiguity that already reached a person mid-conversation and cost a round of confusion to untangle. The general shape is worth remembering past this one instance: when a project runs two genuinely separate initiatives (an engine and a website, a library and its docs site, a product and a demo) with their own independent sequencing, giving them the same generic word for "sequence" ("Phase," "Milestone," "Sprint") is a collision waiting to happen even when the numbers themselves are chosen to avoid overlapping — as "0a"/"0b" already tried and failed to do here. Distinct initiatives should get a distinct word, not just distinct numbers.
 
 ---
 

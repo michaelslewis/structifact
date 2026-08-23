@@ -29,10 +29,14 @@ GENERATORS = [
 # generate() can return None (see base.py), so it's a good idea to
 # let it settle here before it's ever a default.
 #
-# MermaidERDGenerator (structifact.com build plan, Phase 0a) and
-# JSONSchemaGenerator (Phase 0b, same plan) are opt-in for the same
+# MermaidERDGenerator (structifact.com build plan, Step 1) and
+# JSONSchemaGenerator (Step 2, same plan) are opt-in for the same
 # "new enough, shouldn't silently change default output" reason as
-# DocsGenerator and ModelGenerator above.
+# DocsGenerator and ModelGenerator above. ("Step," not "Phase" — the
+# site build plan (scratch/BUILD_PLAN.md) uses its own "Step N"
+# numbering specifically so it can never collide with this engine's
+# own Phase N roadmap; see docs/DECISION_HISTORY.md's "Two Different
+# Numbering Systems Both Called 'Phase'" entry.)
 OPTIONAL_GENERATORS = [
     ExtendedCatalogCSVGenerator(),
     DBTExtendedYAMLGenerator(),

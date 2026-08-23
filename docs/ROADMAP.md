@@ -29,6 +29,14 @@ The guiding progression is:
 4. Generate increasingly useful artifacts.
 5. Expand toward quality, lineage, integrations, and intelligent assistance.
 
+**Scope note:** every "Phase N" in this document is the core engine's own numbering.
+The structifact.com website (`scratch/BUILD_PLAN.md` — a separate initiative: a static
+demo site that runs this engine in-browser via Pyodide) is numbered independently, in
+"Steps," not "Phases," specifically so its own sequence can never be confused with this
+one. See `docs/DECISION_HISTORY.md`'s "Two Different Numbering Systems Both Called
+'Phase'" entry if you're reconciling something that still says "Phase 0a"/"Phase 0b"
+from before that split was made explicit.
+
 ---
 
 # Recently Completed

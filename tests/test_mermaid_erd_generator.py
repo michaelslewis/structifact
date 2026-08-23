@@ -1,5 +1,7 @@
 """
-Tests for MermaidERDGenerator (structifact.com build plan, Phase 0a).
+Tests for MermaidERDGenerator (structifact.com build plan, Step 1 —
+"Step," not "Phase": see docs/DECISION_HISTORY.md's "Two Different
+Numbering Systems Both Called 'Phase'" entry).
 
 Covers: entity block renders fields with type and PK/FK markers
 derived from ConstraintSpec; relationship lines are emitted only for

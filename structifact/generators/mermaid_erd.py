@@ -40,7 +40,11 @@ def _key_marker(field_name: str, pk_columns: set, fk_columns: set) -> str:
 class MermaidERDGenerator(Generator):
     """
     Generates a Mermaid `erDiagram` block from a dataset's metadata
-    (Phase 0a — structifact.com build plan). Highest value-per-line
+    (Step 1 — structifact.com build plan; see scratch/BUILD_PLAN.md and
+    docs/DECISION_HISTORY.md's "Two Different Numbering Systems Both
+    Called 'Phase'" entry for why the site build plan is numbered in
+    "Steps," not "Phases" like this engine's own docs/ROADMAP.md).
+    Highest value-per-line
     for the website specifically: a rendered diagram communicates the
     tool in seconds, and GitHub renders Mermaid natively in Markdown
     too.

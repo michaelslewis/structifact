@@ -1,5 +1,7 @@
 """
-Tests for JSONSchemaGenerator (structifact.com build plan, Phase 0b).
+Tests for JSONSchemaGenerator (structifact.com build plan, Step 2 —
+"Step," not "Phase": see docs/DECISION_HISTORY.md's "Two Different
+Numbering Systems Both Called 'Phase'" entry).
 
 Covers: the straight FieldSpec -> JSON Schema mapping the build plan
 specifies (type, nullable -> required, accepted_values -> enum,

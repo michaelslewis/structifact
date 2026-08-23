@@ -16,7 +16,9 @@ JSON_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
 # Straight mapping from Structifact's own normalized type vocabulary
 # (structifact/types.py's TYPE_MAP values) to JSON Schema's primitive
-# types, per the build plan (scratch/BUILD_PLAN.md, Phase 0b). Both
+# types, per the build plan (scratch/BUILD_PLAN.md, Step 2 — "Step,"
+# not "Phase": see docs/DECISION_HISTORY.md's "Two Different Numbering
+# Systems Both Called 'Phase'" entry). Both
 # `decimal` and `float` map to `number` — JSON Schema (like JSON
 # itself) has no separate fixed-point numeric type the way SQL does,
 # so `SQL_TYPE_MAP`'s decimal/float distinction has nothing to land on
@@ -104,7 +106,7 @@ def _field_schema(f) -> dict:
 class JSONSchemaGenerator(Generator):
     """
     Generates a JSON Schema document from a dataset's metadata
-    (Phase 0b — structifact.com build plan). The clearest single
+    (Step 2 — structifact.com build plan). The clearest single
     signal that Structifact isn't warehouse-specific: every other
     default/optional generator today emits something SQL- or
     dbt-shaped, and JSON Schema is neither.
@@ -135,7 +137,7 @@ class JSONSchemaGenerator(Generator):
     Deliberately NOT mapped in this first version: `length`/
     `precision`/`scale` (a natural next step — `maxLength` for a
     bounded string mirrors sql.py's own VARCHAR(length) — but outside
-    the build plan's literal field list for Phase 0b, whose stated
+    the build plan's literal field list for Step 2, whose stated
     purpose is proving the format-registry story cheaply, not
     reaching feature parity with SQLGenerator in one pass) and every
     ConstraintSpec type (primary_key/unique/foreign_key/check have no
