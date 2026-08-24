@@ -330,9 +330,23 @@ def test_generated_diagram_actually_renders_via_mermaid_cli(tmp_path):
     mmd_path.write_text(artifact.content)
     svg_path = tmp_path / "orders.svg"
 
+    # mmdc renders via a real headless Chromium (puppeteer) under the
+    # hood. Chromium's own sandbox needs unprivileged user namespaces,
+    # which GitHub Actions' ubuntu-latest runner doesn't provide --
+    # confirmed by a real CI failure (`No usable sandbox!`, see
+    # DECISION_HISTORY.md) that only showed up in CI, never locally.
+    # --no-sandbox is the documented mitigation (https://pptr.dev/troubleshooting)
+    # for exactly this "no usable sandbox" environment, and is safe
+    # here specifically because the "page" mmdc renders is always this
+    # test's own just-generated, non-untrusted Mermaid text -- never
+    # arbitrary or attacker-influenced content.
+    puppeteer_config_path = tmp_path / "puppeteer-config.json"
+    puppeteer_config_path.write_text('{"args": ["--no-sandbox"]}')
+
     result = subprocess.run(
         [
             "npx", "--yes", "-p", "@mermaid-js/mermaid-cli", "mmdc",
+            "-p", str(puppeteer_config_path),
             "-i", str(mmd_path), "-o", str(svg_path),
         ],
         capture_output=True,

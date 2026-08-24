@@ -56,6 +56,16 @@ rather than philosophy — read those two files for the "why."
   this project's history if `pytest` isn't installed) — every change
   should leave all tests passing, not just the ones related to the
   change.
+- **After `git push`, check that CI actually passed** (`gh run list`
+  / `gh run view --log-failed`) — don't assume a locally-green
+  `pytest` run means CI is green too. It once wasn't, for four
+  commits in a row, unnoticed: one failure came from a test needing a
+  package that happened to already be installed locally but was never
+  a CI dependency, the other from a real headless-browser sandbox
+  difference between macOS and GitHub's Linux runner. Neither was
+  visible from the machine that ran the tests locally — see
+  `DECISION_HISTORY.md`'s "CI Had Been Red for Four Commits Before
+  Anyone Checked."
 - **When generator output changes, update the golden files.**
   `tests/golden/` and `examples/customers/generated/` must stay in
   sync with what the generators actually produce. A test that

@@ -666,11 +666,35 @@ The site build plan's numbering was renamed from "Phase 0a"/"Phase 0b"/"Phase 1"
 | Phase 2 (site plan) | Step 4 | Deploy (not yet built) |
 | Phase 3 (site plan) | Step 5 | More formats (not yet built) |
 
-Not rewritten: the two commit messages above, and the GitHub project board item titled "JSONSchemaGenerator (Phase 0b)." Historical labels are a record of what something was called at the time, not a live cross-reference — rewriting commit messages would mean rewriting git history, which this project's working practices already rule out absent an explicit request; the board item is a low-stakes cosmetic leftover, left for an optional later rename rather than treated as urgent.
+Not rewritten: the two commit messages above. Historical labels are a record of what something was called at the time, not a live cross-reference — rewriting commit messages would mean rewriting git history, which this project's working practices already rule out absent an explicit request. The GitHub project board item, by contrast, is a live label rather than a historical record, so it *was* renamed shortly after this entry was first written: "JSONSchemaGenerator (Phase 0b)" → "JSONSchemaGenerator (Step 2)," at the user's explicit go-ahead on an optional, non-urgent cleanup.
 
 ## Why This Is Worth Recording
 
 Not a naming preference — a real ambiguity that already reached a person mid-conversation and cost a round of confusion to untangle. The general shape is worth remembering past this one instance: when a project runs two genuinely separate initiatives (an engine and a website, a library and its docs site, a product and a demo) with their own independent sequencing, giving them the same generic word for "sequence" ("Phase," "Milestone," "Sprint") is a collision waiting to happen even when the numbers themselves are chosen to avoid overlapping — as "0a"/"0b" already tried and failed to do here. Distinct initiatives should get a distinct word, not just distinct numbers.
+
+---
+
+# Decision: CI Had Been Red for Four Commits Before Anyone Checked
+
+## What Happened
+
+A GitHub Actions failure email for commit `85c5d7c` prompted the first actual check of CI status in this whole run of sessions — `gh run list` showed every push since `9ec5f47` ("Fix `AnthropicLLMClient.complete()` crashing on a leading `ThinkingBlock`") had been failing on both Python 3.11 and 3.12, unnoticed for four commits and several hours, even though `python3 -m pytest -q` had been run and reported fully green locally before every one of those pushes. Two distinct, unrelated bugs, neither visible locally:
+
+**1. `test_discover_ai.py`'s three new `ThinkingBlock` tests** (`9ec5f47`, authored before any of these push/handoff sessions) used `patch("anthropic.Anthropic", return_value=...)`. `unittest.mock.patch` resolves a dotted string target by actually importing the named module — so this needs the real `anthropic` package installed just to *resolve the patch*, regardless of the fact that `complete()` only ever imports it lazily at call time (`structifact/llm.py`) specifically so the package is never required unless a real AI call is made. CI's install step (`pip install -e ".[dev,duckdb,postgres]"`) has never included the `ai` extra, so `import anthropic` raised `ModuleNotFoundError` in CI on every run — while passing locally only because this development machine happens to already have `anthropic` installed from earlier `discover --ai` work. The same test file already states the intended design one function above the broken ones: `test_anthropic_client_accepts_explicit_key_no_network`'s own comment says client construction and cost estimation "never ... requires the anthropic package to be installed." The three new tests violated that stated intent in the same file, not a new call.
+
+**2. `test_mermaid_erd_generator.py`'s `mmdc` round-trip test** (`2543c5b`, this session) failed only in CI: `Error: Failed to launch the browser process ... No usable sandbox!` — GitHub Actions' `ubuntu-latest` runner doesn't provide the unprivileged user namespaces Chromium's sandbox needs, and this had no way to surface locally on macOS, where Chromium's sandbox works normally. The `skipif(shutil.which("npx") is None)` guard added specifically so this test degrades gracefully when the tool isn't available did not help, because `npx` genuinely is present in CI (Node is preinstalled) — the tool exists, only its sandbox does not.
+
+## What Was Done
+
+**Fix 1**: replaced `patch("anthropic.Anthropic", ...)` with a `sys.modules["anthropic"]` injection (`monkeypatch.setitem`) — a fake module object with a mocked `Anthropic` attribute, so `complete()`'s own lazy `import anthropic` picks it up from `sys.modules` exactly as it would a real import, without the real package ever needing to exist. Verified against the actual failure mode, not just re-run locally: a throwaway venv built with CI's exact install command (`pip install -e ".[dev,duckdb,postgres]"`, no `ai` extra) confirmed `anthropic` genuinely absent, then ran the fixed tests — 19/19 passed.
+
+**Fix 2**: added `-p <puppeteerConfigFile>` pointing at a `{"args": ["--no-sandbox"]}` config to the `mmdc` invocation. Confirmed safe for this specific use before applying it: `--no-sandbox` is Chromium/Puppeteer's own documented mitigation for exactly this "no usable sandbox" environment (https://pptr.dev/troubleshooting), and it's safe here specifically because the only "page" mmdc ever renders in this test is Structifact's own just-generated, non-untrusted Mermaid text — never arbitrary or attacker-influenced content, which is the actual thing `--no-sandbox` would be dangerous around.
+
+Both fixes verified locally (547 passed, 21 skipped, unchanged from before) and pushed; CI confirmed green on the resulting commit before this entry was closed out.
+
+## Why This Is Worth Recording
+
+The specific fixes matter less than the gap that let both ship unnoticed: `python3 -m pytest -q` passing locally was, on this occasion, no evidence at all about whether CI would pass, because both failures were caused by environment differences invisible to the exact machine doing the verifying — a package that happened to already be installed locally, and a browser sandbox that happens to work on macOS but not in a container. This is the same "tests prove the logic, not the wiring" pattern recorded elsewhere in this document (the YAML adapter gap, the sources/joins gap), extended one layer further: this time the untested "wiring" wasn't a code path, it was the CI environment itself, and nothing in the working practice at the time included ever actually checking `gh run list` after a push. AGENTS.md's working practices are updated alongside this entry to say so explicitly, rather than leaving "run the test suite" implicitly meaning "run it exactly where I'm sitting."
 
 ---
 

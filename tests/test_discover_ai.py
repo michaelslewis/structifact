@@ -1,5 +1,7 @@
 import argparse
 import io
+import sys
+import types
 import contextlib
 from unittest.mock import patch, Mock
 
@@ -185,6 +187,23 @@ class _FakeMessageStream:
         return self._final_message
 
 
+def _install_fake_anthropic_module(monkeypatch, fake_anthropic_client):
+    """
+    Injects a fake `anthropic` module into sys.modules rather than
+    `patch("anthropic.Anthropic", ...)`, which would need the real
+    `anthropic` package importable just to resolve that dotted path --
+    contradicting this file's own stated intent (see
+    test_anthropic_client_accepts_explicit_key_no_network above: "never
+    ... requires the anthropic package to be installed") and matching
+    complete()'s own lazy `import anthropic` (structifact/llm.py),
+    which picks this fake up from sys.modules exactly like a real
+    import would.
+    """
+    fake_module = types.ModuleType("anthropic")
+    fake_module.Anthropic = Mock(return_value=fake_anthropic_client)
+    monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+
+
 def _client_with_fake_stream(final_message, text_chunks=("",)):
     client = AnthropicLLMClient(api_key="fake-key-for-testing")
     fake_anthropic_client = Mock()
@@ -194,7 +213,7 @@ def _client_with_fake_stream(final_message, text_chunks=("",)):
     return client, fake_anthropic_client
 
 
-def test_complete_extracts_text_block_after_leading_thinking_block():
+def test_complete_extracts_text_block_after_leading_thinking_block(monkeypatch):
     # The exact real-world shape: a ThinkingBlock ahead of the TextBlock.
     # Must not raise AttributeError, and must return the real text block's
     # content, not the thinking block's.
@@ -204,13 +223,13 @@ def test_complete_extracts_text_block_after_leading_thinking_block():
     ])
     client, fake_anthropic_client = _client_with_fake_stream(final_message)
 
-    with patch("anthropic.Anthropic", return_value=fake_anthropic_client):
-        result = client.complete("some prompt")
+    _install_fake_anthropic_module(monkeypatch, fake_anthropic_client)
+    result = client.complete("some prompt")
 
     assert result == 'dataset: "orders"\nfields: []\nunresolved_notes: []\n'
 
 
-def test_complete_returns_empty_string_when_only_thinking_returned():
+def test_complete_returns_empty_string_when_only_thinking_returned(monkeypatch):
     # Regression for the historical symptom this bug produced: a response
     # that never got past thinking (budget exhausted first) must come back
     # as "" -- not crash, and not fabricate text from the thinking block.
@@ -220,13 +239,13 @@ def test_complete_returns_empty_string_when_only_thinking_returned():
     )
     client, fake_anthropic_client = _client_with_fake_stream(final_message)
 
-    with patch("anthropic.Anthropic", return_value=fake_anthropic_client):
-        result = client.complete("some prompt")
+    _install_fake_anthropic_module(monkeypatch, fake_anthropic_client)
+    result = client.complete("some prompt")
 
     assert result == ""
 
 
-def test_complete_handles_plain_single_text_block_unchanged():
+def test_complete_handles_plain_single_text_block_unchanged(monkeypatch):
     # The common case (no thinking block at all) must keep working exactly
     # as before -- this isn't a thinking-specific rewrite, just no longer
     # assuming position 0.
@@ -235,8 +254,8 @@ def test_complete_handles_plain_single_text_block_unchanged():
     ])
     client, fake_anthropic_client = _client_with_fake_stream(final_message)
 
-    with patch("anthropic.Anthropic", return_value=fake_anthropic_client):
-        result = client.complete("some prompt")
+    _install_fake_anthropic_module(monkeypatch, fake_anthropic_client)
+    result = client.complete("some prompt")
 
     assert result == "plain response, no thinking block"
 
