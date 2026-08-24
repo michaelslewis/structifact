@@ -119,24 +119,24 @@ fields:
 
 
 def test_load_yaml_parses_source_filter(tmp_path):
-    yaml_file = tmp_path / "profit_center.yml"
+    yaml_file = tmp_path / "segment_master.yml"
     yaml_file.write_text(
         """
 dataset:
-  name: profit_center
+  name: segment_master
 
-source_table: cepc
-source_filter: "datbi = '9999-12-31'"
+source_table: segmaster
+source_filter: "validto = '9999-12-31'"
 
 fields:
-  - name: prctr
+  - name: segcode
     type: string
 """
     )
 
     dataset = load_yaml(str(yaml_file))
 
-    assert dataset.source_filter == "datbi = '9999-12-31'"
+    assert dataset.source_filter == "validto = '9999-12-31'"
 
 
 def test_load_yaml_source_filter_absent_defaults_to_none(tmp_path):
@@ -152,22 +152,22 @@ def test_load_yaml_source_table_absent_defaults_to_none(tmp_path):
 
 
 def test_load_yaml_parses_dbt_target_metadata(tmp_path):
-    yaml_file = tmp_path / "profit_center.yml"
+    yaml_file = tmp_path / "segment_master.yml"
     yaml_file.write_text(
         """
 dataset:
-  name: profit_center
-  description: Model for Profit Centers.
+  name: segment_master
+  description: Model for Segment Masters.
 
 dbt_schema: PUBLIC
 dbt_tags: [tableau, sap]
-dbt_datasource_name: Profit Center
+dbt_datasource_name: Segment Master
 dbt_datasource_project: Public
 dbt_datasource_extract: true
 dbt_data_catalog: true
 
 fields:
-  - name: struct_cepc_mandt
+  - name: struct_segmaster_clientid
     type: string
 """
     )
@@ -176,7 +176,7 @@ fields:
 
     assert dataset.dbt_schema == "PUBLIC"
     assert dataset.dbt_tags == ["tableau", "sap"]
-    assert dataset.dbt_datasource_name == "Profit Center"
+    assert dataset.dbt_datasource_name == "Segment Master"
     assert dataset.dbt_datasource_project == "Public"
     assert dataset.dbt_datasource_extract is True
     assert dataset.dbt_data_catalog is True
@@ -308,33 +308,33 @@ def test_load_yaml_field_comment_defaults_to_none(tmp_path):
 
 
 def test_load_yaml_parses_aggregate_rule(tmp_path):
-    yaml_file = tmp_path / "customer_credit.yml"
+    yaml_file = tmp_path / "account_summary.yml"
     yaml_file.write_text(
         """
 dataset:
-  name: customer_credit
+  name: account_summary
 
-source_table: knkk
+source_table: credctrl
 
 fields:
-  - name: kunnr
+  - name: custid
     type: string
-  - name: struct_bsid_sum_dmbtr
+  - name: struct_openitem_sum_amtlocal
     type: decimal
-    source: bsid
-    source_column: struct_bsid_sum_dmbtr
+    source: openitem
+    source_column: struct_openitem_sum_amtlocal
 
 sources:
-  - name: bsid
-    table: bsid
+  - name: openitem
+    table: openitem
     aggregate:
-      group_by: [kunnr, kkber]
+      group_by: [custid, ctrlarea]
       aggregates:
-        struct_bsid_sum_dmbtr: "SUM(case when shkzg = 'S' then dmbtr when shkzg = 'H' then -dmbtr else 0 end)"
+        struct_openitem_sum_amtlocal: "SUM(case when dcind = 'S' then amtlocal when dcind = 'H' then -amtlocal else 0 end)"
 
 joins:
-  - source: bsid
-    "on": "knkk.kunnr = bsid.kunnr and knkk.kkber = bsid.kkber"
+  - source: openitem
+    "on": "credctrl.custid = openitem.custid and credctrl.ctrlarea = openitem.ctrlarea"
 """
     )
 
@@ -342,11 +342,11 @@ joins:
 
     source = dataset.sources[0]
     assert source.dedup is None
-    assert source.aggregate.group_by == ["kunnr", "kkber"]
+    assert source.aggregate.group_by == ["custid", "ctrlarea"]
     assert source.aggregate.aggregates == {
-        "struct_bsid_sum_dmbtr": (
-            "SUM(case when shkzg = 'S' then dmbtr "
-            "when shkzg = 'H' then -dmbtr else 0 end)"
+        "struct_openitem_sum_amtlocal": (
+            "SUM(case when dcind = 'S' then amtlocal "
+            "when dcind = 'H' then -amtlocal else 0 end)"
         ),
     }
 

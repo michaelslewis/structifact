@@ -3,8 +3,13 @@
 Generate a synthetic requirements document that reproduces the `discover --ai`
 override-merge challenge, plus a machine-checkable ground truth.
 
-Everything in the output is fictional. SAP table/field abbreviations are public
-schema names; no employer content is used or required.
+Everything in the output is fictional. Table names and a handful of field
+abbreviations below are synthetic (not real SAP codes) specifically because
+they matched real SAP delivery-module terminology referenced elsewhere in
+this project's own docs closely enough to be worth avoiding; the remaining
+field abbreviations are ordinary, public SAP Data Dictionary codes, generic
+across countless SAP implementations and not identifying on their own. No
+employer content is used or required either way.
 
 The structural challenge being reproduced:
   * fields are defined in a main section under one name prefix  (struct_<table>_<field>)
@@ -39,16 +44,17 @@ import os
 import random
 
 # ---------------------------------------------------------------- field pool
-# Public SAP field abbreviations. Descriptions below are invented.
+# Table names and a few field abbreviations are synthetic -- see the module
+# docstring. Descriptions below are invented either way.
 TABLES = {
-    "LIKP": ("Delivery Header", [
-        ("VBELN", "Delivery document number"),
+    "DELIVHDR": ("Delivery Header", [
+        ("DOCNUM", "Delivery document number"),
         ("ERNAM", "Name of the user who created the record"),
         ("ERDAT", "Date on which the record was created"),
         ("VSTEL", "Shipping point or receiving point"),
         ("LFART", "Delivery document type"),
         ("KUNNR", "Ship-to party account number"),
-        ("STAFO", "Update group for statistics update"),
+        ("STATGROUP", "Update group for statistics update"),
         ("VKORG", "Sales organization"),
         ("LFDAT", "Delivery date"),
         ("WADAT", "Goods movement date"),
@@ -63,8 +69,8 @@ TABLES = {
         ("INCO2", "Incoterms part two"),
         ("TDDAT", "Transportation planning date"),
     ]),
-    "LIPS": ("Delivery Item", [
-        ("POSNR", "Delivery item number"),
+    "DELIVITEM": ("Delivery Item", [
+        ("ITEMNUM", "Delivery item number"),
         ("MATNR", "Material number"),
         ("WERKS", "Plant supplying the item"),
         ("LGORT", "Storage location"),
@@ -72,11 +78,11 @@ TABLES = {
         ("LFIMG", "Actual quantity delivered in sales units"),
         ("MEINS", "Base unit of measure"),
         ("UMVKZ", "Numerator for unit conversion"),
-        ("UPFLU", "Subsequent document flow indicator"),
+        ("UPDFLOW", "Subsequent document flow indicator"),
         ("VGBEL", "Reference document number of the preceding document"),
         ("VGPOS", "Reference item number of the preceding document"),
         ("PSTYV", "Delivery item category"),
-        ("ARKTX", "Short text describing the sales order item"),
+        ("ITEMTEXT", "Short text describing the sales order item"),
         ("NETWR", "Net value of the delivery item"),
         ("WAERK", "Document currency"),
         ("MATKL", "Material group"),
@@ -85,8 +91,8 @@ TABLES = {
         ("BWART", "Movement type for inventory management"),
         ("SOBKZ", "Special stock indicator"),
     ]),
-    "VBUK": ("Header Status", [
-        ("WBSTK", "Total goods movement status"),
+    "HDRSTATUS": ("Header Status", [
+        ("MOVESTAT", "Total goods movement status"),
         ("KOSTK", "Overall picking or putaway status"),
         ("LFSTK", "Delivery status at header level"),
         ("GBSTK", "Overall processing status of the document"),
@@ -95,8 +101,8 @@ TABLES = {
         ("PKSTK", "Packing status at header level"),
         ("UVALL", "Incompleteness status for the whole document"),
     ]),
-    "VBUP": ("Item Status", [
-        ("LFSTA", "Delivery status at item level"),
+    "ITEMSTATUS": ("Item Status", [
+        ("LINESTAT", "Delivery status at item level"),
         ("WBSTA", "Goods movement status at item level"),
         ("KOSTA", "Picking or putaway status at item level"),
         ("FKSTA", "Billing status at item level"),

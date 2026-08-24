@@ -3,7 +3,7 @@ ModelGenerator must generate a real SELECT for a dataset whose ONLY
 transformation is renaming columns via `source_column` -- no computed
 fields, no sources/joins, no source_filter. Found via real-world use:
 a real single-source dataset (every field renamed from its physical
-SAP column, e.g. `biz_aufk_mandt` from `mandt`) had exactly this shape
+SAP column, e.g. `demo_jobhdr_clientid` from `clientid`) had exactly this shape
 and nothing else, and previously got silently treated as "nothing to
 generate" -- which also silently broke `execute --materialize` for
 it, since generate_insert() builds on generate().
@@ -25,10 +25,10 @@ def _gen():
 
 def test_source_column_alone_is_enough_to_generate_a_model():
     dataset = DatasetSpec(
-        name="internal_order_master",
-        source_table="aufk",
+        name="job_item_master",
+        source_table="jobhdr",
         fields=[
-            FieldSpec(name="biz_aufk_mandt", type="string", source_column="mandt"),
+            FieldSpec(name="demo_jobhdr_clientid", type="string", source_column="clientid"),
         ],
     )
 
@@ -38,20 +38,20 @@ def test_source_column_alone_is_enough_to_generate_a_model():
 
 def test_source_column_alone_produces_correct_renamed_select():
     dataset = DatasetSpec(
-        name="internal_order_master",
-        source_table="aufk",
+        name="job_item_master",
+        source_table="jobhdr",
         fields=[
-            FieldSpec(name="biz_aufk_mandt", type="string", source_column="mandt"),
-            FieldSpec(name="biz_aufk_bukrs", type="string", source_column="bukrs"),
+            FieldSpec(name="demo_jobhdr_clientid", type="string", source_column="clientid"),
+            FieldSpec(name="demo_jobhdr_companyid", type="string", source_column="companyid"),
         ],
     )
 
     artifact = _gen().generate(dataset)
 
     expected = """select
-    aufk.mandt as biz_aufk_mandt,
-    aufk.bukrs as biz_aufk_bukrs
-from aufk;"""
+    jobhdr.clientid as demo_jobhdr_clientid,
+    jobhdr.companyid as demo_jobhdr_companyid
+from jobhdr;"""
 
     assert artifact.content == expected
 
@@ -91,13 +91,13 @@ def test_source_column_alone_also_enables_materialization():
     through to materialization too, not just the plain read-only case.
     """
     dataset = DatasetSpec(
-        name="internal_order_master",
-        source_table="aufk",
+        name="job_item_master",
+        source_table="jobhdr",
         fields=[
-            FieldSpec(name="biz_aufk_mandt", type="string", source_column="mandt"),
+            FieldSpec(name="demo_jobhdr_clientid", type="string", source_column="clientid"),
         ],
     )
 
     artifact = _gen().generate_insert(dataset)
     assert artifact is not None
-    assert "INSERT INTO internal_order_master" in artifact.content
+    assert "INSERT INTO job_item_master" in artifact.content

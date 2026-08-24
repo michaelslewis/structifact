@@ -33,26 +33,26 @@ requires_postgres = pytest.mark.skipif(
 
 def _dataset() -> DatasetSpec:
     return DatasetSpec(
-        name="internal_order_master",
-        source_table="aufk",
+        name="job_item_master",
+        source_table="jobhdr",
         fields=[
-            FieldSpec(name="biz_aufk_mandt", type="string", source_column="mandt"),
-            FieldSpec(name="biz_aufk_bukrs", type="string", source_column="bukrs"),
+            FieldSpec(name="demo_jobhdr_clientid", type="string", source_column="clientid"),
+            FieldSpec(name="demo_jobhdr_companyid", type="string", source_column="companyid"),
         ],
     )
 
 
-def _load_raw_aufk(executor) -> None:
-    executor.execute_ddl("CREATE TABLE aufk (mandt VARCHAR, bukrs VARCHAR)")
+def _load_raw_jobhdr(executor) -> None:
+    executor.execute_ddl("CREATE TABLE jobhdr (clientid VARCHAR, companyid VARCHAR)")
     executor.load_rows(
-        "aufk", ["mandt", "bukrs"],
-        [{"mandt": "100", "bukrs": "US01"}, {"mandt": "200", "bukrs": "US02"}],
+        "jobhdr", ["clientid", "companyid"],
+        [{"clientid": "100", "companyid": "US01"}, {"clientid": "200", "companyid": "US02"}],
     )
 
 
 def _assert_correct_result(result) -> None:
-    by_mandt = {row["biz_aufk_mandt"]: row["biz_aufk_bukrs"] for row in result}
-    assert by_mandt == {"100": "US01", "200": "US02"}
+    by_clientid = {row["demo_jobhdr_clientid"]: row["demo_jobhdr_companyid"] for row in result}
+    assert by_clientid == {"100": "US01", "200": "US02"}
 
 
 def test_duckdb_executes_renaming_only_model_with_correct_values():
@@ -61,7 +61,7 @@ def test_duckdb_executes_renaming_only_model_with_correct_values():
 
     executor = DuckDBExecutor()
     executor.connect()
-    _load_raw_aufk(executor)
+    _load_raw_jobhdr(executor)
 
     result = executor.query(model_sql)
 
@@ -77,13 +77,13 @@ def test_duckdb_materializes_renaming_only_dataset():
 
     executor = DuckDBExecutor()
     executor.connect()
-    _load_raw_aufk(executor)
+    _load_raw_jobhdr(executor)
 
     with executor.transaction():
         executor.execute_ddl(ddl_sql)
         executor.execute_ddl(insert_sql)
 
-    result = executor.query("SELECT * FROM internal_order_master")
+    result = executor.query("SELECT * FROM job_item_master")
     executor.close()
 
     _assert_correct_result(result)
@@ -98,8 +98,8 @@ def test_postgres_executes_renaming_only_model_with_correct_values():
     conn = psycopg2.connect(dsn=POSTGRES_DSN)
     conn.autocommit = True
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS aufk")
-        cur.execute("DROP TABLE IF EXISTS internal_order_master")
+        cur.execute("DROP TABLE IF EXISTS jobhdr")
+        cur.execute("DROP TABLE IF EXISTS job_item_master")
     conn.close()
 
     dataset = _dataset()
@@ -107,7 +107,7 @@ def test_postgres_executes_renaming_only_model_with_correct_values():
 
     executor = PostgresExecutor()
     executor.connect(connection=POSTGRES_DSN)
-    _load_raw_aufk(executor)
+    _load_raw_jobhdr(executor)
 
     result = executor.query(model_sql)
 

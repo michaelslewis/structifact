@@ -15,31 +15,31 @@ def _credit_dataset():
     """
     The minimal real-world contract this was scoped against (see
     DECISION_HISTORY.md's third real-world-validation entry): a
-    primary source (knkk) left-joined to a source (bsid) that must be
+    primary source (credctrl) left-joined to a source (openitem) that must be
     pre-aggregated -- summed via a conditional sign-flip, grouped by
     the join keys -- before the join happens.
     """
     return DatasetSpec(
-        name="customer_credit",
-        source_table="knkk",
+        name="account_summary",
+        source_table="credctrl",
         fields=[
-            FieldSpec(name="kunnr", type="string"),
-            FieldSpec(name="kkber", type="string"),
+            FieldSpec(name="custid", type="string"),
+            FieldSpec(name="ctrlarea", type="string"),
             FieldSpec(
-                name="struct_bsid_sum_dmbtr", type="decimal",
-                source="bsid", source_column="struct_bsid_sum_dmbtr",
+                name="struct_openitem_sum_amtlocal", type="decimal",
+                source="openitem", source_column="struct_openitem_sum_amtlocal",
             ),
         ],
         sources=[
             SourceRef(
-                name="bsid",
-                table="bsid",
+                name="openitem",
+                table="openitem",
                 aggregate=AggregateRule(
-                    group_by=["kunnr", "kkber"],
+                    group_by=["custid", "ctrlarea"],
                     aggregates={
-                        "struct_bsid_sum_dmbtr": (
-                            "SUM(case when shkzg = 'S' then dmbtr "
-                            "when shkzg = 'H' then -dmbtr else 0 end)"
+                        "struct_openitem_sum_amtlocal": (
+                            "SUM(case when dcind = 'S' then amtlocal "
+                            "when dcind = 'H' then -amtlocal else 0 end)"
                         ),
                     },
                 ),
@@ -47,8 +47,8 @@ def _credit_dataset():
         ],
         joins=[
             JoinSpec(
-                source="bsid",
-                on="knkk.kunnr = bsid.kunnr and knkk.kkber = bsid.kkber",
+                source="openitem",
+                on="credctrl.custid = openitem.custid and credctrl.ctrlarea = openitem.ctrlarea",
             ),
         ],
     )
@@ -81,7 +81,7 @@ def test_aggregate_with_empty_group_by_fails_validation():
         fields=[FieldSpec(name="order_id", type="string")],
         sources=[
             SourceRef(
-                name="bsid", table="bsid",
+                name="openitem", table="openitem",
                 aggregate=AggregateRule(group_by=[], aggregates={"total": "SUM(amount)"}),
             ),
         ],
@@ -97,7 +97,7 @@ def test_aggregate_with_no_aggregates_fails_validation():
         fields=[FieldSpec(name="order_id", type="string")],
         sources=[
             SourceRef(
-                name="bsid", table="bsid",
+                name="openitem", table="openitem",
                 aggregate=AggregateRule(group_by=["customer_id"], aggregates={}),
             ),
         ],
@@ -113,7 +113,7 @@ def test_aggregate_with_blank_expression_fails_validation():
         fields=[FieldSpec(name="order_id", type="string")],
         sources=[
             SourceRef(
-                name="bsid", table="bsid",
+                name="openitem", table="openitem",
                 aggregate=AggregateRule(group_by=["customer_id"], aggregates={"total": ""}),
             ),
         ],
@@ -134,33 +134,33 @@ def test_valid_aggregate_rule_passes_validation():
 def test_aggregate_source_produces_grouped_cte():
     sql = _gen().generate(_credit_dataset()).content
 
-    expected_cte = """bsid as (
+    expected_cte = """openitem as (
     select
-        kunnr, kkber,
-        SUM(case when shkzg = 'S' then dmbtr when shkzg = 'H' then -dmbtr else 0 end) as struct_bsid_sum_dmbtr
-    from bsid
-    group by kunnr, kkber
+        custid, ctrlarea,
+        SUM(case when dcind = 'S' then amtlocal when dcind = 'H' then -amtlocal else 0 end) as struct_openitem_sum_amtlocal
+    from openitem
+    group by custid, ctrlarea
 )"""
     assert expected_cte in sql
 
 
 def test_aggregate_source_field_qualified_by_source_alias():
     sql = _gen().generate(_credit_dataset()).content
-    assert "bsid.struct_bsid_sum_dmbtr as struct_bsid_sum_dmbtr" in sql
+    assert "openitem.struct_openitem_sum_amtlocal as struct_openitem_sum_amtlocal" in sql
 
 
 def test_aggregate_source_with_filter_applies_before_group_by():
     table = _credit_dataset()
-    table.sources[0].filter = "mandt = '100'"
+    table.sources[0].filter = "clientid = '100'"
 
     sql = _gen().generate(table).content
 
-    expected_cte = """bsid as (
+    expected_cte = """openitem as (
     select
-        kunnr, kkber,
-        SUM(case when shkzg = 'S' then dmbtr when shkzg = 'H' then -dmbtr else 0 end) as struct_bsid_sum_dmbtr
-    from bsid
-        where mandt = '100'
-    group by kunnr, kkber
+        custid, ctrlarea,
+        SUM(case when dcind = 'S' then amtlocal when dcind = 'H' then -amtlocal else 0 end) as struct_openitem_sum_amtlocal
+    from openitem
+        where clientid = '100'
+    group by custid, ctrlarea
 )"""
     assert expected_cte in sql

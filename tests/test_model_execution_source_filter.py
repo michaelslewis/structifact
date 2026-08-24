@@ -6,19 +6,19 @@ exact-value assertions.
 
 The fixture is the real acceptance case this feature was scoped
 against (see ir.py/model.py docstrings and DECISION_HISTORY.md): a
-primary source (cepc) with its own "current records only" filter,
-left-joined to a text source (cepct) that shares a column name
-(datbi) with the primary source. Real data is designed so a naive
+primary source (segmaster) with its own "current records only" filter,
+left-joined to a text source (segtext) that shares a column name
+(validto) with the primary source. Real data is designed so a naive
 post-join WHERE would either raise an ambiguous-column error or
 silently produce the wrong result -- this proves the CTE-wrapped
 implementation avoids both:
 
-- cepc has one active row (datbi='9999-12-31') and one expired row
-  (an older datbi) -- the expired row's profit center must not appear
-  in the final result at all, even though a matching cepct row exists
+- segmaster has one active row (validto='9999-12-31') and one expired row
+  (an older validto) -- the expired row's segment master must not appear
+  in the final result at all, even though a matching segtext row exists
   for it.
-- cepct has both an English and a German text row for the active
-  profit center -- only the English one (its own independent filter)
+- segtext has both an English and a German text row for the active
+  segment master -- only the English one (its own independent filter)
   should survive.
 
 Real PostgreSQL test here follows the existing convention: gated on
@@ -41,63 +41,63 @@ requires_postgres = pytest.mark.skipif(
 )
 
 
-def _profit_center_dataset() -> DatasetSpec:
+def _segment_master_dataset() -> DatasetSpec:
     return DatasetSpec(
-        name="profit_center",
-        source_table="cepc",
-        source_filter="datbi = '9999-12-31'",
+        name="segment_master",
+        source_table="segmaster",
+        source_filter="validto = '9999-12-31'",
         fields=[
-            FieldSpec(name="prctr", type="string", source_column="prctr"),
+            FieldSpec(name="segcode", type="string", source_column="segcode"),
             FieldSpec(
-                name="ktext", type="string",
-                source="cepct", source_column="ktext",
+                name="descrtext", type="string",
+                source="segtext", source_column="descrtext",
             ),
         ],
         sources=[
-            SourceRef(name="cepct", table="cepct", filter="spras = 'E'"),
+            SourceRef(name="segtext", table="segtext", filter="langcode = 'E'"),
         ],
         joins=[
-            JoinSpec(source="cepct", on="cepc.prctr = cepct.prctr"),
+            JoinSpec(source="segtext", on="segmaster.segcode = segtext.segcode"),
         ],
     )
 
 
 def _load_data(executor) -> None:
-    executor.execute_ddl("CREATE TABLE cepc (prctr VARCHAR, datbi VARCHAR)")
+    executor.execute_ddl("CREATE TABLE segmaster (segcode VARCHAR, validto VARCHAR)")
     executor.load_rows(
-        "cepc", ["prctr", "datbi"],
+        "segmaster", ["segcode", "validto"],
         [
-            {"prctr": "1000", "datbi": "9999-12-31"},  # active -> should survive
-            {"prctr": "2000", "datbi": "2020-01-01"},  # expired -> must be excluded
+            {"segcode": "1000", "validto": "9999-12-31"},  # active -> should survive
+            {"segcode": "2000", "validto": "2020-01-01"},  # expired -> must be excluded
         ],
     )
 
-    executor.execute_ddl("CREATE TABLE cepct (prctr VARCHAR, spras VARCHAR, datbi VARCHAR, ktext VARCHAR)")
+    executor.execute_ddl("CREATE TABLE segtext (segcode VARCHAR, langcode VARCHAR, validto VARCHAR, descrtext VARCHAR)")
     executor.load_rows(
-        "cepct", ["prctr", "spras", "datbi", "ktext"],
+        "segtext", ["segcode", "langcode", "validto", "descrtext"],
         [
-            {"prctr": "1000", "spras": "E", "datbi": "9999-12-31", "ktext": "Profit Center 1000 EN"},
-            {"prctr": "1000", "spras": "D", "datbi": "9999-12-31", "ktext": "Profit Center 1000 DE"},
-            # A matching text row exists for the EXPIRED cepc row too --
-            # proves cepc's own filter, not just the join, is what
+            {"segcode": "1000", "langcode": "E", "validto": "9999-12-31", "descrtext": "Segment Master 1000 EN"},
+            {"segcode": "1000", "langcode": "D", "validto": "9999-12-31", "descrtext": "Segment Master 1000 DE"},
+            # A matching text row exists for the EXPIRED segmaster row too --
+            # proves segmaster's own filter, not just the join, is what
             # excludes it from the final result.
-            {"prctr": "2000", "spras": "E", "datbi": "9999-12-31", "ktext": "Profit Center 2000 EN"},
+            {"segcode": "2000", "langcode": "E", "validto": "9999-12-31", "descrtext": "Segment Master 2000 EN"},
         ],
     )
 
 
 def _assert_correct_result(result) -> None:
-    # Exactly one row: the active profit center, English text only.
+    # Exactly one row: the active segment master, English text only.
     # If the primary-source filter were missing or ambiguous, this
-    # would either error (ambiguous "datbi") or return prctr=2000
+    # would either error (ambiguous "validto") or return segcode=2000
     # and/or the German text row too.
     assert len(result) == 1
-    assert result[0]["prctr"] == "1000"
-    assert result[0]["ktext"] == "Profit Center 1000 EN"
+    assert result[0]["segcode"] == "1000"
+    assert result[0]["descrtext"] == "Segment Master 1000 EN"
 
 
 def test_duckdb_executes_source_filter_model_with_correct_values():
-    dataset = _profit_center_dataset()
+    dataset = _segment_master_dataset()
     model_sql = ModelGenerator().generate(dataset).content
 
     executor = DuckDBExecutor()
@@ -120,11 +120,11 @@ def test_postgres_executes_source_filter_model_with_correct_values():
     conn = psycopg2.connect(dsn=POSTGRES_DSN)
     conn.autocommit = True
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS cepc")
-        cur.execute("DROP TABLE IF EXISTS cepct")
+        cur.execute("DROP TABLE IF EXISTS segmaster")
+        cur.execute("DROP TABLE IF EXISTS segtext")
     conn.close()
 
-    dataset = _profit_center_dataset()
+    dataset = _segment_master_dataset()
     model_sql = ModelGenerator().generate(dataset).content
 
     executor = PostgresExecutor()

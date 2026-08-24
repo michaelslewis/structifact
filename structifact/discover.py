@@ -414,7 +414,7 @@ def build_requirements_prompt(text: str) -> str:
         "before or after it, no markdown code fences. Double-quote "
         "EVERY string value, with no exceptions, even ones that look "
         "simple — a real field description or note can contain a "
-        "colon (e.g. 'Credit Management: Risk Category'), and an "
+        "colon (e.g. 'Account Status: Risk Tier'), and an "
         "unquoted colon inside a value breaks YAML parsing:",
         "",
         'dataset: "<inferred dataset name>"',

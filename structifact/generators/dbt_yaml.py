@@ -6,14 +6,14 @@ from ..ir import DatasetSpec
 def _source_field(f) -> str:
     """
     A field's own display name, with every underscore turned into a
-    dot -- e.g. `struct_cepc_verak_user` -> `struct.cepc.verak.user`.
+    dot -- e.g. `struct_segmaster_ownerid_user` -> `struct.segmaster.ownerid.user`.
 
     Corrected after a second real reference file confirmed the first
     guess was wrong: this is NOT derived from the physical
     source/source_column (what the initial implementation assumed) --
     both real examples confirmed it identically, including the one
     field whose physical column itself contains an underscore
-    (`verak_user`), which still gets split into `verak.user` here,
+    (`ownerid_user`), which still gets split into `ownerid.user` here,
     proving the split operates on the field's own name, not on
     anything physical. See DECISION_HISTORY.md.
     """

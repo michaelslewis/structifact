@@ -57,7 +57,7 @@ def test_sql_generator_string_uses_length():
         name="customers",
         fields=[
             FieldSpec(
-                name="mandt",
+                name="clientid",
                 type="string",
                 length=3,
             ),
@@ -66,7 +66,7 @@ def test_sql_generator_string_uses_length():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "mandt VARCHAR(3)" in artifact.content
+    assert "clientid VARCHAR(3)" in artifact.content
 
 
 def test_sql_generator_string_without_length_stays_text():
@@ -161,30 +161,30 @@ def test_dbt_yaml_generator_source_field_is_field_name_with_dots_for_underscores
     """
     table = DatasetSpec(
         name="customers",
-        fields=[FieldSpec(name="struct_cepc_mandt", type="string")],
+        fields=[FieldSpec(name="struct_segmaster_clientid", type="string")],
     )
 
     content = DBTYAMLGenerator().generate(table).content
 
-    assert "source_field: struct.cepc.mandt" in content
+    assert "source_field: struct.segmaster.clientid" in content
 
 
 def test_dbt_yaml_generator_source_field_splits_the_display_name_not_the_physical_column():
     """
     The exact disambiguating real case: a field whose PHYSICAL column
-    (verak_user, one word) contains an underscore that doesn't appear
+    (ownerid_user, one word) contains an underscore that doesn't appear
     in a table.column sense at all -- the real reference file still
-    split it into `verak.user`, proving the split operates on the
+    split it into `ownerid.user`, proving the split operates on the
     field's own declared name, not on any physical column reference.
     """
     table = DatasetSpec(
-        name="profit_center",
-        fields=[FieldSpec(name="struct_cepc_verak_user", type="string")],
+        name="segment_master",
+        fields=[FieldSpec(name="struct_segmaster_ownerid_user", type="string")],
     )
 
     content = DBTYAMLGenerator().generate(table).content
 
-    assert "source_field: struct.cepc.verak.user" in content
+    assert "source_field: struct.segmaster.ownerid.user" in content
 
 
 def test_dbt_yaml_generator_source_field_ignores_source_table_source_and_source_column():
@@ -194,17 +194,17 @@ def test_dbt_yaml_generator_source_field_ignores_source_table_source_and_source_
     function of the field's own display name.
     """
     table = DatasetSpec(
-        name="profit_center",
-        source_table="cepc",
+        name="segment_master",
+        source_table="segmaster",
         fields=[
             FieldSpec(
-                name="struct_cepct_ktext", type="string",
-                source="cepct", source_column="ktext",
+                name="struct_segtext_descrtext", type="string",
+                source="segtext", source_column="descrtext",
             ),
         ],
     )
 
     content = DBTYAMLGenerator().generate(table).content
 
-    assert "source_field: struct.cepct.ktext" in content
-    assert "source_field: cepct.ktext" not in content
+    assert "source_field: struct.segtext.descrtext" in content
+    assert "source_field: segtext.descrtext" not in content

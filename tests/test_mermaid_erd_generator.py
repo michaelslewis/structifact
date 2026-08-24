@@ -85,12 +85,12 @@ def test_decimal_field_shows_precision_and_scale():
 def test_string_field_shows_length():
     table = DatasetSpec(
         name="customers",
-        fields=[FieldSpec(name="mandt", type="string", length=3)],
+        fields=[FieldSpec(name="clientid", type="string", length=3)],
     )
 
     content = _gen().generate(table).content
 
-    assert "string(3) mandt" in content
+    assert "string(3) clientid" in content
 
 
 def test_primary_key_field_gets_pk_marker():

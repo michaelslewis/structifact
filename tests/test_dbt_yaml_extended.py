@@ -19,8 +19,8 @@ from structifact.generators.registry import GENERATORS, OPTIONAL_GENERATORS, ALL
 
 def _dataset(**overrides):
     defaults = dict(
-        name="profit_center",
-        fields=[FieldSpec(name="struct_cepc_mandt", type="string", role="dimension")],
+        name="segment_master",
+        fields=[FieldSpec(name="struct_segmaster_clientid", type="string", role="dimension")],
     )
     defaults.update(overrides)
     return DatasetSpec(**defaults)
@@ -37,7 +37,7 @@ def test_available_but_optional():
 
 def test_filename():
     artifact = DBTExtendedYAMLGenerator().generate(_dataset())
-    assert artifact.filename == "profit_center_dbt_extended.yml"
+    assert artifact.filename == "segment_master_dbt_extended.yml"
 
 
 def test_tags_always_include_dataset_name_as_final_tag():
@@ -45,30 +45,30 @@ def test_tags_always_include_dataset_name_as_final_tag():
     content = DBTExtendedYAMLGenerator().generate(dataset).content
     parsed = pyyaml.safe_load(content)
 
-    assert parsed["models"][0]["config"]["tags"] == ["tableau", "sap", "profit_center"]
+    assert parsed["models"][0]["config"]["tags"] == ["tableau", "sap", "segment_master"]
 
 
 def test_tags_are_just_the_dataset_name_when_dbt_tags_unset():
     content = DBTExtendedYAMLGenerator().generate(_dataset()).content
     parsed = pyyaml.safe_load(content)
 
-    assert parsed["models"][0]["config"]["tags"] == ["profit_center"]
+    assert parsed["models"][0]["config"]["tags"] == ["segment_master"]
 
 
 def test_datasource_name_defaults_to_title_cased_dataset_name():
-    dataset = _dataset(name="internal_order_master")
+    dataset = _dataset(name="job_item_master")
     content = DBTExtendedYAMLGenerator().generate(dataset).content
     parsed = pyyaml.safe_load(content)
 
-    assert parsed["models"][0]["meta"]["datasource_name"] == "Internal Order Master"
+    assert parsed["models"][0]["meta"]["datasource_name"] == "Job Item Master"
 
 
 def test_datasource_name_explicit_override_wins():
-    dataset = _dataset(dbt_datasource_name="Profit Center (Custom)")
+    dataset = _dataset(dbt_datasource_name="Segment Master (Custom)")
     content = DBTExtendedYAMLGenerator().generate(dataset).content
     parsed = pyyaml.safe_load(content)
 
-    assert parsed["models"][0]["meta"]["datasource_name"] == "Profit Center (Custom)"
+    assert parsed["models"][0]["meta"]["datasource_name"] == "Segment Master (Custom)"
 
 
 def test_schema_omitted_when_unset():
@@ -92,11 +92,11 @@ def test_description_reuses_existing_dataset_level_description_field():
     `description:` key reuses DatasetSpec.description, the same
     concept, not a second one.
     """
-    dataset = _dataset(description="Model for Profit Centers.")
+    dataset = _dataset(description="Model for Segment Masters.")
     content = DBTExtendedYAMLGenerator().generate(dataset).content
     parsed = pyyaml.safe_load(content)
 
-    assert parsed["models"][0]["description"] == "Model for Profit Centers."
+    assert parsed["models"][0]["description"] == "Model for Segment Masters."
 
 
 def test_description_omitted_when_unset():
@@ -144,7 +144,7 @@ def test_column_level_output_matches_plain_dbt_generator():
     """
     dataset = _dataset(
         fields=[
-            FieldSpec(name="struct_cepc_mandt", type="string", role="dimension"),
+            FieldSpec(name="struct_segmaster_clientid", type="string", role="dimension"),
         ],
     )
 
@@ -157,7 +157,7 @@ def test_column_level_output_matches_plain_dbt_generator():
 def test_comment_emitted_when_set():
     dataset = _dataset(
         fields=[
-            FieldSpec(name="struct_cepc_mandt", type="string", comment="Client"),
+            FieldSpec(name="struct_segmaster_clientid", type="string", comment="Client"),
         ],
     )
 
@@ -180,7 +180,7 @@ def test_exposures_key_always_present():
 def test_validate_accepts_valid_dbt_target_metadata():
     dataset = _dataset(
         dbt_schema="PUBLIC", dbt_tags=["tableau", "sap"],
-        dbt_datasource_name="Profit Center", dbt_datasource_project="Public",
+        dbt_datasource_name="Segment Master", dbt_datasource_project="Public",
     )
     validate_table(dataset)  # should not raise
 

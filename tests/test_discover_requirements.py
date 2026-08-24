@@ -210,7 +210,7 @@ def test_prompt_instructs_applying_later_override_sections():
 
 def test_prompt_instructs_double_quoting_every_string():
     # Found via real-world use (a ~500-field document): an unquoted
-    # colon inside a field description (e.g. "Credit Management: Risk
+    # colon inside a field description (e.g. "Account Status: Risk
     # Category") breaks YAML parsing, since a bare colon starts a new
     # mapping key. Never surfaced in earlier, smaller real examples --
     # none of their descriptions happened to contain a literal colon.
@@ -242,10 +242,10 @@ def test_parse_handles_quoted_value_containing_a_colon():
     # double-quoted description containing a colon must parse fine --
     # it's specifically an UNQUOTED colon that breaks YAML.
     response = (
-        'dataset: "deliveries"\n'
+        'dataset: "shipment_header"\n'
         "fields:\n"
-        '  - name: "struct_likp_stlan"\n'
-        '    description: "Credit Management: Risk Category"\n'
+        '  - name: "struct_delivhdr_bomusage"\n'
+        '    description: "Account Status: Risk Tier"\n'
         "    role: dimension\n"
         '    type: "varchar(2)"\n'
         "unresolved_notes: []\n"
@@ -253,7 +253,7 @@ def test_parse_handles_quoted_value_containing_a_colon():
 
     parsed = parse_requirements_draft(response)
 
-    assert parsed["fields"][0]["description"] == "Credit Management: Risk Category"
+    assert parsed["fields"][0]["description"] == "Account Status: Risk Tier"
 
 
 def test_parse_flags_computed_field_with_raw_logic():
@@ -321,7 +321,7 @@ def test_render_includes_comment_when_present():
     parsed = parse_requirements_draft(
         'dataset: "orders"\n'
         "fields:\n"
-        '  - name: "struct_likp_stafo"\n'
+        '  - name: "struct_delivhdr_statgroup"\n'
         '    description: "Statistics Update Grp (DN Hdr)"\n'
         "    role: dimension\n"
         '    comment: "Update Group for Statistics Update"\n'

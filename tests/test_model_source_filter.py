@@ -5,9 +5,9 @@ hypothetical): only joined-in sources (SourceRef.filter) could carry
 a filter; the primary source had nowhere to express one at all.
 
 The real acceptance case, verified end to end against actual data in
-tests/test_model_execution_source_filter.py, is a profit-center-style
-dataset: a primary source (CEPC) with its own "current records only"
-filter, left-joined to a text/description source (CEPCT) that shares
+tests/test_model_execution_source_filter.py, is a segment-master-style
+dataset: a primary source (SEGMASTER) with its own "current records only"
+filter, left-joined to a text/description source (SEGTEXT) that shares
 a column name (a "valid to" date) with the primary source -- the
 exact real scenario that makes a naive trailing WHERE dangerous, not
 just theoretically so. This file covers the unit-level SQL-shape
@@ -100,61 +100,61 @@ def test_no_source_filter_no_sources_joins_no_where_clause():
 # source_filter combined with sources/joins -- the CTE-wrapped case
 # ---------------------------------------------------------------------
 
-def _profit_center_style_dataset(source_filter="datbi = '9999-12-31'"):
+def _segment_master_style_dataset(source_filter="validto = '9999-12-31'"):
     """
-    The real, approved acceptance shape: a primary source (cepc) with
-    its own filter, left-joined to a text source (cepct) that shares
-    a column name (datbi) with the primary -- the exact real-world
+    The real, approved acceptance shape: a primary source (segmaster) with
+    its own filter, left-joined to a text source (segtext) that shares
+    a column name (validto) with the primary -- the exact real-world
     case that motivated this feature.
     """
     return DatasetSpec(
-        name="profit_center",
-        source_table="cepc",
+        name="segment_master",
+        source_table="segmaster",
         source_filter=source_filter,
         fields=[
-            FieldSpec(name="prctr", type="string", source_column="prctr"),
+            FieldSpec(name="segcode", type="string", source_column="segcode"),
             FieldSpec(
-                name="ktext", type="string",
-                source="cepct", source_column="ktext",
+                name="descrtext", type="string",
+                source="segtext", source_column="descrtext",
             ),
         ],
         sources=[
-            SourceRef(name="cepct", table="cepct", filter="spras = 'E'"),
+            SourceRef(name="segtext", table="segtext", filter="langcode = 'E'"),
         ],
         joins=[
-            JoinSpec(source="cepct", on="cepc.prctr = cepct.prctr"),
+            JoinSpec(source="segtext", on="segmaster.segcode = segtext.segcode"),
         ],
     )
 
 
 def test_source_filter_with_joins_wraps_primary_in_its_own_cte():
-    dataset = _profit_center_style_dataset()
+    dataset = _segment_master_style_dataset()
 
     artifact = _gen().generate(dataset)
 
     expected = """with
 
-cepc as (
+segmaster as (
     select *
-    from cepc
-    where datbi = '9999-12-31'
+    from segmaster
+    where validto = '9999-12-31'
 ),
 
-cepct as (
+segtext as (
     select *
-    from cepct
-        where spras = 'E'
+    from segtext
+        where langcode = 'E'
 ),
 
 final as (
 
     select
-        cepc.prctr as prctr,
-        cepct.ktext as ktext
+        segmaster.segcode as segcode,
+        segtext.descrtext as descrtext
 
-    from cepc
-    left join cepct
-        on cepc.prctr = cepct.prctr
+    from segmaster
+    left join segtext
+        on segmaster.segcode = segtext.segcode
 
 )
 
@@ -169,10 +169,10 @@ def test_source_filter_primary_cte_comes_before_joined_source_ctes():
     SQL this was scoped against is written) -- the primary source's
     CTE appears first, before any joined-in source CTEs.
     """
-    dataset = _profit_center_style_dataset()
+    dataset = _segment_master_style_dataset()
     content = _gen().generate(dataset).content
 
-    assert content.index("cepc as (") < content.index("cepct as (")
+    assert content.index("segmaster as (") < content.index("segtext as (")
 
 
 def test_no_source_filter_with_joins_primary_stays_bare_table_reference():
@@ -181,12 +181,12 @@ def test_no_source_filter_with_joins_primary_stays_bare_table_reference():
     a bare table reference in `from`, not a CTE -- exact pre-existing
     8D v1/v2 behavior, unchanged.
     """
-    dataset = _profit_center_style_dataset(source_filter=None)
+    dataset = _segment_master_style_dataset(source_filter=None)
 
     content = _gen().generate(dataset).content
 
-    assert "cepc as (" not in content
-    assert "from cepc\n" in content
+    assert "segmaster as (" not in content
+    assert "from segmaster\n" in content
 
 
 # ---------------------------------------------------------------------

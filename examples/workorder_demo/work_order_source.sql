@@ -23,8 +23,8 @@ price_cond as ( select * from {{ source('src', 'price_cond') }} ),
 fx as ( select * from {{ ref('int_fx_rate_lookup') }} ),
 
 -- PARTNER_ROLE joined three times under three different roles — the
--- self-join/multi-role pattern from the real example (vbpa_shipped_to
--- / vbpa_sold_to / vbpa_payer / etc. joined off one shared table).
+-- self-join/multi-role pattern, where several logical parties are all
+-- stored in one shared table and distinguished only by a role column.
 -- Each also applies the priority/tiebreak dedup rule: prefer
 -- is_current = 'Y'; if none is current, fall back to the most
 -- recently updated row.

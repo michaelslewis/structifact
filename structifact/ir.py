@@ -195,7 +195,7 @@ class AggregateRule:
     (DedupRule) or by aggregating every row in the group
     (AggregateRule), never both.
 
-    Found via real-world use (a real SAP-shaped customer-credit
+    Found via real-world use (a real SAP-shaped account-summary
     source, see DECISION_HISTORY.md): the reference SQL needed a
     joined source pre-aggregated (SUM(...) GROUP BY <keys>) before
     the join, which neither DedupRule nor a computed field's
@@ -214,10 +214,10 @@ class AggregateRule:
     `group_by` is the set of columns the source is aggregated down
     to one row per (typically the columns the join condition matches
     on). `aggregates` maps an output column alias to a raw SQL
-    aggregate expression (e.g. "SUM(oeikw)", or something more
+    aggregate expression (e.g. "SUM(valopen)", or something more
     involved like a conditional sign-flip:
-    "SUM(CASE WHEN shkzg = 'S' THEN dmbtr WHEN shkzg = 'H' THEN
-    -dmbtr ELSE 0 END)") -- same trust model as DedupRule.order_by
+    "SUM(CASE WHEN dcind = 'S' THEN amtlocal WHEN dcind = 'H' THEN
+    -amtlocal ELSE 0 END)") -- same trust model as DedupRule.order_by
     and FieldSpec.expression: inlined as-is, not parsed or validated
     beyond non-blankness.
 

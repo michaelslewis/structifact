@@ -1,6 +1,6 @@
 # Synthetic Requirements-Document Fixture
 
-Replaces the sanitized `deliveries` excerpt lost when macOS purged `/tmp`
+Replaces the sanitized `shipment_header` excerpt lost when macOS purged `/tmp`
 (see `scratch/STRATEGY_LOG.md`). Reproduces the same structural challenge with
 **entirely fictional content** — SAP table/field abbreviations are public schema
 names, nothing here derives from any employer material.
