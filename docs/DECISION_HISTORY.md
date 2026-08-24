@@ -698,6 +698,28 @@ The specific fixes matter less than the gap that let both ship unnoticed: `pytho
 
 ---
 
+# Decision: Removing pandas from the Metadata-Spec Excel Adapter
+
+## What Happened
+
+`structifact/adapters/excel.py` (`load_excel()`) read metadata-spec `.xlsx` files via `pandas.read_excel()`, converting the result to row dicts with `df.to_dict(orient="records")`. This is a different use of pandas from `structifact/discover.py`'s `discover --requirements --ai`, which reads freeform requirements documents with `pd.read_excel(path, sheet_name=None, header=None)` for raw text extraction — a separate feature, explicitly out of scope for the in-browser app (see `scratch/pyodide/pyodide_feasibility.md`'s "Known limitation" section), and left untouched by this change.
+
+The metadata-spec path needed to drop pandas because it's one of the two things standing between the deterministic generate path and running entirely in a browser via Pyodide (the other, PyYAML, is pure Python and already works there). The Pyodide feasibility test confirmed the rest of the path — adapters (CSV/YAML), IR, validation, and all 7 generators — runs unmodified with only the standard library plus PyYAML; pandas was the one remaining heavy, C-extension-backed dependency, and it was already lazy-imported specifically so a YAML/CSV-only build would never pay for it. Removing it from the Excel path entirely (rather than just deferring it) means a browser build supporting `.xlsx` upload no longer needs pandas at all.
+
+`load_excel()` was rewritten to use `openpyxl.load_workbook(path, data_only=True, read_only=True)` directly: `.active.iter_rows(values_only=True)` in place of `df.to_dict(orient="records")`, with the first row consumed as headers and each subsequent row zipped into a dict. The `FieldSpec(...)` construction logic itself — every field mapping, `parse_type`/`parse_bool`/`parse_list` call, and the `_cell()`/`_parse_bound()` helpers' calling convention — was left unchanged; only the row-reading mechanism changed.
+
+One behavioral wrinkle worth recording: pandas represented a blank optional cell as `NaN` (a float), which is truthy and stringifies to the literal text `"nan"` — the exact bug `_cell()` was originally written to guard against (`value or ""` doesn't catch it; `NaN or ""` evaluates to `NaN` itself). openpyxl with `values_only=True` hands back a genuinely blank cell as native Python `None` instead, so the primary case `_cell()` now handles is the plain `None` check; the `NaN`-float check was kept rather than deleted, since a cached formula-error result (e.g. a stored `0/0`) could in principle still read back as `NaN`, and the check remains correct and harmless either way.
+
+## Verification
+
+The existing behavioral contract in `tests/test_csv_excel_adapters.py` (role/accepted_values, `nullable=false`, the blank-cell-must-not-become-`"nan"`-string case, missing-nullable-column defaults, computed/expression/depends_on) was treated as the spec for this rewrite rather than rewritten — all 28 tests in that file pass unchanged against the openpyxl implementation, and the full suite shows zero new regressions. `pyproject.toml`'s `excel` extra keeps both `pandas` and `openpyxl` as dependencies: pandas is still required by `discover.py`'s separate requirements-document feature, and by the test file's own fixture-building helpers (`pd.DataFrame(rows).to_excel(...)`), so it wasn't a candidate for removal from the package's dependency list — only from this one adapter's implementation.
+
+## Why This Is Worth Recording
+
+Two different modules importing the same library for two different reasons is easy to conflate into "we still need pandas, so no point removing it anywhere" — which would have been the wrong conclusion here. The dependency that actually mattered for the browser app was scoped to one specific import site, not the whole package; finding that required tracing every `import pandas` / `pd.` usage (via `git grep`) before deciding what to change, rather than assuming the two Excel-reading code paths were the same problem.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
