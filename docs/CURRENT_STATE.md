@@ -28,7 +28,7 @@ This document intentionally separates current reality from future vision. See `R
 
 # Current Project Status
 
-Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (547 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
+Structifact has moved well past the initial framework-foundation stage. The core pipeline — adapters, IR, validation, and generation — is implemented, tested (559 tests passing, CI-enforced on Python 3.11/3.12), and has been exercised against real, non-trivial examples, not just the golden path.
 
 Beyond the original schema-definition/generation pipeline, Structifact now also:
 
@@ -110,6 +110,7 @@ structifact/                        (repo root)
 │   │   ├── registry.py
 │   │   ├── csv.py
 │   │   ├── excel.py
+│   │   ├── markdown.py
 │   │   └── yaml.py
 │   │
 │   └── generators/
@@ -125,7 +126,7 @@ structifact/                        (repo root)
 │       ├── mermaid_erd.py          Step 1: Mermaid erDiagram (structifact.com build plan)
 │       └── json_schema.py          Step 2: JSON Schema (structifact.com build plan)
 │
-├── tests/                          (47 files, 547 tests)
+├── tests/                          (48 files, 559 tests)
 ├── docs/                           this document and its siblings
 ├── pyproject.toml
 ├── README.md
@@ -140,7 +141,7 @@ Note: `structifact/parser.py`, referenced in earlier drafts of this document, wa
 
 ## Metadata Layer
 
-Datasets are defined declaratively via YAML (canonical), CSV, or Excel — all three normalize through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping.
+Datasets are defined declaratively via YAML (canonical), CSV, Excel, or Markdown — all four normalize through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping.
 
 A dataset definition can now express, well beyond the original name/fields/types:
 
@@ -156,7 +157,7 @@ A dataset definition can now express, well beyond the original name/fields/types
 
 ## Adapter Architecture
 
-Implemented adapters: YAML (primary/canonical), CSV, Excel. CSV and Excel are at parity with each other on every `FieldSpec` attribute they support, including the Phase 6 v2 additions (`min_value`/`max_value`/`pattern`) — but YAML is a strict superset: per-field `source`/`source_column` (cross-source attribution) and `label` are YAML-only, matching how dataset-level `constraints`/`source_table`/`sources`/`joins`/`depends_on` are also YAML-only.
+Implemented adapters: YAML (primary/canonical), CSV, Excel, Markdown. CSV, Excel, and Markdown are at parity with each other on every `FieldSpec` attribute they support, including the Phase 6 v2 additions (`min_value`/`max_value`/`pattern`) — but YAML is a strict superset: per-field `source`/`source_column` (cross-source attribution) and `label` are YAML-only, matching how dataset-level `constraints`/`source_table`/`sources`/`joins`/`depends_on` are also YAML-only. Markdown is the same field-grid shape as CSV/Excel, just written as a GFM pipe table rather than a spreadsheet grid — it's a distinct thing from `discover --ai`'s freeform `.md` requirements-document extraction (see EXAMPLES.md's Example 9), the same duality already established for `.xlsx`.
 
 ---
 
@@ -291,7 +292,7 @@ AI assistance is entirely optional and bring-your-own-key: `structifact/llm.py` 
 
 # Current Technology Stack
 
-**Implemented:** Python, YAML, SQL, Git, pytest, GitHub Actions. Optional: `pandas`/`openpyxl` (Excel adapter), Anthropic API (opt-in LLM assistance).
+**Implemented:** Python, YAML, SQL, Git, pytest, GitHub Actions. Optional: `openpyxl` (Excel adapter), Anthropic API (opt-in LLM assistance). Markdown adapter needs nothing beyond the standard library.
 
 **Under consideration for future work, not yet dependencies:** DuckDB, Apache Parquet, dbt (as an execution engine — Structifact currently *generates* dbt-shaped YAML, it doesn't run dbt), Snowflake, Prefect, and other warehouse/orchestration integrations.
 

@@ -53,6 +53,17 @@ They are now implemented, tested, and covered by CI:
   checkmark output.
 * **CSV/Excel adapters normalize types** the same way the YAML adapter
   does, via `types.parse_type()`.
+* **Markdown adapter** (`structifact/adapters/markdown.py`) — a fourth
+  field-grid input format (`.md`, alongside CSV/Excel), same column
+  contract and the same `types.py` normalization, written as a GFM
+  pipe table instead of a spreadsheet grid; tolerates a heading or
+  prose around the one table it looks for. Distinct from
+  `discover --ai`'s freeform `.md`/`.txt` document extraction — the
+  same duality already established for `.xlsx` between a clean
+  field-grid workbook (`load_excel`) and a raw requirements workbook
+  (`discover.extract_text_from_xlsx()`); which one runs depends on the
+  command, not the extension. See `examples/customers.md` and
+  `docs/EXAMPLES.md`'s "The Same Schema as CSV, Excel, or Markdown."
 * **Continuous integration** — the test suite runs automatically via
   GitHub Actions on every push and pull request against `main`
   (Python 3.11 and 3.12; 322 tests as of this writing).

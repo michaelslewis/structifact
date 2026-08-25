@@ -67,7 +67,8 @@ pip install -e .
 Requires Python 3.10+ (CI runs 3.11 and 3.12). The base install has
 no dependencies beyond PyYAML — `validate`, `generate`, `deps`,
 `impact`, `reconcile`, and CSV-based `discover`/`validate-data` all
-work immediately, no further setup.
+work immediately, no further setup. Markdown input (`.md`) works the
+same way — no extra required.
 
 Everything else is opt-in, via extras:
 
@@ -239,7 +240,7 @@ boundary of what v1 does and doesn't claim.
 ## How It Works
 
 ```text
-Input Metadata (YAML / CSV / Excel)
+Input Metadata (YAML / CSV / Excel / Markdown)
               |
               v
           Adapters
@@ -342,12 +343,13 @@ reasoning behind these choices.
 
 ## Current Capabilities
 
-* YAML, CSV, and Excel input adapters, all normalizing types through
-  a shared type system — CSV and Excel are at parity with each other
-  on every field-level attribute they support; YAML is a strict
-  superset (per-field `source`/`source_column`, and everything at
-  the dataset level beyond a bare name/description, are YAML-only —
-  see [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full column
+* YAML, CSV, Excel, and Markdown input adapters, all normalizing
+  types through a shared type system — CSV, Excel, and Markdown are
+  at parity with each other on every field-level attribute they
+  support; YAML is a strict superset (per-field `source`/
+  `source_column`, and everything at the dataset level beyond a bare
+  name/description, are YAML-only — see
+  [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full column
   reference)
 * An Intermediate Representation (`DatasetSpec` / `FieldSpec` /
   `ConstraintSpec`) as the stable internal model, including optional
@@ -421,8 +423,9 @@ reasoning behind these choices.
 **Currently used:** Python, YAML, SQL, Git, pytest, GitHub Actions,
 DuckDB (embedded, no setup), `psycopg2`/PostgreSQL (real integration
 tests run against an actual server, both locally and in CI). Optional:
-`pandas`/`openpyxl` (Excel input), the Anthropic API (opt-in
-AI-assisted discovery only).
+`openpyxl` (Excel input), the Anthropic API (opt-in
+AI-assisted discovery only). Markdown input needs nothing beyond the
+standard library.
 
 **Under consideration for future work, not yet dependencies:**
 Snowflake, Apache Parquet, dbt (as an execution engine — Structifact

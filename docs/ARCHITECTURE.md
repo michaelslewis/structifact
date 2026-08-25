@@ -178,9 +178,10 @@ Current adapters:
 
 YAML (`structifact/adapters/yaml.py`) — the primary/canonical format; supports the canonical `dataset:` contract, the legacy `table:` format, per-field `role`, value-level rules (`min_value`/`max_value`/`pattern`), cross-source attribution (`source`/`source_column`), dataset-level `sources`/`joins`/`depends_on`, and constraints including `foreign_key`'s `target_table`/`target_column` and `check`'s `expression`
 CSV (`structifact/adapters/csv.py`) — a field-grid format; does not represent dataset-level `constraints`/`sources`/`joins`/`depends_on`, since a flat one-row-per-field CSV has no natural place for them
-Excel (`structifact/adapters/excel.py`) — same field-grid shape as CSV, via `pandas`; normalizes pandas' blank-cell `NaN` representation to `None`
+Excel (`structifact/adapters/excel.py`) — same field-grid shape as CSV, via `openpyxl`; normalizes a blank cell's `NaN` representation to `None`
+Markdown (`structifact/adapters/markdown.py`) — same field-grid shape as CSV, written as a GFM pipe table instead of a spreadsheet grid; tolerates surrounding prose (a heading, introductory notes) around the one table it looks for. Distinct from `structifact discover --ai`'s freeform `.md`/`.txt` document extraction — same duality already established for `.xlsx` between this deterministic path and `discover.extract_text_from_xlsx()`; which one runs depends on the command (`validate`/`generate` vs. `discover --ai`), not on the extension alone.
 
-All three adapters normalize raw type strings through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping logic, and are kept at parity on field-level attributes (CSV/Excel do not yet support dataset-level `sources`/`joins`/`constraints`/`depends_on`, which remain YAML-only).
+All four adapters normalize raw type strings through the shared type system (`structifact/types.py`) rather than each implementing their own type-mapping logic, and are kept at parity on field-level attributes (CSV/Excel/Markdown do not yet support dataset-level `sources`/`joins`/`constraints`/`depends_on`, which remain YAML-only).
 
 Future adapters may include: JSON, database metadata sources, cloud storage formats, API-based metadata sources.
 

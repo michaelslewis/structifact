@@ -40,9 +40,9 @@ constraints:
 
 This is the actual golden-path example shipped in the repo — every subsequent example in this document either builds on it or shows a different real one.
 
-## The Same Schema as CSV or Excel
+## The Same Schema as CSV, Excel, or Markdown
 
-YAML is canonical, but the same schema can be written as a CSV or Excel spec file instead — one row per field, column headers giving each field's attributes. `examples/customers.csv` is the exact CSV equivalent of the YAML above:
+YAML is canonical, but the same schema can be written as a CSV, Excel, or Markdown spec file instead — one row per field, column headers giving each field's attributes. `examples/customers.csv` is the exact CSV equivalent of the YAML above:
 
 ```csv
 column_name,type,description
@@ -50,7 +50,18 @@ customer_id,string,Unique customer identifier
 created_at,timestamp,Account creation time
 ```
 
-The full set of columns the CSV and Excel adapters recognize — `column_name` and `type` are required, everything else is optional and may be left blank:
+`examples/customers.md` is the same thing again, as a GFM pipe table:
+
+```markdown
+| column_name  | type      | description                 |
+|--------------|-----------|------------------------------|
+| customer_id  | string    | Unique customer identifier   |
+| created_at   | timestamp | Account creation time        |
+```
+
+A heading or prose can introduce or follow the table — the adapter looks for the first `column_name`/`type` pipe table in the file and ignores everything else around it. It only expects one table per file, though.
+
+The full set of columns the CSV, Excel, and Markdown adapters recognize — `column_name` and `type` are required, everything else is optional and may be left blank:
 
 | Column | Meaning | Format |
 |---|---|---|
@@ -66,11 +77,11 @@ The full set of columns the CSV and Excel adapters recognize — `column_name` a
 | `min_value` / `max_value` | Inclusive numeric bounds | plain number |
 | `pattern` | Regex the value must fully match | plain text |
 
-An Excel spec file (`.xlsx`) uses the exact same column headers, as the first row of one sheet — the Excel adapter reads it with `pandas.read_excel`, same shape as the CSV above, just in workbook form. Requires the `excel` extra (`pip install -e ".[excel]"`).
+An Excel spec file (`.xlsx`) uses the exact same column headers, as the first row of one sheet — the Excel adapter reads it with `openpyxl`, same shape as the CSV above, just in workbook form. Requires the `excel` extra (`pip install -e ".[excel]"`).
 
-**This is a different thing from a raw Excel or Word requirements document** someone wrote by hand to describe a dataset — prose, a loose table, notes — rather than one already shaped as `column_name`/`type` rows. For that, see Example 9 below (`structifact discover --ai`) rather than trying to feed it to `validate`/`generate` directly.
+**This is a different thing from a raw Excel, Word, or Markdown requirements document** someone wrote by hand to describe a dataset — prose, a loose table, notes — rather than one already shaped as `column_name`/`type` rows. For that, see Example 9 below (`structifact discover --ai`) rather than trying to feed it to `validate`/`generate` directly. `.md` in particular means two different things depending on which command you run: `validate`/`generate` always expect a clean `column_name`/`type` table (like `examples/customers.md` above); `discover --ai` always treats a `.md` file as freeform text to extract from, whatever its actual shape — the same split that already exists for `.xlsx` between this deterministic path and a raw requirements workbook.
 
-Not available in CSV/Excel, YAML-only: per-field `source`/`source_column` (cross-source attribution) and `label`, plus everything at the dataset level beyond a bare name/description — `constraints`, `source_table`/`sources`/`joins`, and `depends_on`.
+Not available in CSV/Excel/Markdown, YAML-only: per-field `source`/`source_column` (cross-source attribution) and `label`, plus everything at the dataset level beyond a bare name/description — `constraints`, `source_table`/`sources`/`joins`, and `depends_on`.
 
 ---
 
@@ -344,7 +355,7 @@ Any `--ai` usage requires an `ANTHROPIC_API_KEY` environment variable — Struct
 
 # Example 9 — Bootstrapping a Schema from a Requirements Document
 
-For a freeform requirements document (a table-based spec, prose, bullet points, or a mix — see `examples/workorder_demo/REQUIREMENTS_workorder.md` for a real, complex example), there's no deterministic parsing path — `--ai` is required. There's no separate `--requirements` flag either: a `.md`/`.txt`/`.xlsx` file passed to `discover` is routed to this path automatically, based on its extension:
+For a freeform requirements document (a table-based spec, prose, bullet points, or a mix — see `examples/workorder_demo/REQUIREMENTS_workorder.md` for a real, complex example), there's no deterministic parsing path — `--ai` is required. There's no separate `--requirements` flag either: a `.md`/`.txt`/`.xlsx` file passed to `discover` is routed to this path automatically, based on its extension, regardless of what's actually in the file — `discover` never tries the deterministic Markdown adapter first. If your `.md` file is already a clean `column_name`/`type` table like `examples/customers.md` (see "The Same Schema as CSV, Excel, or Markdown" above), skip `discover` entirely and pass it straight to `validate`/`generate` — `--ai` and a token cost aren't needed for something already in that shape.
 
 ```bash
 $ structifact discover REQUIREMENTS_workorder.md --ai
