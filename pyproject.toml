@@ -32,6 +32,17 @@ postgres = [
 
 dev = [
     "pytest",
+    "jsonschema>=4.0",
+]
+
+all = [
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "anthropic>=0.40",
+    "duckdb>=0.10",
+    "psycopg2-binary>=2.9",
+    "pytest",
+    "jsonschema>=4.0",
 ]
 
 [project.scripts]
