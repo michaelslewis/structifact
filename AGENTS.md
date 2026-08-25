@@ -39,6 +39,15 @@ rather than philosophy — read those two files for the "why."
    source of truth. Never let an AI-generated suggestion silently
    become production metadata.
 
+7. **Never commit real or work-derived material, and never store it
+   in a temporary location.** Real-world validation examples are
+   hand-sanitized and re-aliased by the author, and live only in a
+   scratchpad directory outside this repository — never in the repo,
+   never in git history. Never suggest `/tmp`, `/private/tmp`, or any
+   OS-managed temporary directory for that material: macOS purges
+   those, and hours of hand-sanitization were lost that way once. Use
+   a durable user directory, and never `git add` from it.
+
 ## Working practices
 
 - **Update the GitHub project board (user michaelslewis, project 1)
@@ -73,12 +82,30 @@ rather than philosophy — read those two files for the "why."
 - **Prefer small, focused commits over large ones.** One logical
   change per commit, with a message that explains *why*, not just
   *what*.
+- **Never add `Co-Authored-By` trailers or "Generated with Claude
+  Code" footers to commits.** Commit authorship in this repository
+  belongs to the human author alone. This is also enforced by the
+  `attribution` setting in `~/.claude/settings.json`, but it is
+  stated here because not every assistant reads that file.
+- **Write commit messages that read well to a stranger, in public,
+  years from now.** Describe the change on its own terms. Don't
+  editorialize about the author's circumstances, and don't describe a
+  cleanup in language that invites a reader to go looking for what
+  was cleaned up — a neutral, accurate subject line is both more
+  honest and more useful than a dramatic one.
 - **When you change behavior, check whether docs describe the old
   behavior.** This project has drifted between docs and reality
   before (see below) — don't let it happen again.
 - **Don't leave dead code around "just in case."** If nothing
   imports it and it doesn't match current architecture, remove it
   rather than letting it accumulate.
+- **Confirm cost before escalating spend on an AI-assisted task.**
+  Raising a token cap, switching to a more expensive model, or
+  retrying after a timeout are each a new spending decision, not a
+  continuation of the approved one. Estimate aloud and get an
+  explicit go-ahead each time — an unattended diagnostic loop once
+  spent roughly ten times what had been estimated, without ever
+  pausing to ask.
 
 ## Known project-specific traps (already hit once — don't repeat)
 
@@ -95,6 +122,10 @@ rather than philosophy — read those two files for the "why."
   like the YAML adapter does — they previously passed raw type
   strings straight through, which was an inconsistent contract across
   adapters even though no test caught it at the time.
+- Multiple assistant sessions may be working in this repository
+  concurrently. Check `git log` / `git status` for the real current
+  state rather than trusting any single session's assumptions about
+  what is committed.
 
 ## Where things live
 
