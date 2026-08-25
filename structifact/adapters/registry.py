@@ -7,6 +7,7 @@ ADAPTERS = {
     ".yaml": ("structifact.adapters.yaml", "load_yaml"),
     ".xlsx": ("structifact.adapters.excel", "load_excel"),
     ".csv": ("structifact.adapters.csv", "load_csv"),
+    ".md": ("structifact.adapters.markdown", "load_markdown"),
 }
 
 def load_spec(path):

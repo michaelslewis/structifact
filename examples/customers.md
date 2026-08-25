@@ -1,0 +1,4 @@
+| column_name | type | description |
+|---|---|---|
+| customer_id | string | Unique customer identifier |
+| created_at | timestamp | Account creation time |
