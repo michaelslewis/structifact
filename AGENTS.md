@@ -75,6 +75,16 @@ rather than philosophy — read those two files for the "why."
   visible from the machine that ran the tests locally — see
   `DECISION_HISTORY.md`'s "CI Had Been Red for Four Commits Before
   Anyone Checked."
+- **Check the test count, not just the green check.** CI attests only
+  to what it collected, and collection depends on what CI installed.
+  A module whose imports fail is dropped from collection silently —
+  no error, no skip, no mention in the summary line — so a run can be
+  green on a smaller suite than anyone thinks it's running. 37
+  adapter tests went uncollected this way for an extended stretch,
+  including a regression test for a real bug. Local and CI counts
+  should reconcile exactly, with any difference fully explained by
+  environment-gated tests (currently: CI's 580 = local's 559 + the 21
+  PostgreSQL tests that need a real DSN).
 - **When generator output changes, update the golden files.**
   `tests/golden/` and `examples/customers/generated/` must stay in
   sync with what the generators actually produce. A test that

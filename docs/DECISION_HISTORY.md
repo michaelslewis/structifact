@@ -720,6 +720,125 @@ Two different modules importing the same library for two different reasons is ea
 
 ---
 
+# Decision: A Green Check That Attested to Less Than It Appeared To
+
+## What Happened
+
+Setting up a fresh venv on a new machine surfaced a mismatch worth
+chasing rather than shrugging at: the local suite reported 559 passed
+/ 21 skipped, while CI reported 542 passed / 3 skipped. Both numbers
+looked plausible on their own, both runs were green, and nothing in
+either output announced a problem — which is precisely why the gap
+had gone unremarked.
+
+The cause was a packaging/CI mismatch. `.github/workflows/tests.yml`
+installed `.[dev,duckdb,postgres]` — no `excel` extra, so no pandas
+and no openpyxl. `tests/test_csv_excel_adapters.py` and
+`tests/test_discover_xlsx.py` both reach those libraries at import
+time (directly in the xlsx test's fixture construction, indirectly
+through the adapter under test), so pytest failed to import both
+modules and dropped them from collection entirely. A module whose
+import fails is not skipped and not reported as an error in the
+summary line — it is simply absent, and the run stays green.
+
+A direct collection diff between the two installs (`pytest
+--collect-only` under `.[dev,duckdb,postgres]` versus `.[all]`,
+compared with `comm`) named exactly which tests were affected: 37 of
+them, in the two files above.
+
+Three details in that list are worth stating rather than
+generalizing away:
+
+* **The CSV adapter tests were collateral damage.** The whole CSV
+  field-parity suite — `role`/`accepted_values`, `nullable`,
+  `computed`/`expression`/`depends_on`, and the `parse_bool` /
+  `parse_list` helper tests — lives in the same file as the Excel
+  tests. CSV needs neither pandas nor openpyxl, but it shares a
+  module with something that does, so the whole file went
+  uncollected. The blast radius of a failed import is the file, not
+  the dependency.
+* **A regression test for a real, previously-fixed bug had never
+  once run in CI.** `test_excel_blank_optional_cells_do_not_become_
+  literal_nan_string` guards the pandas `NaN`-blank-cell behavior
+  documented in "Removing pandas from the Metadata-Spec Excel
+  Adapter." It was written in response to a genuine defect and was
+  enforced only on machines that happened to have the excel extra
+  installed.
+* **One test could not run for the exact reason it exists.**
+  `test_xlsx_without_excel_extra_reports_clean_message` asserts that
+  a missing excel extra produces a clean error rather than a
+  traceback. Without the excel extra, its own module failed to
+  import, so it was never collected.
+
+All 37 pass once collected. Nothing was broken — but the Excel
+adapter was rewritten from pandas onto openpyxl (see the entry above)
+while none of its tests were being enforced by CI, and the same was
+true for every adapter-parity change before that.
+
+## What Was Done
+
+Added an `all` extra to `pyproject.toml` naming every optional
+dependency, and changed CI to install `.[all]`. Added `jsonschema` to
+the `dev` extra so `test_json_schema_generator.py`'s meta-schema
+validation test runs deterministically rather than only where the
+package happened to be present — it had been skipping, visibly, which
+is a materially better failure mode than the two files above, and it
+passes on its first real execution.
+
+Local and CI counts now reconcile exactly: local reports 559 passed /
+21 skipped, CI reports 580 passed / 0 skipped, and the difference is
+precisely the 21 PostgreSQL tests that skip without a
+`STRUCTIFACT_TEST_POSTGRES_DSN` and run against CI's real Postgres
+service. That the two environments now add up is itself the check
+that was missing — the arithmetic only works when nothing is silently
+absent from either side.
+
+The dependency lists in the `all` extra are duplicated from the
+individual extras rather than expressed self-referentially
+(`structifact[excel,ai,duckdb,postgres]`). Self-reference resolves
+correctly on modern pip, but with five short lists the duplication is
+easier to read at a glance; the cost, recorded here so it isn't
+rediscovered later, is that adding a dependency means updating two
+places.
+
+## Why This Is Worth Recording
+
+This document already contains "CI Had Been Red for Four Commits
+Before Anyone Checked," whose lesson was that a locally-green
+`pytest` says nothing about CI, and whose fix was a working practice:
+check `gh run list` after a push. That practice was in place and was
+being followed. It did not help, because the failure mode here is one
+layer further in: CI was not red. It was green, on a smaller suite
+than anyone believed it was running.
+
+The narrower, more durable statement: **a green check attests only to
+what was collected, and collection depends on what was installed.**
+An import failure removes tests silently — no error, no skip, no
+mention in the summary — so the only signal is a count, and a count
+is only meaningful if something is actually comparing it against an
+expected value. Nothing was.
+
+This is also the same shape as the two adapter bugs recorded earlier
+in this document (`yaml.py` never parsing `target_table`, never
+parsing `sources`/`joins`): a component that was correct, tested, and
+unreachable through the path a real user or a real CI run would
+actually take. Here the unreachable component was the test suite
+itself. AGENTS.md's working practices are updated alongside this
+entry to say that the count is part of what gets checked, not just
+the checkmark.
+
+Worth noting how it was actually found, since it was not found by any
+practice this project had: a fresh-machine venv setup produced a
+number that didn't match the documented one, and the discrepancy was
+chased instead of rounded off. The same fresh-machine setup that
+found the missing `openpyxl` dependency in `pyproject.toml`'s excel
+extra, one machine ago. Building the project from scratch in a clean
+environment keeps surfacing gaps that no amount of working in an
+already-configured one can, because the already-configured
+environment is exactly what hides them.
+
+---
+
 # Guiding Principle
 
 Every future decision should be evaluated against:
