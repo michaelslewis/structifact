@@ -9,6 +9,17 @@ JOIN_KEYWORDS = {
     "inner": "inner join",
 }
 
+# pick_one_order_by's LATERAL form (docs/PICK_ONE_ORDER_BY_CONTRACT.md
+# §4) — one keyword per JOIN_KEYWORDS entry it composes with. The
+# ".get(j.type, ...)" fallback below mirrors JOIN_KEYWORDS's own
+# fallback pattern above; it is defensive/dead code under normal
+# validated input, since validation.py already restricts JoinSpec.type
+# to SUPPORTED_JOIN_TYPES ("left"/"inner") before generation ever runs.
+LATERAL_JOIN_KEYWORDS = {
+    "left": "left join lateral",
+    "inner": "inner join lateral",
+}
+
 
 def _source_cte(source: SourceRef) -> str:
     """
@@ -220,8 +231,31 @@ from {primary}{where_clause};"""
 
         join_lines = []
         for j in dataset.joins:
-            keyword = JOIN_KEYWORDS.get(j.type, "left join")
-            join_lines.append(f"    {keyword} {j.source}\n        on {j.on}")
+            if j.pick_one_order_by:
+                # Correlated LATERAL form (docs/PICK_ONE_ORDER_BY_CONTRACT.md
+                # §1-2): `on` is reused verbatim as the subquery's WHERE
+                # (it's already fully-qualified raw SQL, so moving it
+                # from an ON clause into a correlated WHERE changes
+                # nothing textually), scoped against `source`'s own
+                # already-deduped/aggregated CTE. Reusing `j.source` as
+                # both the CTE name read from inside the subquery and
+                # the outer LATERAL alias keeps every existing
+                # `_select_line` qualification (`{source}.{column}`)
+                # resolving unchanged -- no change needed there.
+                keyword = LATERAL_JOIN_KEYWORDS.get(j.type, "left join lateral")
+                order = ", ".join(j.pick_one_order_by)
+                join_lines.append(
+                    f"    {keyword} (\n"
+                    f"        select *\n"
+                    f"        from {j.source}\n"
+                    f"        where {j.on}\n"
+                    f"        order by {order}\n"
+                    f"        limit 1\n"
+                    f"    ) as {j.source} on true"
+                )
+            else:
+                keyword = JOIN_KEYWORDS.get(j.type, "left join")
+                join_lines.append(f"    {keyword} {j.source}\n        on {j.on}")
         joined_clause = "\n".join(join_lines)
 
         sql = (

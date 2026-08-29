@@ -1,0 +1,106 @@
+dataset:
+  name: order_status_and_revenue_pick_one_order_by
+  description: >
+    The same order-status-as-of-order-date business rule as
+    order_status_and_revenue_candidates.yml / order_status_resolved.yml
+    (see FINDINGS.md, experiment_b_notes.md) -- for each order, resolve
+    the customer's lifecycle status as of the order's own order_date
+    (the most recent customer_status_history row with effective_date <=
+    order_date, per REQUIREMENTS.md) and attach the order's total
+    revenue -- but as ONE dataset instead of the original two.
+
+    ADDED AFTER the original experiment, once
+    docs/PICK_ONE_ORDER_BY_CONTRACT.md was approved and implemented --
+    NOT a rewrite of experiment_b's original files, which are left
+    exactly as they were, warts and workaround included, as the
+    historical record FINDINGS.md/experiment_b_notes.md describe.
+
+    Original workaround (still present, unedited, in this directory):
+    DedupRule's ROW_NUMBER() CTE is built purely from the joined-in
+    source's own columns, before any join happens (see model.py's
+    _source_cte), so it had no visibility into orders.order_date --
+    it could express "customer's single latest status ever", never
+    "latest status as of THIS order's date". That forced a three-file
+    split: order_status_and_revenue_candidates.yml (fans out every
+    qualifying status candidate via a plain, non-deduped join) ->
+    order_status_resolved.yml (a SECOND dataset whose only job is
+    applying DedupRule to the first dataset's already-materialized
+    output, via an undocumented `source_table: candidates` trick so
+    ModelGenerator's bare FROM resolves to that source's own CTE) ->
+    order_status_revenue_summary.yml.
+
+    New capability, used below: JoinSpec.pick_one_order_by lets a join
+    itself pick exactly one row per match -- ranked by columns visible
+    in the FINAL join scope (primary source + earlier-joined sources),
+    the exact scope `on` already had, that DedupRule never did. The
+    `on` condition on the csh join below is byte-identical to stage
+    1's original join condition; only `pick_one_order_by` is new. The
+    second dataset, its depends_on declaration, and the source_table
+    workaround are no longer needed.
+
+source_table: orders
+
+sources:
+  - name: csh
+    table: customer_status_history
+    # No dedup rule needed or attempted here -- pick_one_order_by on
+    # the join below does the row-selection DedupRule couldn't.
+
+  - name: lines
+    table: order_lines
+    aggregate:
+      group_by:
+        - order_id
+      aggregates:
+        revenue: sum(quantity * unit_price)
+
+joins:
+  - source: csh
+    "on": csh.customer_id = orders.customer_id and csh.effective_date <= orders.order_date
+    type: left
+    pick_one_order_by:
+      - csh.effective_date desc
+
+  - source: lines
+    "on": lines.order_id = orders.order_id
+    type: left
+
+fields:
+  - name: order_id
+    type: string
+    nullable: false
+    description: Order identifier (from orders; primary source).
+
+  - name: customer_id
+    type: string
+    nullable: false
+    description: Customer who placed the order (from orders).
+
+  - name: order_date
+    type: date
+    nullable: false
+    description: Date the order was placed (from orders).
+
+  - name: status
+    type: string
+    source: csh
+    source_column: status
+    description: >
+      The customer's lifecycle status as of order_date -- the
+      customer_status_history row with the latest effective_date that
+      is still <= order_date, selected directly by the join's
+      pick_one_order_by. Null if the order predates any recorded
+      status for the customer (zero qualifying rows; see O032 in
+      GROUND_TRUTH_DERIVATION.md).
+
+  - name: revenue
+    type: decimal(12,2)
+    role: measure
+    source: lines
+    source_column: revenue
+    description: Order revenue -- sum(quantity * unit_price) across order_lines.
+
+constraints:
+  - type: primary_key
+    columns:
+      - order_id

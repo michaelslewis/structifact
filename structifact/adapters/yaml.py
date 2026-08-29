@@ -170,6 +170,11 @@ def load_yaml(path: str) -> DatasetSpec:
             source=join["source"],
             on=join["on"],
             type=join.get("type", "left"),
+            pick_one_order_by=(
+                [str(v) for v in join["pick_one_order_by"]]
+                if join.get("pick_one_order_by") is not None
+                else None
+            ),
         )
         for join in data.get("joins", [])
     ]

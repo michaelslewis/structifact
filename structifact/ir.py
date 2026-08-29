@@ -290,11 +290,44 @@ class JoinSpec:
     PyYAML's default (YAML 1.1) resolver parses a bare `on` key as the
     boolean `True`, not the string "on", which silently produces a
     dict key mismatch rather than an obvious error.
+
+    `pick_one_order_by` (found via two independent real reproductions —
+    examples/value_experiment and examples/coverage_round1's
+    hard_insurance_claims; see docs/PICK_ONE_ORDER_BY_CONTRACT.md for
+    the full paper contract this implements) addresses a real
+    correctness gap: `on` alone can match more than one row of
+    `source` per row of the join's left-hand side — most commonly an
+    as-of/effective-dated condition like `joined.effective_date <=
+    primary.claim_date` — and without this field, every one of those
+    extra matches becomes a silently duplicated output row.
+
+    When `None` (the default), this `JoinSpec` behaves exactly as it
+    always has — no change to generated SQL. When set, `on` still
+    defines which rows qualify; `pick_one_order_by` picks exactly one
+    winner among however many `on` matched, ranked by these
+    expressions (first entry = highest priority) — the same
+    first-entry-highest-priority trust model as `DedupRule.order_by`:
+    raw SQL fragments, not parsed or semantically interpreted.
+    Structural difference from `DedupRule`: `DedupRule` ranks within a
+    source's own CTE, before any join, so it can only ever see that
+    source's own columns; `pick_one_order_by` ranks in the final join
+    scope (rendered as a correlated `LEFT`/`INNER JOIN LATERAL`), so it
+    can reference exactly what `on` can already reference — the
+    primary source, any source joined earlier in this dataset's
+    `joins` list, and `source` itself.
+
+    If every qualifying row ties on every `pick_one_order_by`
+    expression, the selected row is engine-determined, not
+    Structifact-determined — deliberately not given a hidden
+    tiebreaker (same posture `DedupRule.order_by` already takes on a
+    full tie). Add enough ordering keys to fully discriminate if that
+    matters to you.
     """
 
     source: str
     on: str
     type: str = "left"
+    pick_one_order_by: Optional[List[str]] = None
 
 
 @dataclass

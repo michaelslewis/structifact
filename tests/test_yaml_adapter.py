@@ -273,6 +273,109 @@ joins:
     assert dataset.joins[0].type == "left"
 
 
+def test_load_yaml_parses_pick_one_order_by(tmp_path):
+    yaml_file = tmp_path / "claims.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: claims
+
+fields:
+  - name: claim_id
+    type: string
+
+sources:
+  - name: policy_status
+    table: policy_status_history
+
+joins:
+  - source: policy_status
+    "on": "claims.policy_id = policy_status.policy_id and policy_status.effective_date <= claims.claim_date"
+    pick_one_order_by: ["policy_status.effective_date desc"]
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.joins[0].pick_one_order_by == ["policy_status.effective_date desc"]
+
+
+def test_load_yaml_pick_one_order_by_absent_defaults_to_none(tmp_path):
+    yaml_file = tmp_path / "orders.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: orders
+
+fields:
+  - name: order_id
+    type: integer
+
+sources:
+  - name: customers
+    table: cust_mst
+
+joins:
+  - source: customers
+    "on": "orders.customer_id = customers.customer_id"
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+
+    assert dataset.joins[0].pick_one_order_by is None
+
+
+def test_load_yaml_pick_one_order_by_end_to_end_via_real_pipeline(tmp_path):
+    """
+    YAML -> DatasetSpec -> validate_table -> ModelGenerator, proving
+    pick_one_order_by survives the whole real pipeline, not just
+    load_yaml() in isolation. This is a direct regression guard: an
+    earlier version of this change added pick_one_order_by to
+    JoinSpec/validation.py/model.py but forgot the YAML adapter, so
+    load_yaml() silently dropped it to None for every YAML-authored
+    dataset -- caught only by generating and executing
+    examples/value_experiment/order_status_and_revenue_pick_one_order_by.yml
+    against real data and finding a 56-row fan-out where 39 rows were
+    expected.
+    """
+    from structifact.validation import validate_table
+    from structifact.generators.model import ModelGenerator
+
+    yaml_file = tmp_path / "claims.yml"
+    yaml_file.write_text(
+        """
+dataset:
+  name: claims
+
+fields:
+  - name: claim_id
+    type: string
+  - name: status
+    type: string
+    source: policy_status
+    source_column: status
+
+sources:
+  - name: policy_status
+    table: policy_status_history
+
+joins:
+  - source: policy_status
+    "on": "claims.policy_id = policy_status.policy_id and policy_status.effective_date <= claims.claim_date"
+    pick_one_order_by: ["policy_status.effective_date desc"]
+"""
+    )
+
+    dataset = load_yaml(str(yaml_file))
+    validate_table(dataset)  # should not raise
+
+    sql = ModelGenerator().generate(dataset).content
+    assert "left join lateral (" in sql
+    assert "order by policy_status.effective_date desc" in sql
+    assert "limit 1" in sql
+
+
 def test_load_yaml_sources_joins_absent_default_to_empty_lists(tmp_path):
     dataset = load_yaml("tests/fixtures/customers.yml")
 

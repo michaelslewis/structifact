@@ -356,6 +356,33 @@ def validate_table(table: DatasetSpec):
                 f"{', '.join(sorted(SUPPORTED_JOIN_TYPES))}"
             )
 
+        # pick_one_order_by well-formedness (docs/PICK_ONE_ORDER_BY_CONTRACT.md
+        # §10). Structural checks only, same trust model as dedup's
+        # order_by above — the ordering expressions themselves are raw
+        # SQL, not parsed or semantically validated. Deliberately does
+        # NOT check for redundancy with SourceRef.dedup/aggregate, tie
+        # safety, or JoinSpec.type — none of those are checkable from
+        # metadata alone (see the contract for why).
+        if join.pick_one_order_by is not None:
+            if not isinstance(join.pick_one_order_by, list):
+                errors.append(
+                    f"Join on source '{join.source}' has a "
+                    f"pick_one_order_by that is not a list"
+                )
+            elif not join.pick_one_order_by:
+                errors.append(
+                    f"Join on source '{join.source}' has an empty "
+                    f"pick_one_order_by — at least one ordering entry "
+                    f"is required to pick a row"
+                )
+            else:
+                for entry in join.pick_one_order_by:
+                    if not entry or not entry.strip():
+                        errors.append(
+                            f"Join on source '{join.source}' has a "
+                            f"blank pick_one_order_by entry"
+                        )
+
     for field in table.fields:
         if field.source is not None and field.source not in source_names:
             errors.append(
