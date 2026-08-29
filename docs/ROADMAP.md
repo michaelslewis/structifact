@@ -97,10 +97,18 @@ They are now implemented, tested, and covered by CI:
   whose value is derived from other fields (a "Logic" column, inline
   math, or logic described in prose) are flagged `computed: true`
   with the raw logic preserved as text rather than translated to SQL
-  automatically. Anything structurally unplaceable — join keys/
-  relationships between tables, cross-field business rules,
-  deprioritization or confirmation-status notes — is surfaced in an
-  `unresolved_notes` list rather than silently dropped.
+  automatically. Join keys/relationships between tables — including
+  the same physical table joined multiple times under different
+  roles with a priority-based dedup rule — are extracted into
+  structured per-field `source`/`source_column` and dataset-level
+  `source_table`/`sources`/`joins`, matching `SourceRef`/`JoinSpec`/
+  `DedupRule` in `ir.py` and the exact shape `adapters/yaml.py`
+  already loads, whenever the document clearly describes them (see
+  `examples/workorder_demo/README.md`). Anything still structurally
+  unplaceable — conditional/fallback business logic, cross-field
+  business rules, deprioritization or confirmation-status notes — is
+  surfaced in an `unresolved_notes` list rather than silently
+  dropped.
 * **Field `role` classification** — `FieldSpec.role` (dimension |
   measure) is populated by the YAML adapter, and `validation.py`
   checks it's a supported value when present.

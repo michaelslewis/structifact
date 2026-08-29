@@ -1,0 +1,186 @@
+# DRAFT schema — AI-extracted from a requirements document.
+#
+# This is a first-pass suggestion from an LLM reading the raw
+# document below. It has not been validated, and the AI has
+# not seen your actual data — only the requirements text.
+#
+# Review every field, especially anything marked 'computed':
+# Structifact cannot generate SQL for derived fields yet, so
+# the raw logic is preserved as text for you to implement by
+# hand. Also review any 'sources'/'joins' below carefully —
+# the AI has not run these against real data, so a join
+# condition, filter, or dedup rule may be structurally
+# placed here and still be wrong. Finally, review everything
+# under unresolved_notes — information the AI found but
+# could not confidently place anywhere structured above.
+#
+# Source: REQUIREMENTS_workorder.md
+
+dataset:
+  name: "work_order_source"
+
+fields:
+  - name: "wo_id"
+    description: "Work Order ID"
+    role: "dimension"
+    source_column: "src_wo_hdr_wo_id"
+    type: "varchar(12)"
+
+  - name: "wo_date"
+    description: "Work Order Date"
+    role: "dimension"
+    source_column: "src_wo_hdr_wo_date"
+    type: "date"
+
+  - name: "currency_code"
+    description: "Currency Code"
+    role: "dimension"
+    source_column: "src_wo_hdr_currency_code"
+    type: "varchar(3)"
+
+  - name: "wo_type"
+    description: "Work Order Type"
+    role: "dimension"
+    source_column: "src_wo_hdr_wo_type"
+    type: "varchar(4)"
+
+  - name: "sign_adjustment"
+    description: "Sign Adjustment"
+    role: "measure"
+    type: "integer"
+    computed: true
+    expression: "if src_wo_hdr_wo_type in ('CRM','RET') then -1 else 1"
+
+  - name: "line_id"
+    description: "Line ID"
+    role: "dimension"
+    source_column: "src_wo_line_line_id"
+    type: "varchar(6)"
+
+  - name: "labor_hours"
+    description: "Labor Hours"
+    role: "measure"
+    source_column: "src_wo_line_labor_hours"
+    type: "decimal(7,2)"
+
+  - name: "rate_code"
+    description: "Rate Code"
+    role: "dimension"
+    source_column: "src_wo_line_rate_code"
+    type: "varchar(4)"
+
+  - name: "labor_rate"
+    description: "Labor Rate"
+    role: "measure"
+    source: "price_condition"
+    source_column: "src_price_cond_labor_rate"
+    type: "decimal(9,2)"
+
+  - name: "labor_amount_lc"
+    description: "Labor Amount (LC)"
+    role: "measure"
+    type: "decimal(15,2)"
+    computed: true
+    expression: "src_wo_line_labor_hours * src_price_cond_labor_rate * sign_adjustment"
+
+  - name: "labor_amount_usd"
+    description: "Labor Amount (USD)"
+    role: "measure"
+    type: "decimal(15,2)"
+    computed: true
+    expression: "labor_amount_lc * resolved_fx_rate"
+
+  - name: "customer_name"
+    description: "Customer Name"
+    role: "dimension"
+    source: "customer"
+    source_column: "src_cust_mst_customer_name"
+    type: "varchar(60)"
+
+  - name: "region_code"
+    description: "Region Code"
+    role: "dimension"
+    source: "customer"
+    source_column: "src_cust_mst_region_code"
+    type: "varchar(4)"
+
+  - name: "requested_by_name"
+    description: "Requested By (Name)"
+    role: "dimension"
+    source: "partner_requested_by"
+    source_column: "src_partner_requested_by_name"
+    type: "varchar(60)"
+
+  - name: "billed_to_name"
+    description: "Billed To (Name)"
+    role: "dimension"
+    source: "partner_billed_to"
+    source_column: "src_partner_billed_to_name"
+    type: "varchar(60)"
+
+  - name: "site_contact_name"
+    description: "Site Contact (Name)"
+    role: "dimension"
+    source: "partner_site_contact"
+    source_column: "src_partner_site_contact_name"
+    type: "varchar(60)"
+
+  - name: "site_contact_phone"
+    description: "Site Contact (Phone)"
+    role: "dimension"
+    source: "partner_site_contact"
+    source_column: "src_partner_site_contact_phone"
+    type: "varchar(20)"
+
+  - name: "resolved_fx_rate"
+    description: "Resolved FX rate for currency conversion to USD"
+    role: "measure"
+    source: "fx_rate"
+    type: "decimal"
+    note: "Fallback logic: if no rate found and currency is USD, use 1.0; otherwise null \u2014 see unresolved_notes"  # AI-flagged uncertainty
+
+sources:
+  - name: "customer"
+    table: "CUST_MST"
+  - name: "price_condition"
+    table: "PRICE_COND"
+  - name: "partner_requested_by"
+    table: "PARTNER_ROLE"
+    filter: "role_code = 'REQ'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "partner_billed_to"
+    table: "PARTNER_ROLE"
+    filter: "role_code = 'BILL'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "partner_site_contact"
+    table: "PARTNER_ROLE"
+    filter: "role_code = 'SITE'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "fx_rate"
+    table: "fx_rate_lookup"
+
+joins:
+  - source: "customer"
+    "on": "wo_hdr.customer_id = customer.customer_id"
+  - source: "price_condition"
+    "on": "wo_line.rate_code = price_condition.rate_code"
+  - source: "partner_requested_by"
+    "on": "wo_hdr.wo_id = partner_requested_by.wo_id"
+  - source: "partner_billed_to"
+    "on": "wo_hdr.wo_id = partner_billed_to.wo_id"
+  - source: "partner_site_contact"
+    "on": "wo_hdr.wo_id = partner_site_contact.wo_id"
+  - source: "fx_rate"
+    "on": "wo_hdr.currency_code = fx_rate.currency_code and wo_hdr.wo_date = fx_rate.rate_date"
+
+unresolved_notes:
+  - "resolved_fx_rate: fallback logic not fully captured \u2014 if no rate found and currency_code = 'USD', use 1.0; otherwise leave null. This conditional logic may belong to a computed field or a separate business rule layer."
+  - "status_code field (src_wo_hdr_status_code) marked as deprioritized in source document for v1; omitted from this draft."
+  - "WO_LINE table: join key wo_line.wo_id not explicitly listed as a field; retained as internal join key only."
+  - "PARTNER_ROLE dedup rule assumes is_current and updated_at columns exist on PARTNER_ROLE table; not confirmed in source document."

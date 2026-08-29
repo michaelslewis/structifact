@@ -365,6 +365,293 @@ def test_render_skips_fields_with_no_name():
 
 
 # ---------------------------------------------------------------------
+# source_column / sources / joins extraction and rendering
+#
+# Closes the gap the prior diagnostic found in examples/workorder_demo:
+# the LLM correctly identifies join keys, same-table-multi-role joins,
+# and priority dedup rules from a requirements document, but the old
+# prompt had no structured slot for any of it -- everything got
+# flattened into unresolved_notes as freeform prose (one entry was
+# even a stringified Python dict). These tests cover the field-level
+# source/source_column shape, the dataset-level sources/joins shape
+# (mirroring FieldSpec/SourceRef/JoinSpec/DedupRule in ir.py and
+# exactly the YAML shape adapters/yaml.py already loads), and the case
+# that should still correctly fall through to unresolved_notes.
+# ---------------------------------------------------------------------
+
+# Mirrors the real shape examples/workorder_demo's requirements doc
+# describes: the same physical table (partner_role) joined in under
+# two different roles, each with its own filter and a priority-based
+# dedup rule (prefer is_current, fall back to most recently updated).
+SOURCES_JOINS_RESPONSE = """\
+dataset: "work_order_source"
+fields:
+  - name: "work_order_id"
+    description: "Work Order ID"
+    role: dimension
+    type: "varchar(12)"
+  - name: "requested_by_name"
+    description: "Requested By (Name)"
+    role: dimension
+    source: "partner_requested_by"
+    source_column: "contact_name"
+    type: "varchar(60)"
+  - name: "billed_to_name"
+    description: "Billed To (Name)"
+    role: dimension
+    source: "partner_billed_to"
+    source_column: "contact_name"
+    type: "varchar(60)"
+source_table: "wo_hdr"
+sources:
+  - name: "partner_requested_by"
+    table: "partner_role"
+    filter: "role_code = 'REQ'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "partner_billed_to"
+    table: "partner_role"
+    filter: "role_code = 'BILL'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+joins:
+  - source: "partner_requested_by"
+    "on": "wo_hdr.wo_id = partner_requested_by.wo_id"
+  - source: "partner_billed_to"
+    "on": "wo_hdr.wo_id = partner_billed_to.wo_id"
+    type: "inner"
+unresolved_notes: []
+"""
+
+
+def test_prompt_instructs_source_column_and_sources_joins():
+    prompt = build_requirements_prompt(GRID_DOC)
+    assert "source_column" in prompt
+    assert "sources" in prompt
+    assert "joins" in prompt
+    assert "same physical table joined multiple times" in prompt
+
+
+def test_prompt_warns_about_bare_on_key():
+    prompt = build_requirements_prompt(GRID_DOC)
+    assert '"on":' in prompt
+    assert "parsed as the boolean true" in prompt
+
+
+def test_parse_preserves_field_source_and_source_column():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    field = next(f for f in parsed["fields"] if f["name"] == "requested_by_name")
+    assert field["source"] == "partner_requested_by"
+    assert field["source_column"] == "contact_name"
+
+
+def test_render_includes_field_source_and_source_column():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+    assert 'source: "partner_requested_by"' in rendered
+    assert 'source_column: "contact_name"' in rendered
+
+
+def test_render_omits_source_fields_when_absent():
+    parsed = parse_requirements_draft(GRID_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+    assert "source:" not in rendered
+    assert "source_column:" not in rendered
+
+
+def test_render_same_table_multiple_roles_produces_distinct_sources():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert 'name: "partner_requested_by"' in rendered
+    assert 'name: "partner_billed_to"' in rendered
+    # Same physical table, repeated once per role -- not collapsed
+    # into one shared entry.
+    assert rendered.count('table: "partner_role"') == 2
+    assert "role_code = 'REQ'" in rendered
+    assert "role_code = 'BILL'" in rendered
+
+
+def test_render_source_dedup_rule():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert "dedup:" in rendered
+    assert 'partition_by: ["wo_id"]' in rendered
+    assert 'order_by: ["is_current desc", "updated_at desc"]' in rendered
+
+
+def test_render_joins_use_quoted_on_key():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert '"on": "wo_hdr.wo_id = partner_requested_by.wo_id"' in rendered
+    assert '"on": "wo_hdr.wo_id = partner_billed_to.wo_id"' in rendered
+
+
+def test_render_join_type_omitted_when_left_included_when_inner():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    # partner_requested_by's join has no explicit type -> defaults to
+    # left, and left is never spelled out (matches the omit-when-
+    # default convention elsewhere in this renderer, e.g. `comment`).
+    # partner_billed_to's join explicitly said inner -> spelled out.
+    # (Fields also have their own unrelated `type:` lines -- e.g.
+    # `type: "varchar(12)"` -- so this checks the join-type value
+    # specifically, not a bare substring count.)
+    assert 'type: "inner"' in rendered
+    assert 'type: "left"' not in rendered
+
+
+def test_render_sources_and_joins_absent_when_not_present():
+    # The overwhelming majority of requirements docs describe a single
+    # flat table -- confirm no empty 'sources:'/'joins:' clutter shows
+    # up in that case (matches GRID_RESPONSE, which has neither key).
+    parsed = parse_requirements_draft(GRID_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert "sources:" not in rendered
+    assert "joins:" not in rendered
+
+
+def test_render_skips_malformed_source_missing_table():
+    parsed = {
+        "dataset": "x",
+        "fields": [{"name": "f", "type": "string"}],
+        "sources": [{"name": "incomplete"}],  # no 'table' -- malformed
+        "unresolved_notes": [],
+    }
+    rendered = render_requirements_draft_yaml(parsed, source_path="x.md")
+    assert "incomplete" not in rendered
+
+
+def test_render_join_falls_back_to_boolean_on_key():
+    # Regression for the exact PyYAML 1.1 gotcha this module's own
+    # prompt warns the LLM about: a bare `on:` key parses as the
+    # Python boolean True, not the string "on". If a real response
+    # slips past the prompt's instruction anyway, the join condition
+    # must still make it into the rendered draft rather than being
+    # silently dropped.
+    parsed = {
+        "dataset": "x",
+        "fields": [{"name": "f", "type": "string"}],
+        "sources": [{"name": "customers", "table": "cust_mst"}],
+        "joins": [{"source": "customers", True: "x.customer_id = customers.customer_id"}],
+        "unresolved_notes": [],
+    }
+    rendered = render_requirements_draft_yaml(parsed, source_path="x.md")
+    assert '"on": "x.customer_id = customers.customer_id"' in rendered
+
+
+def test_render_converts_dict_shaped_note_to_readable_string():
+    # Regression for the exact bug observed in
+    # examples/workorder_demo/work_order_source.discovered.yml: a
+    # model emitted a nested mapping instead of a plain string for an
+    # unresolved_notes entry, and the old code's str() fallback
+    # rendered it as a Python repr -- "{'key': 'value'}" -- rather
+    # than readable prose.
+    parsed = parse_requirements_draft(
+        'dataset: "x"\n'
+        "fields:\n"
+        '  - name: "f"\n'
+        '    type: "string"\n'
+        "unresolved_notes:\n"
+        "  - PARTNER_ROLE must be joined three times: prioritize is_current\n"
+    )
+    rendered = render_requirements_draft_yaml(parsed, source_path="x.md")
+
+    assert "PARTNER_ROLE must be joined three times: prioritize is_current" in rendered
+    # The old repr-shaped artifact must not appear.
+    assert "{'PARTNER_ROLE" not in rendered
+    assert "{\"PARTNER_ROLE" not in rendered
+
+
+def test_render_still_falls_through_to_unresolved_notes_for_ambiguous_logic():
+    # Part (c): conditional/fallback business logic that genuinely
+    # isn't a plain join -- e.g. the FX-rate "use 1.0 only for USD,
+    # otherwise leave null" fallback rule -- should still land in
+    # unresolved_notes as a plain string, not be forced into
+    # sources/joins.
+    response = SOURCES_JOINS_RESPONSE.replace(
+        "unresolved_notes: []",
+        "unresolved_notes:\n"
+        '  - "FX conversion: if no rate found and currency is USD, use 1.0; otherwise leave the converted amount null"\n',
+    )
+    parsed = parse_requirements_draft(response)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    assert len(parsed["unresolved_notes"]) == 1
+    assert isinstance(parsed["unresolved_notes"][0], str)
+    assert "FX conversion" in rendered
+    assert "otherwise leave the converted amount null" in rendered
+
+
+# ---------------------------------------------------------------------
+# source_table -- closes the second-order gap found after the first
+# pass: ModelGenerator's primary-source alias is `dataset.source_table
+# or dataset.name` (model.py), and the extracted `on:` conditions
+# above are written against the primary table's own physical name
+# (e.g. "wo_hdr"), which only resolves once source_table is set to
+# that same name -- without it, the dataset's logical `name` (e.g.
+# "work_order_source") is used instead, and the generated SQL breaks.
+# ---------------------------------------------------------------------
+
+def test_prompt_instructs_source_table():
+    prompt = build_requirements_prompt(GRID_DOC)
+    assert "source_table" in prompt
+    assert "primary-table side" in prompt
+
+
+def test_parse_preserves_source_table():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    assert parsed["source_table"] == "wo_hdr"
+
+
+def test_render_includes_source_table():
+    parsed = parse_requirements_draft(SOURCES_JOINS_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+    assert 'source_table: "wo_hdr"' in rendered
+
+
+def test_render_omits_source_table_when_absent():
+    # GRID_RESPONSE has no sources/joins at all, so no source_table
+    # either -- a single flat table needs no separate primary alias.
+    parsed = parse_requirements_draft(GRID_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+    assert "source_table:" not in rendered
+
+
+def test_render_flags_missing_source_table_when_sources_present():
+    # The prompt asks for source_table whenever sources/joins are
+    # emitted, but that's an instruction, not a guarantee. If a model
+    # response has sources/joins with no source_table, the draft must
+    # not silently ship something that looks valid (structural
+    # validation has no way to catch this -- it's not a schema error)
+    # but would generate broken SQL. This does NOT guess a value --
+    # it flags the gap in unresolved_notes for a human to fill in.
+    response = SOURCES_JOINS_RESPONSE.replace('source_table: "wo_hdr"\n', "")
+    parsed = parse_requirements_draft(response)
+    assert "source_table" not in parsed  # confirm the fixture edit worked
+
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+
+    # No source_table *field* was emitted (only the warning note
+    # below mentions the key name in prose).
+    assert 'source_table: "wo_hdr"' not in rendered
+    assert "source_table was not identified" in rendered
+
+
+def test_render_does_not_flag_missing_source_table_when_no_sources():
+    # No sources/joins at all -> no source_table needed -> no warning.
+    parsed = parse_requirements_draft(GRID_RESPONSE)
+    rendered = render_requirements_draft_yaml(parsed, source_path="REQUIREMENTS.md")
+    assert "source_table was not identified" not in rendered
+
+
+# ---------------------------------------------------------------------
 # CLI integration — extension dispatch, --ai gate, confirm/decline
 # ---------------------------------------------------------------------
 

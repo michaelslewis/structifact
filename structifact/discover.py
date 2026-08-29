@@ -381,14 +381,111 @@ def build_requirements_prompt(text: str) -> str:
         "explicit dimension/measure label in source', or 'no source "
         "column identified for this field yet'). Do not use it to "
         "repeat information already captured in another field.",
+        "  - source: optional. Set this ONLY when this field's value "
+        "comes from a JOINED-IN table, not the dataset's own main/"
+        "primary table — the one most fields come from. The value "
+        "must exactly match the 'name' you gave that table under "
+        "'sources' below, never the physical table name directly. "
+        "Omit entirely for a field that comes from the main table.",
+        "  - source_column: optional. The PHYSICAL column name on "
+        "this field's source (the main table if 'source' is omitted, "
+        "or the named joined-in source if 'source' is set) — set "
+        "this ONLY when it differs from the field's own 'name' "
+        "above. Omit when the field's name already IS the physical "
+        "column name (very common — many source documents use the "
+        "raw column name as the field name directly).",
         "",
-        "Anything you find that does not fit into a single field — join "
-        "keys or relationships between tables, cross-field business "
-        "rules, lookup or fallback logic, deprioritization or "
-        "confirmation-status notes — put into unresolved_notes as a "
-        "short plain-language string, one entry per distinct note. Do "
-        "not drop information: if it doesn't fit under a field, it "
-        "belongs in unresolved_notes instead.",
+        "Some requirements documents describe the dataset as being "
+        "built from MORE THAN ONE physical table, joined together — "
+        "not just a single flat table. When the document clearly "
+        "describes this (an explicit join-key list, or prose "
+        "describing 'joined on X', 'looked up from Y', a lookup/"
+        "reference table, etc.), extract that structure too, as two "
+        "additional top-level keys, 'sources' and 'joins' (siblings "
+        "of 'dataset'/'fields'/'unresolved_notes' — not nested "
+        "inside any of them). Omit both keys entirely when the "
+        "document only ever describes one flat table — do not "
+        "invent a join structure that isn't there.",
+        "",
+        "  Whenever you emit 'sources'/'joins', ALSO emit a third "
+        "top-level key, 'source_table': the physical name of the "
+        "dataset's OWN main/primary table (not a logical/friendly "
+        "name — the actual physical table name, as given in the "
+        "document, e.g. the same style as each 'sources[].table' "
+        "value). This matters because each join's \"on\" condition "
+        "below must reference this exact name on its primary-table "
+        "side for the generated SQL to resolve — get this wrong or "
+        "omit it and every join silently breaks. Omit 'source_table' "
+        "only when you also omit 'sources'/'joins' (a single flat "
+        "table needs no separate source_table — the dataset's own "
+        "name already covers it).",
+        "",
+        "  sources: one entry per ADDITIONAL table beyond the "
+        "dataset's own main/primary table (do not create a "
+        "'sources' entry for the main table itself). Each entry has:",
+        "    - name: a short logical alias YOU choose for this "
+        "joined-in instance of the table (e.g. 'customers', or, for "
+        "the multiple-roles case below, 'billed_to_contact').",
+        "    - table: the physical table name as given in the "
+        "document.",
+        "    - filter: optional raw SQL predicate scoping this "
+        "instance (e.g. \"role_code = 'BILL'\"). Only when the "
+        "document specifies one.",
+        "    - dedup: optional. Include this ONLY when the document "
+        "says more than one row per join key can exist AND describes "
+        "a rule for picking exactly one (e.g. 'use the current "
+        "record, or if none is current, the most recently updated "
+        "one') — this is a PRIORITY rule, not a plain uniqueness "
+        "constraint. Do not include it just because a join is "
+        "one-to-many in general. Shape: {partition_by: [<key "
+        "column(s), unquoted table-side names>], order_by: [<raw SQL "
+        "ORDER BY terms, highest priority first, e.g. \"is_current "
+        "desc\">]}.",
+        "",
+        "  IMPORTANT — the same physical table joined multiple times "
+        "under different roles (e.g. one 'contacts' or 'party role' "
+        "table providing a requester, a biller, and a site contact, "
+        "each selected via a different role/type code) is a real, "
+        "common pattern. When the document describes this, emit ONE "
+        "separate 'sources' entry PER role — the same 'table' value "
+        "repeated across entries, but a distinct 'name' and a "
+        "distinct 'filter' for each — never one shared entry trying "
+        "to cover all roles at once.",
+        "",
+        "  joins: one entry per 'sources' entry above, connecting it "
+        "to the dataset. Each entry has:",
+        "    - source: must exactly match one of the 'name' values "
+        "under 'sources' above.",
+        '    - "on": the raw SQL join condition as written or '
+        "clearly implied by the document (e.g. "
+        '"orders.customer_id = customers.customer_id"), '
+        "qualifying columns with 'source_table' (above) on the "
+        "primary-table side and the source's 'name' on the other — "
+        "NOT the dataset's own logical name from the top of this "
+        "response, which is a different value. CRITICAL: this key "
+        'MUST be written double-quoted, exactly "on":, never a bare '
+        "on: — an unquoted 'on' is parsed as the boolean true by "
+        "this YAML parser, silently corrupting the join.",
+        "    - type: 'left' or 'inner'. Omit to default to 'left' "
+        "unless the document clearly implies only matching rows "
+        "should be kept.",
+        "",
+        "  A field pulled from a joined-in source should set that "
+        "field's own 'source' (matching the sources entry's 'name') "
+        "and, if needed, 'source_column', as described above.",
+        "",
+        "Anything you find that still does not fit into a field or "
+        "into the sources/joins structure above — conditional or "
+        "fallback business logic (e.g. 'if no match found and X, "
+        "use a default of Y, otherwise leave null'), cross-field "
+        "business rules, deprioritization or confirmation-status "
+        "notes, or a relationship you're not confident enough to "
+        "write as a concrete SQL join condition — put into "
+        "unresolved_notes as a short plain-language STRING (never a "
+        "nested mapping or list — always plain text), one entry per "
+        "distinct note. Do not drop information: if it doesn't fit "
+        "anywhere structured above, it belongs in unresolved_notes "
+        "instead.",
         "",
         "IMPORTANT — some documents define every field once, then "
         "later contain a SEPARATE section that revises specific "
@@ -423,10 +520,24 @@ def build_requirements_prompt(text: str) -> str:
         '    description: "<string>"',
         "    role: dimension | measure",
         '    comment: "<string, optional>"',
+        '    source: "<string, optional — matches a sources[].name below>"',
+        '    source_column: "<string, optional — only if different from name>"',
         '    type: "<string, optional>"',
         "    computed: <true, only if applicable>",
         '    expression: "<string, only if computed is true>"',
         '    note: "<string, optional>"',
+        'source_table: "<string, required whenever sources/joins are present>"',
+        "sources:  # omit entirely if the document describes only one flat table",
+        '  - name: "<string>"',
+        '    table: "<string>"',
+        '    filter: "<string, optional>"',
+        "    dedup:  # optional, only for a real priority/tiebreak rule",
+        '      partition_by: ["<string>"]',
+        '      order_by: ["<string>"]',
+        "joins:  # one per sources entry above",
+        '  - source: "<string, matches a sources[].name above>"',
+        '    "on": "<string>"',
+        "    type: left | inner  # optional, defaults to left",
         "unresolved_notes:",
         '  - "<string>"',
         "",
@@ -531,6 +642,34 @@ def _yaml_str(value) -> str:
     return json.dumps(str(value))
 
 
+def _yaml_str_list(values) -> str:
+    """
+    Render a list of raw strings (e.g. DedupRule.partition_by/
+    order_by) as a YAML flow-style sequence of double-quoted scalars,
+    e.g. ["is_current desc", "updated_at desc"]. A JSON array is a
+    valid YAML flow sequence, so json.dumps is reused here for the
+    same reason it's used in _yaml_str — safe escaping of embedded
+    quotes/colons with no dependency on a full YAML-emitting library.
+    """
+    return json.dumps([str(v) for v in values])
+
+
+def _note_to_string(n) -> str:
+    """
+    Coerce one unresolved_notes entry into a real string.
+
+    See render_requirements_draft_yaml's call site for why this
+    exists: str() on a dict produces a Python repr, not prose.
+    """
+    if isinstance(n, str):
+        return n
+    if isinstance(n, dict):
+        return "; ".join(f"{k}: {v}" for k, v in n.items())
+    if isinstance(n, list):
+        return "; ".join(_note_to_string(x) for x in n)
+    return str(n)
+
+
 def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
     """
     Render the parsed AI extraction as a draft YAML file.
@@ -540,10 +679,28 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
     requirements text. Fields marked `computed` keep their raw logic
     as an opaque string rather than translated SQL, since Structifact
     has no way to represent or generate derived/computed fields yet
-    (see ROADMAP.md — Transformation Framework). unresolved_notes
-    surfaces everything the AI found but could not structurally place
-    (most often join keys/relationships and cross-field business
-    rules) so it stays visible instead of silently dropped.
+    (see ROADMAP.md — Transformation Framework). A field's `source`/
+    `source_column`, and dataset-level `source_table`/`sources`/
+    `joins` (including a source's `dedup`), are emitted in exactly
+    the shape structifact/adapters/yaml.py already expects — see
+    FieldSpec.source/source_column, DatasetSpec.source_table,
+    SourceRef, JoinSpec, and DedupRule in ir.py — whenever the parsed
+    response contains them. This is what previously always got
+    flattened into unresolved_notes as freeform, unstructured text,
+    even when the AI had correctly identified a concrete join key or
+    dedup rule. `source_table` specifically closes a second-order gap
+    found after the first pass at this: without it, ModelGenerator's
+    primary-source alias silently defaults to the dataset's own
+    logical `name` rather than the physical table name every `on:`
+    condition above was written against — see model.py's `primary =
+    dataset.source_table or dataset.name` — so a draft with sources/
+    joins but no source_table looked valid (`structifact validate`
+    passes) while still being un-generate-able. unresolved_notes
+    still surfaces anything left over that the AI found but could not
+    confidently place anywhere structured — most often conditional/
+    fallback business logic, cross-field rules ModelGenerator doesn't
+    support yet, and (defensively, see below) a missing source_table
+    itself.
     """
     header = [
         "# DRAFT schema — AI-extracted from a requirements document.",
@@ -555,10 +712,12 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         "# Review every field, especially anything marked 'computed':",
         "# Structifact cannot generate SQL for derived fields yet, so",
         "# the raw logic is preserved as text for you to implement by",
-        "# hand. Also review everything under unresolved_notes below —",
-        "# information the AI found but could not structurally place,",
-        "# most often join keys/relationships or cross-field business",
-        "# rules.",
+        "# hand. Also review any 'sources'/'joins' below carefully —",
+        "# the AI has not run these against real data, so a join",
+        "# condition, filter, or dedup rule may be structurally",
+        "# placed here and still be wrong. Finally, review everything",
+        "# under unresolved_notes — information the AI found but",
+        "# could not confidently place anywhere structured above.",
         "#",
         f"# Source: {source_path}",
         "",
@@ -587,6 +746,14 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
         comment = f.get("comment")
         if comment:
             lines.append(f"    comment: {_yaml_str(comment)}")
+
+        source = f.get("source")
+        if source:
+            lines.append(f"    source: {_yaml_str(source)}")
+
+        source_column = f.get("source_column")
+        if source_column:
+            lines.append(f"    source_column: {_yaml_str(source_column)}")
 
         field_type = f.get("type")
         if not field_type:
@@ -621,11 +788,107 @@ def render_requirements_draft_yaml(parsed: dict, source_path: str) -> str:
 
         lines.append("")
 
+    # Dataset-level source_table/sources/joins (Phase 7 — sources/
+    # joins milestone in ir.py). Top-level keys, siblings of
+    # 'dataset'/'fields'/'unresolved_notes' — never nested inside
+    # 'dataset', matching exactly what adapters/yaml.py's load_yaml()
+    # already expects, so a reviewed draft can be loaded as real IR
+    # input without restructuring it by hand.
+    #
+    # source_table matters specifically because ModelGenerator's
+    # primary-source alias is `dataset.source_table or dataset.name`
+    # (model.py) — every join's "on" condition below was extracted
+    # assuming it can reference the primary table by its OWN physical
+    # name (e.g. "wo_hdr.customer_id = ..."), which only resolves in
+    # the generated SQL if source_table is set to that same name.
+    # Without it, `primary` silently falls back to the dataset's own
+    # (usually differently-spelled) logical `name`, and every join
+    # breaks.
+    source_table = parsed.get("source_table")
+    if source_table:
+        lines.append(f"source_table: {_yaml_str(source_table)}")
+        lines.append("")
+
+    sources = parsed.get("sources") or []
+    if sources:
+        lines.append("sources:")
+        for s in sources:
+            if not isinstance(s, dict) or not s.get("name") or not s.get("table"):
+                continue
+
+            lines.append(f"  - name: {_yaml_str(s['name'])}")
+            lines.append(f"    table: {_yaml_str(s['table'])}")
+
+            filt = s.get("filter")
+            if filt:
+                lines.append(f"    filter: {_yaml_str(filt)}")
+
+            dedup = s.get("dedup")
+            if isinstance(dedup, dict) and dedup.get("partition_by") and dedup.get("order_by"):
+                lines.append("    dedup:")
+                lines.append(f"      partition_by: {_yaml_str_list(dedup['partition_by'])}")
+                lines.append(f"      order_by: {_yaml_str_list(dedup['order_by'])}")
+
+        lines.append("")
+
+    joins = parsed.get("joins") or []
+    if joins:
+        lines.append("joins:")
+        for j in joins:
+            if not isinstance(j, dict):
+                continue
+
+            # PyYAML's default (YAML 1.1) resolver parses a bare
+            # `on:` key as the boolean True, not the string "on" —
+            # see JoinSpec's own docstring in ir.py. The prompt
+            # explicitly instructs the model to double-quote this
+            # key, but that's an instruction, not a guarantee (same
+            # "don't trust it just because we asked" discipline as
+            # _strip_code_fence above) — fall back to the boolean-True
+            # key so a slip here doesn't silently drop the join.
+            on_condition = j.get("on", j.get(True))
+            source_name = j.get("source")
+
+            if not source_name or not on_condition:
+                continue
+
+            lines.append(f"  - source: {_yaml_str(source_name)}")
+            lines.append(f'    "on": {_yaml_str(on_condition)}')
+
+            join_type = j.get("type")
+            if join_type and join_type != "left":
+                lines.append(f"    type: {_yaml_str(join_type)}")
+
+        lines.append("")
+
     # A note is documented as "a short plain-language string", but
     # models don't always follow that shape exactly (observed in
-    # practice: a nested YAML mapping instead of a string). Coerce
-    # rather than crash or silently render inconsistent types.
-    notes = [n if isinstance(n, str) else str(n) for n in (parsed.get("unresolved_notes") or [])]
+    # practice: a nested YAML mapping instead of a string — see
+    # examples/workorder_demo's original discovered draft, whose
+    # unresolved_notes contained a stringified Python dict). Render
+    # such a value as real, readable text instead of falling back to
+    # str(), which produces a Python repr like "{'key': 'value'}" —
+    # not valid prose, and arguably worse than the information being
+    # missing outright.
+    notes = [_note_to_string(n) for n in (parsed.get("unresolved_notes") or [])]
+
+    # Defensive, not inferred: if the model emitted sources/joins but
+    # forgot source_table (the prompt asks for it, but that's an
+    # instruction, not a guarantee — same discipline as the bare `on:`
+    # fallback above), flag it loudly rather than silently shipping a
+    # draft whose generated SQL would reference an alias that doesn't
+    # exist. Deliberately does NOT guess a value — see
+    # build_requirements_prompt's reasoning for why inferring this
+    # from the raw `on:` strings was rejected as too fragile.
+    if (sources or joins) and not source_table:
+        notes.append(
+            "source_table was not identified for this dataset even "
+            "though sources/joins were extracted — the join 'on' "
+            "conditions above reference the primary table by its own "
+            "physical name, which will not resolve in generated SQL "
+            "until you add a top-level 'source_table: \"<physical "
+            "primary table name>\"' key yourself."
+        )
 
     lines.append("unresolved_notes:")
     if notes:
