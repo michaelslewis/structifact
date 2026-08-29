@@ -1,0 +1,91 @@
+# SYNTHETIC EXAMPLE (fictional company/data) -- coverage round 1,
+# Part 2 (site-testable). Hand-authored directly in Structifact's
+# canonical IR shape -- safe to drop into structifact.com's upload
+# dropzone directly for validate/generate.
+#
+# Same physical table (CONTACT_ROLE) joined twice under two
+# different roles (reporter, assignee), each with a priority-based
+# dedup rule -- a fresh domain from examples/workorder_demo's
+# PARTNER_ROLE pattern, exercising the same proven-good mechanism.
+# The one computed field references only primary-source columns
+# (opened_at/closed_at), deliberately avoiding the known "computed
+# field referencing a joined-in field" gap -- this spec is meant to
+# just work end-to-end.
+
+dataset:
+  name: helpdesk_ticket_contacts
+  description: >
+    One row per support ticket, with its current reporter and
+    assignee resolved from a shared contact-role table.
+
+source_table: TICKET
+
+sources:
+  - name: reporter_contact
+    table: CONTACT_ROLE
+    filter: "role_code = 'REPORTER'"
+    dedup:
+      partition_by: ["ticket_id"]
+      order_by: ["is_active desc", "updated_at desc"]
+
+  - name: assignee_contact
+    table: CONTACT_ROLE
+    filter: "role_code = 'ASSIGNEE'"
+    dedup:
+      partition_by: ["ticket_id"]
+      order_by: ["is_active desc", "updated_at desc"]
+
+joins:
+  - source: reporter_contact
+    "on": "TICKET.ticket_id = reporter_contact.ticket_id"
+
+  - source: assignee_contact
+    "on": "TICKET.ticket_id = assignee_contact.ticket_id"
+
+fields:
+  - name: ticket_id
+    type: varchar(10)
+    role: dimension
+    description: Ticket identifier
+
+  - name: subject
+    type: varchar(120)
+    role: dimension
+    description: Ticket subject line
+
+  - name: priority
+    type: varchar(10)
+    role: dimension
+    description: Ticket priority (Low/Medium/High/Urgent)
+
+  - name: opened_at
+    type: timestamp
+    role: dimension
+    description: When the ticket was opened
+
+  - name: closed_at
+    type: timestamp
+    role: dimension
+    nullable: true
+    description: When the ticket was closed, if it has been
+
+  - name: reporter_name
+    type: varchar(80)
+    role: dimension
+    source: reporter_contact
+    source_column: contact_name
+    description: Current reporter contact for this ticket
+
+  - name: assignee_name
+    type: varchar(80)
+    role: dimension
+    source: assignee_contact
+    source_column: contact_name
+    description: Current assignee contact for this ticket
+
+  - name: resolution_hours
+    type: decimal(9,2)
+    role: measure
+    computed: true
+    expression: "date_diff('hour', opened_at, closed_at)"
+    description: Hours between opening and closing, when closed

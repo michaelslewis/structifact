@@ -1,0 +1,75 @@
+# SYNTHETIC EXAMPLE (fictional company/data) -- coverage round 1,
+# Part 2 (site-testable). Hand-authored directly in Structifact's
+# canonical IR shape -- not an AI-extracted draft, no discover step
+# involved. Safe to drop into structifact.com's upload dropzone
+# directly for validate/generate, since it's already the clean
+# structured shape the site expects.
+#
+# One join (PRODUCT_STOCK -> WAREHOUSE), no dedup needed, one
+# computed field that references only the primary source's own
+# fields (deliberately avoids the known "computed field referencing
+# a joined-in field" gap -- this spec is meant to just work
+# end-to-end).
+
+dataset:
+  name: product_inventory_snapshot
+  description: >
+    Current stock levels per SKU per warehouse, with each row's
+    total on-hand inventory value.
+
+source_table: PRODUCT_STOCK
+
+sources:
+  - name: warehouse
+    table: WAREHOUSE
+
+joins:
+  - source: warehouse
+    "on": "PRODUCT_STOCK.warehouse_id = warehouse.warehouse_id"
+
+fields:
+  - name: sku
+    type: varchar(10)
+    role: dimension
+    description: Stock-keeping unit identifier
+
+  - name: product_name
+    type: varchar(60)
+    role: dimension
+    description: Product display name
+
+  - name: warehouse_id
+    type: varchar(6)
+    role: dimension
+    description: Warehouse the stock is held in (join key)
+
+  - name: quantity_on_hand
+    type: integer
+    role: measure
+    description: Units currently in stock
+
+  - name: unit_cost
+    type: decimal(9,2)
+    role: measure
+    description: Cost per unit
+
+  - name: warehouse_name
+    type: varchar(60)
+    role: dimension
+    source: warehouse
+    source_column: name
+    description: Display name of the warehouse
+
+  - name: region
+    type: varchar(6)
+    role: dimension
+    source: warehouse
+    source_column: region_code
+    description: Region the warehouse is located in
+
+  - name: total_value
+    type: decimal(12,2)
+    role: measure
+    computed: true
+    expression: "quantity_on_hand * unit_cost"
+    description: Total value of on-hand inventory for this row

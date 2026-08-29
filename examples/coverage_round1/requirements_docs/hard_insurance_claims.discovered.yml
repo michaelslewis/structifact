@@ -1,0 +1,138 @@
+# DRAFT schema — AI-extracted from a requirements document.
+#
+# This is a first-pass suggestion from an LLM reading the raw
+# document below. It has not been validated, and the AI has
+# not seen your actual data — only the requirements text.
+#
+# Review every field, especially anything marked 'computed':
+# Structifact cannot generate SQL for derived fields yet, so
+# the raw logic is preserved as text for you to implement by
+# hand. Also review any 'sources'/'joins' below carefully —
+# the AI has not run these against real data, so a join
+# condition, filter, or dedup rule may be structurally
+# placed here and still be wrong. Finally, review everything
+# under unresolved_notes — information the AI found but
+# could not confidently place anywhere structured above.
+#
+# Source: hard_insurance_claims.md
+
+dataset:
+  name: "claim_ledger_summary"
+
+fields:
+  - name: "claim_id"
+    description: "Claim ID"
+    role: "dimension"
+    type: "varchar(12)"
+
+  - name: "policy_id"
+    description: "Policy ID"
+    role: "dimension"
+    type: "varchar(12)"
+
+  - name: "claim_date"
+    description: "Date the claim was filed"
+    role: "dimension"
+    type: "date"
+
+  - name: "claim_type"
+    description: "Claim Type (Auto/Property/Liability)"
+    role: "dimension"
+    type: "varchar(20)"
+
+  - name: "status_code"
+    description: "Claim Status Code"
+    role: "dimension"
+    type: "varchar(4)"
+
+  - name: "claim_amount"
+    description: "Claim Amount (as filed)"
+    role: "measure"
+    type: "decimal(12,2)"
+
+  - name: "total_paid_amount"
+    description: "Total Paid To Date"
+    role: "measure"
+    type: "decimal(12,2)"
+    computed: true
+    expression: "sum of all CLAIM_PAYMENT rows for this claim"
+
+  - name: "net_exposure"
+    description: "Net Exposure Remaining"
+    role: "measure"
+    type: "decimal(12,2)"
+    computed: true
+    expression: "claim_amount - total_paid_amount"
+
+  - name: "claimant_name"
+    description: "Claimant Name"
+    role: "dimension"
+    source: "claimant"
+    source_column: "claimant_name"
+    type: "varchar(80)"
+
+  - name: "adjuster_name"
+    description: "Assigned Adjuster Name"
+    role: "dimension"
+    source: "adjuster"
+    source_column: "adjuster_name"
+    type: "varchar(80)"
+
+  - name: "adjuster_email"
+    description: "Assigned Adjuster Email"
+    role: "dimension"
+    source: "adjuster"
+    source_column: "adjuster_email"
+    type: "varchar(100)"
+
+  - name: "beneficiary_name"
+    description: "Beneficiary Name (if applicable)"
+    role: "dimension"
+    source: "beneficiary"
+    source_column: "beneficiary_name"
+    type: "varchar(80)"
+
+  - name: "policy_status_as_of_claim"
+    description: "Policy Status As Of The Claim Date"
+    role: "dimension"
+    source: "policy_status"
+    source_column: "policy_status_as_of_claim"
+    type: "varchar(20)"
+
+source_table: "CLAIM_HDR"
+
+sources:
+  - name: "claimant"
+    table: "PARTY_ROLE"
+    filter: "role_code = 'CLAIMANT'"
+    dedup:
+      partition_by: ["claim_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "adjuster"
+    table: "PARTY_ROLE"
+    filter: "role_code = 'ADJUSTER'"
+    dedup:
+      partition_by: ["claim_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "beneficiary"
+    table: "PARTY_ROLE"
+    filter: "role_code = 'BENEFICIARY'"
+    dedup:
+      partition_by: ["claim_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "policy_status"
+    table: "POLICY_STATUS_HISTORY"
+
+joins:
+  - source: "claimant"
+    "on": "CLAIM_HDR.claim_id = claimant.claim_id"
+  - source: "adjuster"
+    "on": "CLAIM_HDR.claim_id = adjuster.claim_id"
+  - source: "beneficiary"
+    "on": "CLAIM_HDR.claim_id = beneficiary.claim_id"
+  - source: "policy_status"
+    "on": "CLAIM_HDR.policy_id = policy_status.policy_id and policy_status.effective_date <= CLAIM_HDR.claim_date"
+
+unresolved_notes:
+  - "CLAIM_PAYMENT table is aggregated to one total per claim before joining; the join itself is not modeled here as a sources/joins entry because the aggregation is a preprocessing step that produces total_paid_amount, which is already captured as a computed measure field."
+  - "policy_status join on policy_status_history requires selecting the row with the most recent effective_date on or before the claim_date; this dedup/priority rule is not fully expressible in the 'on' condition alone and may require window function logic in the actual query."

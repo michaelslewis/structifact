@@ -1,0 +1,6 @@
+sku,product_name,warehouse_id,quantity_on_hand,unit_cost
+SKU001,Widget A,W1,120,4.50
+SKU002,Widget B,W1,80,7.25
+SKU003,Gadget C,W2,45,12.00
+SKU004,Gadget D,W2,200,1.75
+SKU005,Part E,W3,60,9.99

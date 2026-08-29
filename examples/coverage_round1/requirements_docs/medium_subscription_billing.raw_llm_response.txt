@@ -1,0 +1,95 @@
+```yaml
+dataset: "subscription_billing_snapshot"
+fields:
+  - name: "subscription_id"
+    description: "Subscription ID"
+    role: dimension
+    type: "varchar(12)"
+  - name: "customer_id"
+    description: "Customer ID (join key)"
+    role: dimension
+    type: "varchar(10)"
+  - name: "plan_code"
+    description: "Plan Code (join key)"
+    role: dimension
+    type: "varchar(8)"
+  - name: "start_date"
+    description: "Subscription Start Date"
+    role: dimension
+    type: "date"
+  - name: "status"
+    description: "Subscription Status (active/cancelled/paused)"
+    role: dimension
+    type: "varchar(12)"
+  - name: "snapshot_date"
+    description: "Date this snapshot row represents"
+    role: dimension
+    type: "date"
+  - name: "account_age_days"
+    description: "Account Age in Days"
+    role: measure
+    type: "integer"
+    computed: true
+    expression: "snapshot_date - start_date"
+  - name: "resolved_fx_rate"
+    description: "Resolved FX rate to USD"
+    role: measure
+    type: "decimal(9,6)"
+    computed: true
+    expression: "if customer's billing_currency = 'USD' then 1.0 else looked up from FX_RATE by currency_code; if no match and currency is not USD, leave null"
+  - name: "monthly_price_usd"
+    description: "Monthly Price, USD"
+    role: measure
+    type: "decimal(9,2)"
+    computed: true
+    expression: "plan_catalog.monthly_price_local * resolved_fx_rate"
+  - name: "customer_name"
+    description: "Customer Name"
+    role: dimension
+    type: "varchar(80)"
+    source: "customer"
+  - name: "region_code"
+    description: "Region Code"
+    role: dimension
+    type: "varchar(6)"
+    source: "customer"
+  - name: "billing_currency"
+    description: "Billing Currency (ISO code)"
+    role: dimension
+    type: "varchar(3)"
+    source: "customer"
+  - name: "plan_name"
+    description: "Plan Name"
+    role: dimension
+    type: "varchar(40)"
+    source: "plan_catalog"
+  - name: "monthly_price_local"
+    description: "Monthly Price, Local Currency"
+    role: measure
+    type: "decimal(9,2)"
+    source: "plan_catalog"
+  - name: "rate_to_usd"
+    description: "Conversion Rate to USD"
+    role: measure
+    type: "decimal(9,6)"
+    source: "fx_rate"
+    source_column: "rate_to_usd"
+source_table: "SUBSCRIPTION"
+sources:
+  - name: "customer"
+    table: "CUSTOMER"
+  - name: "plan_catalog"
+    table: "PLAN_CATALOG"
+  - name: "fx_rate"
+    table: "FX_RATE"
+joins:
+  - source: "customer"
+    "on": "SUBSCRIPTION.customer_id = customer.customer_id"
+  - source: "plan_catalog"
+    "on": "SUBSCRIPTION.plan_code = plan_catalog.plan_code"
+  - source: "fx_rate"
+    "on": "customer.billing_currency = fx_rate.currency_code"
+    type: "left"
+unresolved_notes:
+  - "resolved_fx_rate computation includes conditional logic: if billing_currency is USD, use 1.0 directly without looking up FX_RATE; if not USD and no matching FX_RATE row exists, leave null. This fallback/default logic should be confirmed in implementation."
+```

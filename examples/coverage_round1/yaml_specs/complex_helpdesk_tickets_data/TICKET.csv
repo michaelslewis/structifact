@@ -1,0 +1,5 @@
+ticket_id,subject,priority,opened_at,closed_at
+T001,Login broken,High,2025-01-01 09:00:00,2025-01-01 15:00:00
+T002,Feature request,Low,2025-02-01 10:00:00,
+T003,Data export fails,Urgent,2025-03-05 08:00:00,2025-03-06 08:00:00
+T004,Slow dashboard,Medium,2025-04-10 12:00:00,2025-04-10 18:30:00
