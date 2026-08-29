@@ -1,0 +1,7 @@
+status,total_revenue_as_of_order_date,total_revenue_current_status
+UNKNOWN_NO_HISTORY_YET,89.5,0.0
+active,1953.0,1566.0
+at_risk,790.0,1271.0
+churned,298.0,357.5
+reactivated,65.5,355.0
+trial,1012.5,659.0

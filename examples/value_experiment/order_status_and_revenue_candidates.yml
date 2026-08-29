@@ -1,0 +1,88 @@
+dataset:
+  name: order_status_and_revenue_candidates
+  description: >
+    Stage 1 of the order-status-as-of-order-date pipeline. For each
+    order, fans out one candidate row per customer_status_history
+    entry whose effective_date is on or before the order's order_date
+    (a customer can have zero, one, or several qualifying candidates),
+    and attaches the order's total revenue (sum of quantity *
+    unit_price across its order_lines, pre-aggregated so the revenue
+    join stays one-to-one and doesn't multiply the status fan-out).
+    Not deduplicated yet -- see order_status_resolved for the stage
+    that picks exactly one status candidate per order (the one with
+    the latest effective_date <= order_date). An order with no
+    qualifying status candidate still appears here once, with
+    status/effective_date left null (left join) -- "no determinable
+    status as of its date" per REQUIREMENTS.md, not guessed.
+
+source_table: orders
+
+sources:
+  - name: csh
+    table: customer_status_history
+    # Deliberately no dedup rule here: DedupRule's ROW_NUMBER() CTE
+    # is built purely from this source's own columns, before any
+    # join happens, so it has no visibility into orders.order_date --
+    # it could only express "latest status ever for this customer",
+    # not "latest status as of this particular order's date". The
+    # per-order "as of" resolution has to happen one stage downstream
+    # instead, against the fanned-out join output. See
+    # experiment_b_notes.md for the full explanation of why this
+    # couldn't be done in a single dataset.
+
+  - name: lines
+    table: order_lines
+    aggregate:
+      group_by:
+        - order_id
+      aggregates:
+        revenue: sum(quantity * unit_price)
+
+joins:
+  - source: csh
+    "on": csh.customer_id = orders.customer_id and csh.effective_date <= orders.order_date
+    type: left
+
+  - source: lines
+    "on": lines.order_id = orders.order_id
+    type: left
+
+fields:
+  - name: order_id
+    type: string
+    nullable: false
+    description: Order identifier (from orders; primary source).
+
+  - name: customer_id
+    type: string
+    nullable: false
+    description: Customer who placed the order (from orders).
+
+  - name: order_date
+    type: date
+    nullable: false
+    description: Date the order was placed (from orders).
+
+  - name: status
+    type: string
+    source: csh
+    source_column: status
+    description: >
+      A candidate lifecycle status: one whose effective_date is <=
+      this order's order_date. Null if no status was recorded for
+      this customer as of the order date.
+
+  - name: effective_date
+    type: date
+    source: csh
+    source_column: effective_date
+    description: >
+      The effective_date of the candidate status row above --
+      carried through so the next stage can rank candidates and pick
+      the most recent one per order.
+
+  - name: revenue
+    type: decimal(12,2)
+    source: lines
+    source_column: revenue
+    description: Order revenue -- sum(quantity * unit_price) across order_lines.

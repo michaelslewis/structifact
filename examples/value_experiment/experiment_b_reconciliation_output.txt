@@ -1,0 +1,9 @@
+✓ Loaded schemas: order_status_resolved_independent_check (old), order_status_resolved (new)
+✓ Loaded data: 39 old row(s), 39 new row(s)
+
+Row counts:
+  old: 39
+  new: 39
+  matched: 39
+
+✓ No reconciliation issues found

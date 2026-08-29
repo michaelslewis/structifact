@@ -1,0 +1,48 @@
+dataset:
+  name: order_status_revenue_summary
+  description: >
+    Stage 3 (final report output): total order revenue grouped by
+    each order's resolved customer status (as of the order's own
+    date, from order_status_resolved) -- what REQUIREMENTS.md calls
+    "a summary: total revenue grouped by that resolved status". Uses
+    AggregateRule the same way DedupRule was used in
+    order_status_resolved: applied to an already-materialized
+    upstream dataset via the source_table == sources[0].name trick,
+    with no `joins:` needed.
+
+depends_on:
+  - order_status_resolved
+
+source_table: resolved
+
+sources:
+  - name: resolved
+    table: order_status_resolved
+    aggregate:
+      group_by:
+        - status
+      aggregates:
+        total_revenue: sum(revenue)
+        order_count: count(*)
+
+fields:
+  - name: status
+    type: string
+    description: >
+      Resolved customer status as of order date. Null here groups
+      together every order with no determinable status (predates any
+      recorded status for the customer) -- not dropped, since that is
+      itself a real, reportable bucket per REQUIREMENTS.md.
+
+  - name: total_revenue
+    type: decimal(12,2)
+    description: Total revenue across all orders resolved to this status.
+
+  - name: order_count
+    type: integer
+    description: Number of orders resolved to this status.
+
+constraints:
+  - type: unique
+    columns:
+      - status

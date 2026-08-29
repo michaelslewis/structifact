@@ -1,0 +1,66 @@
+dataset:
+  name: order_status_resolved
+  description: >
+    Stage 2 of the order-status-as-of-order-date pipeline. Resolves
+    order_status_and_revenue_candidates down to exactly one row per
+    order: the candidate status row with the latest effective_date
+    that is still <= the order's order_date (priority-based
+    "pick one row per group" -- DedupRule, partitioned by order_id,
+    ordered by effective_date desc). Orders with no qualifying
+    candidate at all keep a null status/effective_date -- there is
+    nothing to pick a winner from, so none is fabricated.
+
+    This dataset deliberately has no `joins:` -- it exists purely to
+    apply a DedupRule to an already-materialized upstream dataset
+    (order_status_and_revenue_candidates), not to join anything new
+    in. `source_table` is set to the same name as the one entry in
+    `sources` so the final SELECT's FROM clause resolves directly to
+    that source's deduplicated CTE. See experiment_b_notes.md for why
+    this shape was necessary given how ModelGenerator's CTEs work.
+
+depends_on:
+  - order_status_and_revenue_candidates
+
+source_table: candidates
+
+sources:
+  - name: candidates
+    table: order_status_and_revenue_candidates
+    dedup:
+      partition_by:
+        - order_id
+      order_by:
+        - effective_date desc
+
+fields:
+  - name: order_id
+    type: string
+    nullable: false
+    description: Order identifier.
+
+  - name: customer_id
+    type: string
+    nullable: false
+    description: Customer who placed the order.
+
+  - name: order_date
+    type: date
+    nullable: false
+    description: Date the order was placed.
+
+  - name: status
+    type: string
+    description: >
+      The customer's lifecycle status as of order_date -- the
+      candidate with the latest effective_date <= order_date. Null
+      if the order predates any recorded status for the customer.
+
+  - name: revenue
+    type: decimal(12,2)
+    role: measure
+    description: Order revenue -- sum(quantity * unit_price) across order_lines.
+
+constraints:
+  - type: primary_key
+    columns:
+      - order_id

@@ -1,0 +1,21 @@
+=== structifact validate examples/value_experiment/order_status_and_revenue_candidates.yml ===
+✓ Loaded metadata
+✓ Parsed 6 fields
+✓ Valid schema
+✓ No constraint violations
+exit code: 0
+
+=== structifact validate examples/value_experiment/order_status_resolved.yml ===
+✓ Loaded metadata
+✓ Parsed 5 fields
+✓ Valid schema
+✓ No constraint violations
+exit code: 0
+
+=== structifact validate examples/value_experiment/order_status_revenue_summary.yml ===
+✓ Loaded metadata
+✓ Parsed 3 fields
+✓ Valid schema
+✓ No constraint violations
+exit code: 0
+

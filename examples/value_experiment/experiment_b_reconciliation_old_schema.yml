@@ -1,0 +1,20 @@
+dataset:
+  name: order_status_resolved_independent_check
+  description: >
+    "Old system" for the experiment_b reconciliation check: an
+    independent, pure-Python (no SQL, no Structifact) recomputation
+    of each order's resolved status and revenue, used only to cross-
+    check the Structifact model output (order_status_resolved) via
+    `structifact reconcile`. See experiment_b_notes.md.
+
+fields:
+  - name: order_id
+    type: string
+    nullable: false
+
+  - name: status
+    type: string
+
+  - name: revenue
+    type: decimal(12,2)
+    role: measure

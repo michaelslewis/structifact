@@ -1,0 +1,9 @@
+key:
+  old: order_id
+  new: order_id
+
+fields:
+  - old: status
+    new: status
+  - old: revenue
+    new: revenue
