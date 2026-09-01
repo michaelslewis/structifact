@@ -1,0 +1,6 @@
+contract_id,homeowner_name,plan_tier,start_date,record_entered_date
+C-1001,J. Alvarez,Standard,2025-03-10,2025-03-05
+C-1001,J. Alvarez,Standard,2025-03-01,2025-03-12
+C-1002,R. Chen,Basic,2024-11-01,2024-11-01
+C-1003,M. Osei,Premium,2025-01-10,2025-01-10
+C-1004,S. Patel,Standard,2025-05-01,2025-05-01

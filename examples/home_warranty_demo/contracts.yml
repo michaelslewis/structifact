@@ -1,0 +1,34 @@
+# SYNTHETIC EXAMPLE (fictional company/data) — home_warranty_demo.
+# Raw ingestion schema for contracts.csv, matching its physical column
+# names exactly (start_date, not effective_date — see
+# home_warranty_claims.yml for the header-drift mapping). Used only to
+# create/load the raw contracts table via `structifact execute --data`
+# before home_warranty_claims is materialized on top of it.
+
+dataset:
+  name: contracts
+  description: >
+    Raw registrar/contracts export, one row per contract record —
+    includes a data-entry duplicate for C-1001 (see
+    home_warranty_claims.yml's dedup rule, which resolves it).
+
+fields:
+  - name: contract_id
+    type: string
+    nullable: false
+
+  - name: homeowner_name
+    type: string
+
+  - name: plan_tier
+    type: string
+
+  - name: start_date
+    type: date
+    description: The contract's actual effective date.
+
+  - name: record_entered_date
+    type: date
+    description: >
+      Data-entry timestamp for this row — distinct from start_date.
+      Used to pick the correct C-1001 row (most recently entered wins).

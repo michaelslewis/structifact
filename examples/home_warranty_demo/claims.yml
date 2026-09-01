@@ -1,0 +1,38 @@
+# SYNTHETIC EXAMPLE (fictional company/data) — home_warranty_demo.
+# Raw ingestion schema for claims.csv. Also the schema used for
+# `structifact validate-data` against claims.csv directly — deliberately
+# separate from home_warranty_claims.yml (the composite transformation
+# spec), since validate-data checks one schema against one CSV whose
+# columns line up with that schema's own fields, and the composite
+# spec's fields don't correspond 1:1 with claims.csv's raw columns.
+
+dataset:
+  name: claims
+  description: >
+    Raw claims-intake export, one row per claim. contractor_id is
+    required — CL-07 is a deliberate real intake gap (claim logged
+    before all fields were known) to exercise this check.
+
+fields:
+  - name: claim_id
+    type: string
+    nullable: false
+
+  - name: contract_id
+    type: string
+    nullable: false
+
+  - name: item_category
+    type: string
+
+  - name: contractor_id
+    type: string
+    nullable: false
+
+  - name: claim_amount
+    type: decimal
+    precision: 9
+    scale: 2
+
+  - name: claim_date
+    type: date

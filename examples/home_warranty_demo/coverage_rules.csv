@@ -1,0 +1,8 @@
+plan_tier,item_category,covered,copay_amount,coverage_cap
+Standard,HVAC,TRUE,75,1000
+Standard,Plumbing,TRUE,50,800
+Standard,Appliance,TRUE,,500
+Basic,HVAC,TRUE,100,600
+Premium,HVAC,TRUE,50,
+Premium,WtrHtr,TRUE,50,1500
+Basic,Plumbing,FALSE,,

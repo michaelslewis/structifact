@@ -1,0 +1,220 @@
+# SYNTHETIC EXAMPLE (fictional company/data) — home_warranty_demo,
+# Structifact's flagship complex example. Built from
+# structifact-home-warranty-handoff.md in this folder, reconciled
+# against the real engine (see README.md's "Reconciliation" section
+# for what changed and why — every change below is a deliberate
+# adaptation to the engine as it exists, not new engine capability).
+#
+# Grain: one output row per claim. Composite join against contract,
+# coverage-rule, and contractor-network reference data. A missing
+# coverage_rules match and an explicit covered=false row both mean
+# "not covered" — treated as distinguishable causes with the same
+# business outcome (see is_covered below).
+
+dataset:
+  name: home_warranty_claims
+  description: >
+    Per-claim coverage determination and reimbursement, joining claim
+    records against contract, coverage-rule, and contractor-network
+    reference data. A missing coverage_rules match and an explicit
+    covered=false row both mean "not covered" — treated as
+    distinguishable causes with the same business outcome (see
+    is_covered below).
+
+# claims is the fact table / primary source, not a joined-in one — it
+# does not appear in `sources:` below (reconciliation finding: the
+# proposed design omitted this and also listed claims under `sources:`,
+# which would have left ModelGenerator defaulting to a primary source
+# named "home_warranty_claims", which doesn't exist).
+source_table: claims
+
+sources:
+  - name: contracts
+    table: contracts
+    dedup:
+      partition_by: [contract_id]
+      order_by: [record_entered_date desc]
+      # Picks the more-recently-entered C-1001 row (start_date
+      # 2025-03-01), not the one with the larger start_date value —
+      # ordering by start_date itself would select the erroneous row.
+
+  - name: coverage_rules
+    table: coverage_rules
+
+  - name: contractor_network
+    table: contractor_network
+
+joins:
+  - source: contracts
+    "on": "contracts.contract_id = claims.contract_id"
+    type: left
+
+  - source: coverage_rules
+    # Reconciliation finding: ModelGenerator cannot resolve a
+    # SELECT-list computed-field alias (normalized_item_category)
+    # inside a JOIN...ON clause — JOIN...ON resolves during the FROM
+    # clause, before the SELECT list exists (verified directly against
+    # DuckDB: BinderException, "Referenced column ... not found in FROM
+    # clause"). This inlines the identical CASE expression the
+    # normalized_item_category field below also uses, rather than
+    # referencing its alias — same raw-SQL trust model JoinSpec.on
+    # already has, just written twice instead of aliased once.
+    "on": >
+      coverage_rules.plan_tier = contracts.plan_tier
+      AND coverage_rules.item_category = (
+        CASE WHEN claims.item_category = 'Water Heater' THEN 'WtrHtr'
+        ELSE claims.item_category END
+      )
+    type: left
+
+  - source: contractor_network
+    "on": "contractor_network.contractor_id = claims.contractor_id"
+    type: left
+
+fields:
+  - name: claim_id
+    type: string
+    # No `source:` — claims is the primary source (source_table above),
+    # not a joined-in SourceRef, so it can't be named here (validation
+    # error: "references unknown source 'claims'"). Fields with no
+    # `source`/`source_column` set already default to the primary
+    # source under their own name — today's existing single-source
+    # behavior, unaffected by declaring sources/joins elsewhere.
+
+  - name: contractor_id
+    type: string
+    nullable: false
+
+  - name: contract_id
+    type: string
+    description: >
+      The join key into contracts.contract_id — a real relationship,
+      but deliberately not declared as a `constraints:` foreign_key
+      below (see the note above `constraints:` for why: the raw
+      contracts table is intentionally non-unique on this column
+      before dedup, so DuckDB can't physically enforce it as a DDL
+      FOREIGN KEY without contradicting the dedup scenario itself).
+
+  - name: plan_tier
+    type: string
+    source: contracts
+
+  - name: effective_date
+    type: date
+    source: contracts
+    source_column: start_date
+    description: >
+      Mapped from the source system's own column name (start_date) —
+      registrar's export was never renamed to match this schema.
+
+  - name: normalized_item_category
+    type: string
+    computed: true
+    # Single physical line, deliberately -- SQLGenerator renders a
+    # computed field's expression as a one-line SQL comment above its
+    # column definition; a YAML `>` fold with a trailing or embedded
+    # newline (found the hard way, generating and reading the actual
+    # DDL) breaks that comment mid-statement and produces invalid SQL.
+    expression: "CASE WHEN claims.item_category = 'Water Heater' THEN 'WtrHtr' ELSE claims.item_category END"
+    description: >
+      claims.csv and coverage_rules.csv use different spellings for
+      the same category (Water Heater vs. WtrHtr). This is a small,
+      finite, explicitly-enumerated mapping — not similarity/fuzzy
+      matching — since the category vocabulary is closed and known.
+      The coverage_rules join above inlines this identical expression
+      directly (rather than referencing this field's alias), since a
+      JOIN condition cannot reference a computed SELECT-list alias —
+      this field exists so the mapping is still visible in generated
+      docs/output, not because the join itself depends on it.
+
+  - name: is_pre_existing_exclusion
+    type: boolean
+    computed: true
+    expression: "claims.claim_date <= effective_date + INTERVAL '30 days'"
+    description: >
+      True if filed within 30 days (inclusive of day 30) of the
+      contract's effective date. Absolute exclusion regardless of
+      plan tier or category, per company policy. References the
+      effective_date field's own alias (declared earlier in this
+      file), not contracts.start_date directly or a nonexistent
+      contracts.effective_date column — DuckDB allows a later
+      SELECT-list expression to reference an earlier one's alias
+      within the same SELECT (a non-standard, DuckDB-specific
+      convenience — see reimbursement_amount's note on why this
+      example's field order matters).
+
+  - name: is_covered
+    type: boolean
+    computed: true
+    depends_on: [is_pre_existing_exclusion]
+    expression: "NOT is_pre_existing_exclusion AND coverage_rules.covered IS NOT NULL AND coverage_rules.covered = TRUE"
+    description: >
+      False if the pre-existing exclusion applies. Also false if no
+      coverage_rules row matched this tier/category at all
+      (coverage_rules.covered IS NULL — no rule was ever written), or
+      if the matched row explicitly states covered=false (a rule was
+      written that excludes this combination). Both cases are
+      deliberately treated identically in outcome, despite being
+      different underlying situations. depends_on above documents
+      this field's real dependency on is_pre_existing_exclusion, but
+      is validated for referential integrity only — it does not
+      itself drive generation order. What actually makes this
+      expression resolve correctly is that is_pre_existing_exclusion
+      is declared earlier in this file's fields list, combined with
+      DuckDB's SELECT-list alias reuse (see that field's own
+      description). Confirmed DuckDB-specific and non-portable to
+      PostgreSQL — a known, already-logged limitation (see
+      docs/FUTURE_WORK.md), not new to this example.
+
+  - name: effective_copay
+    type: decimal
+    precision: 9
+    scale: 2
+    computed: true
+    expression: "COALESCE(coverage_rules.copay_amount, 0)"
+    description: >
+      A blank copay_amount on a covered row means $0 copay, not "no
+      rule" — that distinction is carried entirely by is_covered, not
+      by this field.
+
+  - name: reimbursement_amount
+    type: decimal
+    precision: 9
+    scale: 2
+    computed: true
+    depends_on: [is_covered, effective_copay]
+    expression: "CASE WHEN NOT is_covered THEN 0 ELSE LEAST(GREATEST(claims.claim_amount - effective_copay, 0), COALESCE(coverage_rules.coverage_cap, claims.claim_amount)) * CASE WHEN contractor_network.network_status = 'In-Network' THEN 1.0 ELSE 0.8 END END"
+    description: >
+      The coverage cap is applied BEFORE the non-network 80%
+      multiplier, not after — the cap represents the plan's maximum
+      covered amount; network status then determines what fraction of
+      that covered amount is actually paid. This ordering is a
+      deliberate resolution of an ambiguity the source business memo
+      did not specify — the alternative ordering (multiplier first,
+      then cap) produces different results whenever the cap actually
+      binds. A blank coverage_cap means uncapped (COALESCE falls back
+      to the claim amount itself as a no-op ceiling). Floored at zero
+      via GREATEST() on the copay subtraction. Like is_covered above,
+      depends_on documents the real dependency on is_covered and
+      effective_copay but doesn't drive ordering itself — both are
+      declared earlier in this file's fields list, which is what
+      actually makes the DuckDB-specific alias reuse work here.
+
+# A contract_id -> contracts.contract_id foreign_key constraint was
+# proposed here but is deliberately omitted: DuckDB requires an FK's
+# target column to already carry a PRIMARY KEY/UNIQUE constraint, and
+# the raw contracts table is intentionally non-unique on contract_id
+# before dedup (Mess #2 — the whole point of the C-1001 duplicate).
+# Enforcing this FK against the raw table would contradict the
+# scenario itself; enforcing it against a deduplicated view is a real
+# option but a materially bigger change than this example needs. The
+# relationship is still fully real and documented (see contract_id's
+# own field description and the dataset-level description above) —
+# just not physically enforced by DDL. contractor_id's FK below has
+# no such conflict (contractor_network.contractor_id is genuinely
+# unique in the raw data), so it's kept and physically enforced.
+constraints:
+  - type: foreign_key
+    columns: [contractor_id]
+    target_table: contractor_network
+    target_column: contractor_id

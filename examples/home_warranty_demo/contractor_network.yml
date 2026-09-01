@@ -1,0 +1,19 @@
+# SYNTHETIC EXAMPLE (fictional company/data) — home_warranty_demo.
+# Raw ingestion schema for contractor_network.csv.
+
+dataset:
+  name: contractor_network
+  description: Contractor roster with in-network/non-network status.
+
+fields:
+  - name: contractor_id
+    type: string
+    nullable: false
+
+  - name: network_status
+    type: string
+    accepted_values: ["In-Network", "Non-Network"]
+
+constraints:
+  - type: primary_key
+    columns: [contractor_id]

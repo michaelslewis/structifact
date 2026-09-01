@@ -1,0 +1,87 @@
+version: 2
+models:
+- name: home_warranty_claims
+  columns:
+  - name: claim_id
+    description: ''
+    meta:
+      source_field: claim.id
+  - name: contractor_id
+    description: ''
+    meta:
+      source_field: contractor.id
+  - name: contract_id
+    description: "The join key into contracts.contract_id \u2014 a real relationship,\
+      \ but deliberately not declared as a `constraints:` foreign_key below (see the\
+      \ note above `constraints:` for why: the raw contracts table is intentionally\
+      \ non-unique on this column before dedup, so DuckDB can't physically enforce\
+      \ it as a DDL FOREIGN KEY without contradicting the dedup scenario itself).\n"
+    meta:
+      source_field: contract.id
+  - name: plan_tier
+    description: ''
+    meta:
+      source_field: plan.tier
+  - name: effective_date
+    description: "Mapped from the source system's own column name (start_date) \u2014\
+      \ registrar's export was never renamed to match this schema.\n"
+    meta:
+      source_field: effective.date
+  - name: normalized_item_category
+    description: "claims.csv and coverage_rules.csv use different spellings for the\
+      \ same category (Water Heater vs. WtrHtr). This is a small, finite, explicitly-enumerated\
+      \ mapping \u2014 not similarity/fuzzy matching \u2014 since the category vocabulary\
+      \ is closed and known. The coverage_rules join above inlines this identical\
+      \ expression directly (rather than referencing this field's alias), since a\
+      \ JOIN condition cannot reference a computed SELECT-list alias \u2014 this field\
+      \ exists so the mapping is still visible in generated docs/output, not because\
+      \ the join itself depends on it.\n"
+    meta:
+      source_field: normalized.item.category
+  - name: is_pre_existing_exclusion
+    description: "True if filed within 30 days (inclusive of day 30) of the contract's\
+      \ effective date. Absolute exclusion regardless of plan tier or category, per\
+      \ company policy. References the effective_date field's own alias (declared\
+      \ earlier in this file), not contracts.start_date directly or a nonexistent\
+      \ contracts.effective_date column \u2014 DuckDB allows a later SELECT-list expression\
+      \ to reference an earlier one's alias within the same SELECT (a non-standard,\
+      \ DuckDB-specific convenience \u2014 see reimbursement_amount's note on why\
+      \ this example's field order matters).\n"
+    meta:
+      source_field: is.pre.existing.exclusion
+  - name: is_covered
+    description: "False if the pre-existing exclusion applies. Also false if no coverage_rules\
+      \ row matched this tier/category at all (coverage_rules.covered IS NULL \u2014\
+      \ no rule was ever written), or if the matched row explicitly states covered=false\
+      \ (a rule was written that excludes this combination). Both cases are deliberately\
+      \ treated identically in outcome, despite being different underlying situations.\
+      \ depends_on above documents this field's real dependency on is_pre_existing_exclusion,\
+      \ but is validated for referential integrity only \u2014 it does not itself\
+      \ drive generation order. What actually makes this expression resolve correctly\
+      \ is that is_pre_existing_exclusion is declared earlier in this file's fields\
+      \ list, combined with DuckDB's SELECT-list alias reuse (see that field's own\
+      \ description). Confirmed DuckDB-specific and non-portable to PostgreSQL \u2014\
+      \ a known, already-logged limitation (see docs/FUTURE_WORK.md), not new to this\
+      \ example.\n"
+    meta:
+      source_field: is.covered
+  - name: effective_copay
+    description: "A blank copay_amount on a covered row means $0 copay, not \"no rule\"\
+      \ \u2014 that distinction is carried entirely by is_covered, not by this field.\n"
+    meta:
+      source_field: effective.copay
+  - name: reimbursement_amount
+    description: "The coverage cap is applied BEFORE the non-network 80% multiplier,\
+      \ not after \u2014 the cap represents the plan's maximum covered amount; network\
+      \ status then determines what fraction of that covered amount is actually paid.\
+      \ This ordering is a deliberate resolution of an ambiguity the source business\
+      \ memo did not specify \u2014 the alternative ordering (multiplier first, then\
+      \ cap) produces different results whenever the cap actually binds. A blank coverage_cap\
+      \ means uncapped (COALESCE falls back to the claim amount itself as a no-op\
+      \ ceiling). Floored at zero via GREATEST() on the copay subtraction. Like is_covered\
+      \ above, depends_on documents the real dependency on is_covered and effective_copay\
+      \ but doesn't drive ordering itself \u2014 both are declared earlier in this\
+      \ file's fields list, which is what actually makes the DuckDB-specific alias\
+      \ reuse work here.\n"
+    meta:
+      source_field: reimbursement.amount

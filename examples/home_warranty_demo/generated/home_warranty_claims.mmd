@@ -1,0 +1,14 @@
+erDiagram
+    home_warranty_claims {
+        string claim_id
+        string contractor_id FK
+        string contract_id
+        string plan_tier
+        date effective_date
+        string normalized_item_category
+        boolean is_pre_existing_exclusion
+        boolean is_covered
+        decimal effective_copay
+        decimal reimbursement_amount
+    }
+    home_warranty_claims }o--|| contractor_network : "contractor_id"

@@ -1,0 +1,35 @@
+# SYNTHETIC EXAMPLE (fictional company/data) — home_warranty_demo.
+# Raw ingestion schema for coverage_rules.csv. Deliberately sparse —
+# not every plan_tier x item_category pair has a row (see
+# home_warranty_claims.yml's is_covered field for how a missing row
+# is distinguished from an explicit covered=FALSE row).
+
+dataset:
+  name: coverage_rules
+  description: >
+    Underwriting's coverage-rule table, keyed by (plan_tier,
+    item_category). Uses "WtrHtr" for the water-heater category,
+    inconsistent with claims.csv's "Water Heater" — see
+    home_warranty_claims.yml's normalized_item_category field.
+
+fields:
+  - name: plan_tier
+    type: string
+
+  - name: item_category
+    type: string
+
+  - name: covered
+    type: boolean
+
+  - name: copay_amount
+    type: decimal
+    precision: 9
+    scale: 2
+    description: Blank means $0 copay (there is a rule; it just charges none).
+
+  - name: coverage_cap
+    type: decimal
+    precision: 9
+    scale: 2
+    description: Blank means uncapped.
