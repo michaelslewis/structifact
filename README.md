@@ -219,6 +219,39 @@ Aggregate comparison (matched rows):
   - order_amount: old_sum=485.50  new_sum=490.50  diff=+5.00
 ```
 
+Generate documentation for a deliberately messy multi-source
+dataset — home warranty claims, joined against contract,
+coverage-rule, and contractor-network reference data — and see
+that the generated docs carry the business logic's own ambiguity
+resolutions, not just field names and types:
+
+```bash
+$ structifact generate examples/home_warranty_demo/home_warranty_claims.yml -g docs
+```
+
+**`generated/home_warranty_claims.md`** (excerpt)
+
+```markdown
+### reimbursement_amount
+
+- **Computed:** Yes
+- **Expression:** `CASE WHEN NOT is_covered THEN 0 ELSE LEAST(GREATEST(claims.claim_amount - effective_copay, 0), COALESCE(coverage_rules.coverage_cap, claims.claim_amount)) * CASE WHEN contractor_network.network_status = 'In-Network' THEN 1.0 ELSE 0.8 END END`
+
+The coverage cap is applied BEFORE the non-network 80%
+multiplier, not after — the cap represents the plan's maximum
+covered amount; network status then determines what fraction of
+that covered amount is actually paid. This ordering is a
+deliberate resolution of an ambiguity the source business memo
+did not specify...
+```
+
+Every deliberate ambiguity resolution in this dataset — this cap
+ordering, a duplicate-contract dedup tiebreak, two distinct "not
+covered" causes with the same outcome — is reconstructable from
+the metadata and this generated file alone, without reading the
+generated SQL. Row-level computed results for a specific claim
+still require the underlying source data.
+
 One definition, several independently-correct outcomes — generated
 artifacts, real-data validation, dependency resolution, real database
 execution, and cross-dataset reconciliation — all from the same
@@ -230,10 +263,15 @@ data-quality walkthrough (including checking a foreign-key
 relationship against a second dataset),
 [`examples/dependency_demo/`](examples/dependency_demo/) for the
 dependency-resolution walkthrough (including a deliberately-broken
-cyclic example), and
+cyclic example),
 [`examples/reconciliation_demo/`](examples/reconciliation_demo/) for
 the reconciliation walkthrough above, including the exact scope
-boundary of what v1 does and doesn't claim.
+boundary of what v1 does and doesn't claim, and
+[`examples/home_warranty_demo/`](examples/home_warranty_demo/) for
+how the same generated documentation holds up against a
+deliberately messy multi-source dataset, including an independent
+test where a fresh agent, given only the metadata and generated
+docs, reconstructed the business logic (see its `FINAL_REPORT.md`).
 
 ---
 
@@ -449,8 +487,12 @@ Structifact/
 │   │                        foreign-key reference dataset
 │   ├── dependency_demo/    deps/impact example, incl. a deliberately
 │   │                        cyclic variant
-│   └── reconciliation_demo/ reconcile example (old/new field mapping,
-│                            planted row-coverage and value diffs)
+│   ├── reconciliation_demo/ reconcile example (old/new field mapping,
+│   │                        planted row-coverage and value diffs)
+│   └── home_warranty_demo/ messy multi-source claims example (4
+│                            joined sources, dedup, computed-field
+│                            ambiguity resolutions verified
+│                            reconstructable from generated docs)
 │
 ├── structifact/
 │   ├── adapters/            input format integrations
