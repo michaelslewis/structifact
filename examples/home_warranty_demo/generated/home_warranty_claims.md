@@ -23,7 +23,7 @@ Per-claim coverage determination and reimbursement, joining claim records agains
 - **Declared as:** string
 - **Nullable:** Yes
 
-The join key into contracts.contract_id — a real relationship, but deliberately not declared as a `constraints:` foreign_key below (see the note above `constraints:` for why: the raw contracts table is intentionally non-unique on this column before dedup, so DuckDB can't physically enforce it as a DDL FOREIGN KEY without contradicting the dedup scenario itself).
+The join key into contracts.contract_id — a real relationship, but deliberately not declared as a `constraints:` foreign_key below (see the note above `constraints:` for why: the raw contracts table is intentionally non-unique on this column before dedup, so DuckDB can't physically enforce it as a DDL FOREIGN KEY without contradicting the dedup scenario itself). The contracts source's dedup rule (see sources: contracts above) picks the more-recently-entered C-1001 row (start_date 2025-03-01), not the one with the larger start_date value — ordering by start_date itself would select the erroneous row.
 
 
 ### plan_tier
