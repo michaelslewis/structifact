@@ -846,3 +846,28 @@ Every future decision should be evaluated against:
 > Does this make metadata more useful, workflows more reliable, and engineering effort more repeatable?
 
 If not, the additional complexity may not justify the feature.
+
+---
+
+# Decision: The "Second Complex XLSX/YAML Example" — Superseded by Existing Evidence, Not Built
+
+## What Happened
+
+An idea existed, real and reasoned, but was never committed anywhere in this repository: build a second, more complex, intentionally-fictional example demonstrating that a user could start from a genuinely messy multi-sheet XLSX requirements workbook (with joins/lookups/calculated fields) and reach real generated artifacts — explicitly framed as evidence for the homepage's "however you already describe your data" claim, distinct from `home_warranty_demo` (deliberately scoped not to carry that specific claim). This idea existed only in conversational history until a deliberate audit — prompted by revisiting open project threads — searched `ROADMAP.md`, `FUTURE_WORK.md`, `DECISION_HISTORY.md`, `CURRENT_STATE.md`, and the full git log, and confirmed it was genuinely undocumented, not merely hard to find.
+
+Before building anything, the idea was evaluated against the evidence that has accumulated since it was first discussed, rather than executed on the strength of an old plan.
+
+## What The Evaluation Found
+
+"XLSX" means two structurally different things in this codebase: a clean, deterministic `column_name`/`type` spec format (`adapters/excel.py`, cannot express joins/sources — those are YAML-only per `EXAMPLES.md`), and a raw, messy requirements document read via `discover --ai`/`extract_text_from_xlsx()`. The proposed example, read literally, was reaching for the second sense — a messy raw workbook feeding a real join pipeline.
+
+The underlying capability is already evidenced in two contexts: once privately (the real SAP-shaped XLSX document that originally motivated building `extract_text_from_xlsx` at all — see "Real-World Validation" in `ROADMAP.md`), and once publicly, already committed and pushed: `examples/coverage_round1/requirements_docs/medium_subscription_billing.xlsx`, a real 6-sheet workbook run through `discover --ai` → a validated 3-table-join-plus-FX-lookup composite spec → `generate -g model` → real SQL. The result is genuine, not a clean pass dressed up as one: one field's prose/pseudocode expression required manual hand-patching before it would execute, and that hand-patched version surfaced a new, separately-logged DuckDB/PostgreSQL portability finding — the same honest, gap-inclusive character `workorder_demo`'s own history has. These two contexts demonstrate the same underlying capability, not necessarily identical results — the private document and the public fixture differ in shape and were never compared property-for-property.
+
+## Decision
+
+Do not build a new example. The capability the proposed example would have demonstrated is not currently unevidenced — building one anyway would be re-proving an already-proven capability for presentation reasons, not evidentiary ones. This closes the idea as *resolved by existing evidence*, not as *decided against on merit* — if `coverage_round1`'s existing result were weaker, or the capability itself were genuinely unproven, this would read differently.
+
+## What Remains Open, Separately
+
+- Whether `coverage_round1/requirements_docs/medium_subscription_billing.xlsx` is worth promoting into a fourth structifact.com evidence card — the site's "however you already describe your data" claim currently has a live card for "written doc" (`workorder_demo`) and "clean YAML" (`home_warranty_demo`), but none narrating the "messy spreadsheet" leg specifically. Parked as its own future website-copy decision, not decided here. Any such card would need explicit wording covering the hand-patch/portability caveat, never implying a fully clean, automatic path.
+- `structifact.com/sample.yml`'s own thinness (a trivial 2-field spec served from the live tool's "download a sample" link) — confirmed separable from this decision, not addressed here.
