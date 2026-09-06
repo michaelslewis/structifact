@@ -1,7 +1,13 @@
 # Paper Contract: `JoinSpec.pick_one_order_by`
 
-**Status: DRAFT — for review only. No code, schema, or test changes have
-been made. This document proposes a capability; it does not approve one.**
+**Status: IMPLEMENTED — shipped in commit `569c97b` ("Add
+JoinSpec.pick_one_order_by: correlated pick-one joins via LATERAL"),
+with validation (`validation.py`), generation (`generators/model.py`),
+and test coverage (`tests/test_model_pick_one_order_by.py`,
+`tests/test_model_execution_pick_one_order_by.py`, 22 tests total).
+This document is retained as the historical design record that
+motivated and specified the implementation — it is no longer a
+proposal awaiting review.**
 
 ## Background
 

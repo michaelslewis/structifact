@@ -163,7 +163,10 @@ Implemented adapters: YAML (primary/canonical), CSV, Excel, Markdown. CSV, Excel
 
 ## Intermediate Representation
 
-`structifact/ir.py` holds `DatasetSpec` / `FieldSpec` / `ConstraintSpec`, plus the sources/joins additions (`SourceRef`, `JoinSpec`, `DedupRule`, `AggregateRule`) and `DatasetSpec.depends_on`. This is now a substantially larger IR than the original "table + fields" model — see `ARCHITECTURE.md` for the full shape and the reasoning behind each addition.
+`structifact/ir.py` holds `DatasetSpec` / `FieldSpec` / `ConstraintSpec`, plus the sources/joins additions (`SourceRef`, `JoinSpec` — including
+`JoinSpec.pick_one_order_by`, a correlated pick-one-row join via
+`LEFT JOIN LATERAL`, see `docs/PICK_ONE_ORDER_BY_CONTRACT.md` —
+`DedupRule`, `AggregateRule`) and `DatasetSpec.depends_on`. This is now a substantially larger IR than the original "table + fields" model — see `ARCHITECTURE.md` for the full shape and the reasoning behind each addition.
 
 ---
 
