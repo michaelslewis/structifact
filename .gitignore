@@ -224,12 +224,15 @@ __marimo__/
 # Generated artifacts
 output/
 
-# IDE settings (if you use VS Code) -- settings.json is a scoped
-# exception: it only carries the yaml.schemas mapping to
-# schemas/structifact-dataset.schema.json (see docs/DECISION_HISTORY.md),
-# not personal editor preferences, so it's shared rather than ignored.
+# IDE settings (if you use VS Code) -- settings.json and launch.json
+# are scoped exceptions: settings.json only carries the yaml.schemas
+# mapping to schemas/structifact-dataset.schema.json, and launch.json
+# only runs the vscode-extension/ Extension Development Host (see
+# docs/DECISION_HISTORY.md) -- neither is a personal editor
+# preference, so both are shared rather than ignored.
 .vscode/*
 !.vscode/settings.json
+!.vscode/launch.json
 
 # macOS
 .DS_Store

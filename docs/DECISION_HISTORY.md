@@ -549,6 +549,8 @@ That incident became the occasion for a larger, explicitly requested step back, 
 
 Decided: stop pursuing `discover --ai` reliability on this specific document further (the model-capability question has a real answer now; chasing a complete fix for `claude-haiku-4-5` on this exact shape is not a good use of further time or money), and treat this as the moment to reassess priorities against the project's actual goals rather than default to the next item on the technical backlog.
 
+**Resolved, 2026-09-07 — the portfolio-vs-product question this entry left open.** Explicit decision: Structifact is being pursued as a real product going forward — the active goal is genuine usefulness and eventual meaningful distribution/downloads, not a portfolio artifact that happens to also be usable. Consulting opportunities remain welcome in parallel if a good one comes up, but consulting is not a prerequisite for Structifact, and Structifact's engineering does not wait on a paying consulting engagement to continue. This closes the open question stated above — engineering work continues by default now; this distinction is not to be re-litigated in future sessions unless explicitly reopened.
+
 ---
 
 # Decision: A Synthetic Document to Isolate a Variable Real Documents Couldn't Offer On Demand
@@ -983,3 +985,26 @@ This is empirical confirmation, by direct human observation in the real editor, 
 **It does not confirm every schema-expressible rule in the file.** The `dedup`/`aggregate` mutual-exclusivity check (`source`'s `not: {required: [dedup, aggregate]}`), the `computed`/`expression` bidirectional conditional on `field`, the `depends_on`-requires-`computed` conditional, `uniqueItems` on `depends_on`, `minItems`/`minProperties` on the various non-empty-array/object rules, and every other rule in `schemas/structifact-dataset.schema.json` not exercised by the three edits above remain verified only by the previous entry's automated `jsonschema`-library pass — a real and legitimate form of verification, but a different one, running the schema engine from a script rather than confirming the live editor actually renders it as a human would see it. That distinction is being stated explicitly rather than let this entry read as "the schema works" without qualification: automated testing confirmed the schema's logic broadly; this entry confirms, for a representative sample of three rule categories, that the logic actually reaches a human's screen through the real tool chain.
 
 No implementation, schema, or example file was changed as part of this entry — it records an observation, not a fix or a feature.
+
+---
+
+# Decision: `vscode-extension/`, a Minimal `Structifact: Validate` Command — Built and Confirmed by Hand (2026-09-07)
+
+## What Happened
+
+Following the strategic resolution above (Structifact is being pursued as a real product), the next concrete engineering milestone was scoped deliberately small and built to that scope, not beyond it: a single VS Code command, **Structifact: Validate**, that shells out to the real `structifact validate <file>` CLI and surfaces its output as native VS Code diagnostics. Plain JavaScript, zero npm dependencies, no build step. Explicitly out of scope for this slice, by direct instruction: no YAML-shape validation (already covered by `schemas/structifact-dataset.schema.json`), no webview/sidebar/additional commands, and no work on the still-logged, still-deferred `precision`/`scale` adapter gap.
+
+Before any editor testing, the CLI's actual behavior was captured directly (not assumed) by running the real `structifact` console script against real and deliberately-broken files: confirmed exit codes (0 success, 1 failure), the exact `"\nValidation failed:\n\n" + "\n".join(errors)` output shape for a caught `ValueError`, the plain `"\nFile not found: <path>"` shape for a caught `FileNotFoundError`, and — importantly — that an *uncaught* exception (a real `KeyError` triggered by a malformed `constraints` entry) produces a raw Python traceback on exit code 1, not the `"Validation failed:"` wrapper, meaning the extension needed a fallback path for that case rather than assuming the CLI always emits its own expected format. The extension's `execFile` invocation and output-parsing logic were then verified against these captured real outputs from outside VS Code (no `vscode` module available in this environment) before ever being loaded into an actual editor — success, single error, multi-error, a bogus `cliPath` (`ENOENT`), and the traceback fallback all confirmed correct.
+
+## What Was Directly Observed By Hand
+
+The author then ran the extension for real, via the `.vscode/launch.json` Extension Development Host, and confirmed two cases directly:
+
+1. **Success path** — `examples/data_quality_demo/dq_customers.yml`, a real valid file: running the command produced the "Structifact: validation passed" status-bar message.
+2. **A real cross-field rule the JSON Schema deliberately cannot express** — a temporary copy with a field carrying `min_value: 100` / `max_value: 10` (an ordering violation only checkable by comparing two runtime values, not a static shape rule): running the command correctly reported `Field 'customer_age' has min_value (100) greater than max_value (10)`, sourced as `Structifact` in the diagnostic. This is the concrete case this whole command exists for — a rule the earlier JSON-Schema-based live validation structurally cannot catch, now caught without leaving the editor.
+
+A real setup gap surfaced during this manual test, not anticipated in the original scoping: `structifact` was not found on `PATH` by default (`"could not run structifact"`), because a project virtualenv's `bin/` is only on `PATH` inside an activated shell — VS Code does not activate it. Fixed by setting `structifact.cliPath` to the venv's actual binary path. The extension's own `ENOENT` handling correctly caught this and pointed at the right setting, but the README's original framing ("if it isn't on your PATH") undersold how common this case actually is for the normal venv-based setup — corrected in `vscode-extension/README.md` to state plainly that setting `structifact.cliPath` should be expected, not treated as an edge case.
+
+## Scope of What This Confirms
+
+Same discipline as the JSON-Schema verification entry above: this confirms, by direct human observation in a real Extension Host window, that the command works end to end for the success path and for one concrete cross-field rule the schema can't cover — not that every possible CLI output shape (the traceback-fallback path, `FileNotFoundError`, multi-error output) renders correctly on a real screen. Those remain verified only by the pre-editor script-based check against real captured CLI output described above, a real but different form of verification from watching it happen in the actual tool.

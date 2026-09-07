@@ -10,7 +10,9 @@
 
 Structifact is a metadata-driven data engineering framework exploring how declarative definitions can be transformed into reliable, repeatable, and maintainable engineering workflows — and, as of more recent work, into real checks against actual data, not just generated artifacts.
 
-The project is being developed as both:
+Structifact is being actively built as a real product — the goal is genuine usefulness and eventual meaningful distribution/downloads, not something gated on a paying consulting engagement first. Consulting opportunities remain welcome in parallel when a good one comes up, but consulting is not a prerequisite; product development does not wait on it. (See `DECISION_HISTORY.md`'s 2026-09-07 resolution of this question.)
+
+It is also, incidentally:
 
 1. A serious engineering exploration of metadata-driven data systems.
 2. A professional portfolio project demonstrating modern software and data engineering practices.

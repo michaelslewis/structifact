@@ -1,0 +1,32 @@
+{
+  "name": "structifact-validate",
+  "displayName": "Structifact",
+  "description": "Run Structifact's own `validate` command against the active file and show the results as VS Code diagnostics.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "michaelslewis",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onCommand:structifact.validate"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "structifact.validate",
+        "title": "Structifact: Validate"
+      }
+    ],
+    "configuration": {
+      "title": "Structifact",
+      "properties": {
+        "structifact.cliPath": {
+          "type": "string",
+          "default": "structifact",
+          "description": "Path to the Structifact CLI executable (the `structifact` console script installed by `pip install -e .`). Change this if it isn't on your PATH — e.g. the absolute path to a project virtualenv's bin/structifact."
+        }
+      }
+    }
+  }
+}
