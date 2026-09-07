@@ -94,6 +94,26 @@ up beyond the narrowest proven case:
   from a real YAML file — see `DECISION_HISTORY.md` for the full
   writeup (the same class of bug as the Phase 1 constraint-parsing
   gap). See ROADMAP.md's Phase 8 section for the full contract.
+* **Field-level `precision`/`scale` are dead metadata in six real,
+  checked-in example files** — found building `schemas/structifact-
+  dataset.schema.json` (see DECISION_HISTORY.md). `structifact/
+  adapters/yaml.py`'s `load_yaml()` only ever populates
+  `FieldSpec.precision`/`.scale` from parenthesized parameters inside
+  the `type` string itself (e.g. `decimal(9,2)`); it never reads a
+  sibling `precision:`/`scale:` key, even though `examples/
+  home_warranty_demo/claims.yml`, `coverage_rules.yml`,
+  `home_warranty_claims.yml`, `examples/data_quality_demo/
+  orders_data.yml`, and `examples/reconciliation_demo/orders_legacy
+  .yml`/`orders_new.yml` all author fields exactly that way and have
+  the values silently dropped — confirmed directly by loading one of
+  them and inspecting the resulting `FieldSpec`. Two real directions,
+  deliberately not chosen between yet: extend `yaml.py` to honor
+  field-level `precision`/`scale`/`length` as a fallback when `type`
+  has no parenthesized params (bigger — a parsing-behavior change),
+  or rewrite the six files to the form the loader already honors
+  (`type: decimal(9,2)`, smaller — a data fix). The new schema
+  deliberately stays strict and rejects the dead keys rather than
+  being loosened to quietly accept them.
 * **`docs/ARCHITECTURE.md`'s execution-pattern documentation** — found
   during the 1.0 readiness audit: the document has zero mentions of
   `Executor`, `execute`, or materialization anywhere across its full
@@ -258,7 +278,7 @@ A concrete idea, not yet started: package some of Structifact's capability as an
 Potential capabilities, roughly in order of how self-contained each would be to build:
 
 syntax highlighting for the metadata YAML dialect
-inline validation — surface `structifact validate`'s errors as editor squiggles/diagnostics as the file is edited, not just on a manual CLI run
+inline validation — **partially real, no custom extension code involved.** `schemas/structifact-dataset.schema.json` (see DECISION_HISTORY.md) is a JSON Schema for the hand-authored dataset YAML, wired into `.vscode/settings.json` for the Red Hat YAML extension (`redhat.vscode-yaml`) — live squiggles/autocomplete for the schema-expressible subset of `structifact/validation.py`'s rules (required fields, enums, non-empty arrays, mutually-exclusive pairs, same-object conditionals like `computed`/`expression`) while editing, no CLI run needed. Deliberately does NOT cover this rule set's cross-reference/cross-item checks (a join's `source` naming a real declared source, a foreign key's target existing, duplicate `depends_on` across a collection, more-than-one `primary_key`) — those still require actually running `structifact validate`, which is the real motivation for the subprocess/CLI-invocation idea below remaining on this list, scoped now specifically to that smaller remaining rule set rather than validation in general.
 command-palette actions to run `validate` / `generate` / `validate-data` / `deps` against the open file(s) without leaving the editor
 a webview panel previewing generated output (SQL, the transformation model, a quality report, a dependency execution order) without a separate terminal step
 

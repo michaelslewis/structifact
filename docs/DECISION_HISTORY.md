@@ -919,3 +919,34 @@ This entry records a technical finding only. It does not investigate, and takes 
 - the fabrication failure modes recorded above (the `order_extract.md` zip-column invention, the `doc_c_sap_shaped.md` VKORG join) are rare edge cases or a representative sample of how often this class of error would occur in real use at scale.
 
 No market or demand research of any kind was conducted in this round. **Technically demonstrated ≠ commercially validated**, restated: this experiment is evidence about what the pipeline does on four specific fictional documents, under two specific models, on one specific evening — not evidence about whether Structifact should build a product around this capability. That question is left open here, deliberately, and is not decided by this entry.
+
+---
+
+# Decision: A JSON Schema for the Authoring-Format YAML — Built, and a Real Dead-Metadata Gap It Surfaced (precision/scale) — Logged, Not Fixed (2026-09-07)
+
+## What Happened
+
+Following up on the IDE Integration idea in `FUTURE_WORK.md`, the smallest real next step toward inline editor validation was identified and built: `schemas/structifact-dataset.schema.json`, a JSON Schema (draft-07) for Structifact's hand-authored dataset YAML — the input to `structifact validate`/`structifact generate` — wired to the workspace via `.vscode/settings.json` so the Red Hat YAML extension (`redhat.vscode-yaml`) gives live squiggles and autocomplete while editing, with no custom extension code.
+
+Two formats needed to be distinguished first, since `JSONSchemaGenerator` (`structifact/generators/jsonschema.py`) already exists but generates a schema for a dataset's *output data* — the rows a validated dataset would contain — not the authoring metadata format itself. No schema for the authoring format existed anywhere in the repo before this entry. `structifact/validation.py`'s ~20+ rules were read in full and split into two buckets: the majority (required fields, enums, non-empty arrays, mutually-exclusive-pair checks like `dedup`/`aggregate`, same-object conditionals like `computed`/`expression`) are directly expressible in JSON Schema; a smaller set — a join's `source` naming a real `sources[].name`, a field's `source` doing the same, `foreign_key`'s `target_table`/`target_column` existing as a real dataset, duplicate `depends_on` entries across a whole collection, a dataset having more than one `primary_key` constraint — are cross-reference or cross-item checks that fundamentally require invoking Structifact's own validator (or, for a couple of the cross-item cases, a JSON Schema draft newer than 07's `contains`/`minContains`/`maxContains`, deliberately not adopted here for wider tool compatibility). The schema's own description field documents this boundary explicitly so it doesn't get mistaken for a complete substitute for `structifact validate`.
+
+The schema was tested against every genuine authoring-format YAML file already checked into `examples/` (not written from imagination) — first requiring a manual pass to distinguish real authoring-format specs from output/generated files sharing the same `.yml` extension: `examples/workorder_demo/work_order_source.yml` turned out to be a checked-in **dbt-generated output** file despite its plain name and non-`generated/` location, and `examples/*/reconciliation.yml` / `experiment_b_reconciliation_mapping.yml` are a structurally unrelated `key: {old, new}` mapping format, not a `DatasetSpec` at all. Twenty-six confirmed authoring-format files were validated against the new schema using the real `jsonschema` library already present in the project's own `.venv`.
+
+## What The Testing Found
+
+Six real, currently-checked-in files — `examples/home_warranty_demo/claims.yml`, `coverage_rules.yml`, `home_warranty_claims.yml`, `examples/data_quality_demo/orders_data.yml`, and `examples/reconciliation_demo/orders_legacy.yml`/`orders_new.yml` — author decimal fields using a `type: decimal` plus separate `precision:`/`scale:` keys, e.g.:
+
+```yaml
+- name: claim_amount
+  type: decimal
+  precision: 9
+  scale: 2
+```
+
+The new schema flagged these as unexpected properties, since `structifact/adapters/yaml.py`'s `load_yaml()` never reads `field.get("precision")`/`field.get("scale")` at all — `FieldSpec.precision`/`.scale` are populated exclusively from `parse_type()`'s parsing of parenthesized parameters *inside* the `type` string itself (e.g. `decimal(9,2)`), never from sibling keys. This was confirmed directly, not inferred from reading the code alone: loading `examples/home_warranty_demo/claims.yml` through the real `load_yaml()` and inspecting the resulting `FieldSpec` for `claim_amount` shows `precision=None, scale=None` despite the source file explicitly declaring `precision: 9` / `scale: 2` two lines below `type: decimal`. The keys are silently inert — dead metadata, present in six real files and never once reaching a generator, a validator, or any other consumer.
+
+## Decision
+
+The schema stays strict — `additionalProperties: false` at the field level continues to reject a bare `precision`/`scale` pair, matching what the loader actually consumes today, not what a reasonable author might expect it to consume. This is deliberately not "fixed" by loosening the schema to quietly accept the dead keys; that would launder a real gap into an apparently-valid pattern. Also deliberately not fixed in `yaml.py` or the six example files as part of this entry — a decision point of its own (extend the adapter to honor field-level `precision`/`scale`/`length` as a fallback when `type` has no parenthesized params, versus rewriting the six files to the form the loader already honors, i.e. `type: decimal(9,2)`) was raised and deferred rather than resolved unilaterally mid-task. Recorded in `FUTURE_WORK.md`'s "Before a 1.0 Release" list as a real, evidenced gap — not a hypothetical one — for whichever direction gets picked up later.
+
+Worth naming directly: this is the same shape of finding as the `yaml.py` `source_table`/`sources`/`joins` parsing gap recorded earlier in this document, and the missing `openpyxl` dependency, and the DEC type-alias gap from the round immediately above this entry — a small, mechanical, previously-invisible gap in already-checked-in, already-"working" files, found only because a new tool was built that actually reads the authoring contract literally and checks real files against it, rather than trusting that existing examples exercise every field they declare.

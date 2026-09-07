@@ -1,0 +1,274 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://structifact.dev/schemas/structifact-dataset.schema.json",
+  "title": "Structifact dataset definition (authoring format)",
+  "description": "Validates a hand-authored Structifact dataset YAML file (the input to `structifact validate`/`structifact generate`) against structifact/adapters/yaml.py's parsing contract and the subset of structifact/validation.py's rules that are checkable from metadata shape alone. It does NOT cover Structifact's cross-reference rules (a join's `source` naming a real entry in `sources`, a field's `source` doing the same, a foreign_key's target_table/target_column, self/duplicate depends_on across a whole collection, dataset-level duplicate-name/primary-key-count checks) — those require Structifact's own validator. Keep this file in sync with structifact/ir.py, structifact/adapters/yaml.py, and structifact/validation.py's SUPPORTED_* constants and structural checks when any of them change; it does not read those files at authoring time.",
+  "type": "object",
+  "properties": {
+    "dataset": {
+      "type": "object",
+      "description": "Preferred top-level form. Use `table` (a bare string) instead for the legacy form, never both.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "table": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legacy top-level dataset name. Prefer `dataset: {name, description}` instead — this form carries no description."
+    },
+    "source_table": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The table the primary-source SELECT reads from. Omit to fall back to the dataset name."
+    },
+    "source_filter": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Raw SQL predicate filtering the primary source. Not parsed or validated."
+    },
+    "dbt_schema": { "type": "string", "minLength": 1 },
+    "dbt_tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "dbt_datasource_name": { "type": "string", "minLength": 1 },
+    "dbt_datasource_project": { "type": "string", "minLength": 1 },
+    "dbt_datasource_extract": { "type": "boolean" },
+    "dbt_data_catalog": { "type": "boolean" },
+    "depends_on": {
+      "type": "array",
+      "description": "Names of other Structifact datasets this one depends on.",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "joins": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/join" }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/field" }
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/constraint" }
+    }
+  },
+  "required": ["fields"],
+  "oneOf": [
+    { "required": ["dataset"] },
+    { "required": ["table"] }
+  ],
+  "additionalProperties": false,
+
+  "$defs": {
+    "field": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Raw type string (e.g. varchar(255), decimal(10,2), timestamp). Not restricted to a fixed list here — the alias table it's checked against lives in structifact/types.py and has changed before; encoding it here risks silently going stale. Run `structifact validate` to confirm the type is actually supported."
+        },
+        "description": { "type": "string" },
+        "comment": { "type": "string" },
+        "role": { "type": "string", "enum": ["dimension", "measure"] },
+        "accepted_values": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": ["string", "number", "boolean"] }
+        },
+        "nullable": { "type": "boolean" },
+        "computed": { "type": "boolean" },
+        "expression": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Raw SQL, inlined as-is. Requires computed: true."
+        },
+        "depends_on": {
+          "type": "array",
+          "description": "Other field names (in this same dataset) this computed field's expression depends on. Requires computed: true.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "min_value": { "type": "number" },
+        "max_value": { "type": "number" },
+        "pattern": {
+          "type": "string",
+          "description": "Regex, checked with fullmatch semantics against real data. Only meaningful on string fields."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must name a `sources[].name` declared in this same dataset — not checked here, see structifact validate."
+        },
+        "source_column": { "type": "string", "minLength": 1 }
+      },
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "required": ["expression"] },
+          "then": { "required": ["computed"], "properties": { "computed": { "const": true } } }
+        },
+        {
+          "if": { "required": ["computed"], "properties": { "computed": { "const": true } } },
+          "then": { "required": ["expression"] }
+        },
+        {
+          "if": { "required": ["depends_on"] },
+          "then": { "required": ["computed"], "properties": { "computed": { "const": true } } }
+        }
+      ]
+    },
+
+    "dedupRule": {
+      "type": "object",
+      "description": "Priority-based row selection within a joined-in source. Mutually exclusive with `aggregate` on the same source.",
+      "properties": {
+        "partition_by": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "order_by": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["partition_by", "order_by"],
+      "additionalProperties": false
+    },
+
+    "aggregateRule": {
+      "type": "object",
+      "description": "Collapses a joined-in source to one row per group via aggregation. Mutually exclusive with `dedup` on the same source.",
+      "properties": {
+        "group_by": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "aggregates": {
+          "type": "object",
+          "description": "Maps an output column alias to a raw SQL aggregate expression.",
+          "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["group_by", "aggregates"],
+      "additionalProperties": false
+    },
+
+    "source": {
+      "type": "object",
+      "description": "A named, joinable source. `name` is the logical alias joins/fields refer to; `table` is the physical table.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "table": { "type": "string", "minLength": 1 },
+        "filter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Raw SQL predicate scoping this source instance. Not parsed or validated."
+        },
+        "dedup": { "$ref": "#/$defs/dedupRule" },
+        "aggregate": { "$ref": "#/$defs/aggregateRule" }
+      },
+      "required": ["name", "table"],
+      "additionalProperties": false,
+      "not": { "required": ["dedup", "aggregate"] }
+    },
+
+    "join": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must name a `sources[].name` declared in this same dataset — not checked here, see structifact validate."
+        },
+        "on": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Raw SQL join condition. IMPORTANT: this key must be quoted (\"on\":) in YAML — an unquoted bare `on:` is parsed by YAML 1.1 as the boolean true, not the string \"on\", and this schema will then correctly flag the join as missing its required `on` property."
+        },
+        "type": { "type": "string", "enum": ["left", "inner"] },
+        "pick_one_order_by": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Raw SQL ordering expressions, first = highest priority. See docs/PICK_ONE_ORDER_BY_CONTRACT.md."
+        }
+      },
+      "required": ["source", "on"],
+      "additionalProperties": false
+    },
+
+    "constraint": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["primary_key", "unique", "foreign_key", "check"]
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "target_table": {
+          "type": "string",
+          "minLength": 1,
+          "description": "foreign_key only. Free text, not resolved against another dataset."
+        },
+        "target_column": { "type": "string", "minLength": 1 },
+        "expression": {
+          "type": "string",
+          "minLength": 1,
+          "description": "check only. Raw SQL, assumed valid, never parsed."
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "enum": ["primary_key", "unique", "foreign_key"] } }
+          },
+          "then": {
+            "required": ["columns"],
+            "properties": { "columns": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "foreign_key" } }
+          },
+          "then": {
+            "required": ["columns", "target_table", "target_column"],
+            "properties": { "columns": { "minItems": 1, "maxItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "check" } }
+          },
+          "then": { "required": ["expression"] }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "yaml.schemas": {
+    "./schemas/structifact-dataset.schema.json": [
+      "examples/customers.yml",
+      "examples/customers/customers.yml",
+      "examples/types.yml",
+      "examples/data_quality_demo/*.yml",
+      "examples/dependency_demo/*.yml",
+      "examples/dependency_demo/cyclic_broken/*.yml",
+      "examples/home_warranty_demo/claims.yml",
+      "examples/home_warranty_demo/contracts.yml",
+      "examples/home_warranty_demo/coverage_rules.yml",
+      "examples/home_warranty_demo/contractor_network.yml",
+      "examples/home_warranty_demo/home_warranty_claims.yml",
+      "examples/reconciliation_demo/orders_legacy.yml",
+      "examples/reconciliation_demo/orders_new.yml",
+      "examples/value_experiment/experiment_b_reconciliation_old_schema.yml",
+      "examples/value_experiment/order_status_and_revenue_candidates.yml",
+      "examples/value_experiment/order_status_and_revenue_pick_one_order_by.yml",
+      "examples/value_experiment/order_status_resolved.yml",
+      "examples/value_experiment/order_status_revenue_summary.yml",
+      "examples/coverage_round1/yaml_specs/*.yml"
+    ]
+  }
+}

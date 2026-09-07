@@ -224,8 +224,12 @@ __marimo__/
 # Generated artifacts
 output/
 
-# IDE settings (if you use VS Code)
-.vscode/
+# IDE settings (if you use VS Code) -- settings.json is a scoped
+# exception: it only carries the yaml.schemas mapping to
+# schemas/structifact-dataset.schema.json (see docs/DECISION_HISTORY.md),
+# not personal editor preferences, so it's shared rather than ignored.
+.vscode/*
+!.vscode/settings.json
 
 # macOS
 .DS_Store
