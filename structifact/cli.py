@@ -15,8 +15,8 @@ from .executors.registry import EXECUTORS
 from .generators.sql import SQLGenerator
 from .generators.model import ModelGenerator
 from .discover import (
-    discover_csv, render_draft_yaml, build_ai_prompt, parse_ai_suggestions,
-    build_requirements_prompt, parse_requirements_draft,
+    discover_csv, render_draft_yaml, flagged_fields, build_ai_prompt,
+    parse_ai_suggestions, build_requirements_prompt, parse_requirements_draft,
     render_requirements_draft_yaml, extract_text_from_xlsx,
 )
 
@@ -574,6 +574,10 @@ def discover(args, ai_client=None):
     print(f"✓ Read {discovered.row_count} row(s)")
     print(f"✓ Sampled {sampled} row(s)")
     print(f"✓ Inferred {len(discovered.fields)} column(s)")
+
+    flagged = flagged_fields(discovered)
+    if flagged:
+        print(f"⚠ {len(flagged)} field(s) flagged for review: {', '.join(flagged)}")
 
     ai_suggestions = None
 

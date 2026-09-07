@@ -35,15 +35,17 @@ exists:
 pip install -e .
 ```
 
-**You will very likely need to set `structifact.cliPath` in VS Code
-Settings — this is not just an edge case.** If Structifact is installed
-into a project virtualenv (the normal case, and the case this repo's own
-`.venv/` is), `structifact` is on that venv's `PATH` only while it's
-activated in a shell — VS Code itself does not activate it, so the bare
-`structifact` default will fail with "could not run structifact" the
-first time you use the command. Confirmed directly running this
-extension against this repo: set `structifact.cliPath` to the venv's
-actual binary, e.g. `/path/to/structifact/.venv/bin/structifact`.
+**You should not need to set `structifact.cliPath` manually anymore.**
+Earlier, a project virtualenv's `structifact` wasn't found because a
+venv's `bin/` is only on `PATH` inside an activated shell, and VS Code
+doesn't activate it — the extension now checks the open workspace's own
+`.venv/` or `venv/` folder for a `structifact` binary directly (before
+falling back to bare `PATH`), so the normal case — a virtualenv living
+inside the project, exactly like this repo's own `.venv/` — resolves
+with zero configuration. Confirmed directly against this repo's real
+`.venv/bin/structifact`. Only set `structifact.cliPath` yourself for an
+unusual setup (a virtualenv with some other name, or living outside the
+workspace folder).
 
 ## Running it
 

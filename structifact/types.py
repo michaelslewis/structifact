@@ -164,6 +164,20 @@ def infer_type_from_values(values: list) -> str:
     return "string"
 
 
+def looks_like_padded_numeric(values: list) -> bool:
+    """
+    True if `infer_type_from_values` would fall back to "string" for
+    this sample specifically because of the leading-zero landmine
+    (e.g. a zip code "02134" or a padded order ID "001") -- as
+    opposed to falling back to "string" for some other reason (mixed
+    types, free text, etc.). `discover.py` uses this to tell a human
+    reviewer *why* a numeric-looking column was kept as a string,
+    rather than silently leaving `type: string` unexplained.
+    """
+    non_empty = [v.strip() for v in values if not is_null_token(v)]
+    return any(_LEADING_ZERO_RE.match(v) for v in non_empty)
+
+
 def _is_int(value: str) -> bool:
     try:
         int(value)

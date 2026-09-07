@@ -1,4 +1,4 @@
-from structifact.types import parse_type
+from structifact.types import parse_type, looks_like_padded_numeric
 
 
 def test_varchar():
@@ -26,3 +26,19 @@ def test_unknown():
     result = parse_type("banana")
 
     assert result["type"] == "unknown"
+
+
+def test_looks_like_padded_numeric_true_for_leading_zero():
+    assert looks_like_padded_numeric(["001", "002", "003"]) is True
+
+
+def test_looks_like_padded_numeric_false_for_plain_integers():
+    assert looks_like_padded_numeric(["1", "2", "3"]) is False
+
+
+def test_looks_like_padded_numeric_false_for_free_text():
+    assert looks_like_padded_numeric(["alice@example.com", "bob@example.com"]) is False
+
+
+def test_looks_like_padded_numeric_ignores_null_tokens():
+    assert looks_like_padded_numeric(["001", "", "NULL"]) is True

@@ -24,7 +24,7 @@
         "structifact.cliPath": {
           "type": "string",
           "default": "structifact",
-          "description": "Path to the Structifact CLI executable (the `structifact` console script installed by `pip install -e .`). Change this if it isn't on your PATH — e.g. the absolute path to a project virtualenv's bin/structifact."
+          "description": "Path to the Structifact CLI executable. You usually don't need to set this: if left unset, the extension automatically checks this workspace's own .venv/ or venv/ folder for a structifact binary before falling back to PATH. Set this explicitly only for an unusual setup (a differently-named or differently-located virtualenv)."
         }
       }
     }
