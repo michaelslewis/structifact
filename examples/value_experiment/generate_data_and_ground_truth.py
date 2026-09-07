@@ -22,17 +22,19 @@ experiment arms had finished, so neither could see it):
   expected_result_summary.csv   (was ground_truth_summary.csv)
   GROUND_TRUTH_DERIVATION.md    (was DERIVATION_NOTES.md)
 
-This copy is kept as-is (including its original scratchpad output
-paths, now stale) for audit purposes -- it's the exact script that
-produced every CSV in this directory. Do not re-run it in place; it
-would overwrite the committed files at slightly different paths than
-where they now live.
+This copy is kept as-is for audit purposes -- it's the exact script
+that produced every CSV in this directory, unchanged except for the
+two absolute output paths below, which originally pointed at the
+author's own machine and a private, session-scoped scratchpad
+directory; both are redacted to placeholders here ahead of public
+release. Do not re-run it in place; it would overwrite the committed
+files at slightly different paths than where they now live.
 """
 import csv
 import os
 
-OUT_RAW = "/Users/michaellewis/dev/structifact/examples/value_experiment"
-OUT_GT = "/private/tmp/claude-501/-Users-michaellewis-dev-structifact/ab566d4b-5e48-41e1-a87b-30b5cd5de8d0/scratchpad/value_experiment"
+OUT_RAW = "/path/to/structifact/examples/value_experiment"
+OUT_GT = "/path/to/a/private/scratch/directory/value_experiment"
 
 # ---------------------------------------------------------------------
 # customers: customer_id, customer_name, signup_date

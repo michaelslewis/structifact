@@ -57,55 +57,58 @@ of being maintained by hand in parallel.
 ## Installation
 
 ```bash
-git clone https://github.com/michaelslewis/Structifact.git
-cd Structifact
-python3 -m venv venv
-source venv/bin/activate
-pip install -e .
+pip install structifact
 ```
 
-Requires Python 3.10+ (CI runs 3.11 and 3.12). The base install has
-no dependencies beyond PyYAML — `validate`, `generate`, `deps`,
-`impact`, `reconcile`, and CSV-based `discover`/`validate-data` all
-work immediately, no further setup. Markdown input (`.md`) works the
-same way — no extra required.
+Requires Python 3.11+. The base install has no dependencies beyond
+PyYAML — `validate`, `generate`, `deps`, `impact`, `reconcile`, and
+CSV-based `discover`/`validate-data` all work immediately, no further
+setup. Markdown input (`.md`) works the same way — no extra required.
 
 Everything else is opt-in, via extras:
 
 ```bash
-pip install -e ".[excel]"     # Excel (.xlsx) input, and native .xlsx requirements-document discovery
-pip install -e ".[ai]"        # AI-assisted discover --ai (needs ANTHROPIC_API_KEY)
-pip install -e ".[duckdb]"    # structifact execute --engine duckdb
-pip install -e ".[postgres]"  # structifact execute --engine postgres
-pip install -e ".[dev]"       # pytest, for running the test suite
+pip install "structifact[excel]"     # Excel (.xlsx) input, and native .xlsx requirements-document discovery
+pip install "structifact[ai]"        # AI-assisted discover --ai (needs ANTHROPIC_API_KEY)
+pip install "structifact[duckdb]"    # structifact execute --engine duckdb
+pip install "structifact[postgres]"  # structifact execute --engine postgres
 ```
 
-or all at once: `pip install -e ".[excel,ai,duckdb,postgres,dev]"`.
+or all at once: `pip install "structifact[excel,ai,duckdb,postgres]"`.
 
-Then confirm it's working — see [`examples/customers/`](examples/customers/)
-for the full golden-path walkthrough this mirrors:
+Now confirm it's working — no repository checkout needed. Save the
+YAML shown above as `customers.yml`:
 
 ```bash
-$ structifact validate examples/customers/customers.yml
+$ structifact validate customers.yml
 ✓ Loaded metadata
 ✓ Parsed 2 fields
 ✓ Valid schema
 ✓ No constraint violations
+
+$ structifact generate customers.yml
 ```
+
+That's the whole loop: one file in, real artifacts out. Everything
+from here on uses this repository's own `examples/` directory instead,
+for walkthroughs with more moving parts (multi-source joins, real-data
+quality checks, dependency graphs) — clone it if you want to follow
+along:
+
+```bash
+git clone https://github.com/michaelslewis/structifact.git
+cd structifact
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ".[excel,ai,duckdb,postgres,dev]"   # dev pulls in pytest, to run the test suite
+```
+
+See [`examples/customers/`](examples/customers/) for this same
+example plus its full generated output already checked in.
 
 ## See It In Action
 
-Validate a definition before anything is generated from it:
-
-```bash
-$ structifact validate examples/customers/customers.yml
-✓ Loaded metadata
-✓ Parsed 2 fields
-✓ Valid schema
-✓ No constraint violations
-```
-
-Generate real artifacts from the same definition:
+Generate real artifacts from a definition:
 
 ```bash
 $ structifact generate examples/customers/customers.yml -o examples/customers/generated
@@ -452,7 +455,8 @@ reasoning behind these choices.
   for the exact v1 scope boundary
 * An eight-command CLI (`validate`, `generate`, `discover`,
   `validate-data`, `reconcile`, `deps`, `impact`, `execute`)
-* Continuous integration running the full test suite (~490 tests,
+* Continuous integration running the full test suite (605 tests,
+  24 skipped without optional extras/credentials configured —
   including real PostgreSQL integration tests via a service
   container) on every push, across Python 3.11 and 3.12
 
@@ -511,7 +515,7 @@ Structifact/
 │   ├── llm.py                 provider-agnostic AI client
 │   └── cli.py
 │
-├── tests/                  automated test suite (~490 tests)
+├── tests/                  automated test suite (605 tests)
 ├── docs/                   architecture and design documentation
 ├── AGENTS.md                working rules for AI assistants in this repo
 └── pyproject.toml
@@ -532,10 +536,10 @@ Structifact/
 
 ## Project Status
 
-Structifact is under active development as both an engineering
-exploration of metadata-driven data systems and a portfolio project
-demonstrating modern software and data engineering practices. The
-core pipeline — adapters, IR, validation, and generation — is
+Structifact is under active development as a real, independent tool —
+the goal is genuine usefulness and real-world adoption, not a
+portfolio artifact that happens to also work. The core pipeline —
+adapters, IR, validation, and generation — is
 implemented, tested, and covered by CI, alongside a complete
 real-data quality framework (required fields through cross-dataset
 foreign-key checking), cross-dataset dependency resolution and impact

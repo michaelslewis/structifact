@@ -6,7 +6,19 @@ authors = [
     {name = "Michael S. Lewis"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+license = "MIT"
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Code Generators",
+]
 
 dependencies = [
     "PyYAML>=6.0"
@@ -44,6 +56,11 @@ all = [
     "pytest",
     "jsonschema>=4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/michaelslewis/structifact"
+Repository = "https://github.com/michaelslewis/structifact"
+Issues = "https://github.com/michaelslewis/structifact/issues"
 
 [project.scripts]
 structifact = "structifact.cli:main"
