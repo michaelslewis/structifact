@@ -1,21 +1,31 @@
 {
   "name": "structifact-validate",
   "displayName": "Structifact",
-  "description": "Run Structifact's own `validate` command against the active file and show the results as VS Code diagnostics.",
+  "description": "Run Structifact's own `validate` and `discover` commands against files in this workspace and show the results as native VS Code UI.",
   "version": "0.0.1",
   "private": true,
   "publisher": "michaelslewis",
   "engines": {
     "vscode": "^1.85.0"
   },
+  "scripts": {
+    "test": "node test/extension.test.js"
+  },
   "categories": ["Other"],
-  "activationEvents": ["onCommand:structifact.validate"],
+  "activationEvents": [
+    "onCommand:structifact.validate",
+    "onCommand:structifact.discoverDataset"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
       {
         "command": "structifact.validate",
         "title": "Structifact: Validate"
+      },
+      {
+        "command": "structifact.discoverDataset",
+        "title": "Structifact: Discover Dataset"
       }
     ],
     "configuration": {

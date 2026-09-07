@@ -96,6 +96,94 @@ function activate(context) {
   });
 
   context.subscriptions.push(disposable);
+
+  const discoverDisposable = vscode.commands.registerCommand('structifact.discoverDataset', async () => {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const defaultUri = workspaceFolders && workspaceFolders.length > 0
+      ? workspaceFolders[0].uri
+      : undefined;
+
+    const picked = await vscode.window.showOpenDialog({
+      canSelectMany: false,
+      defaultUri,
+      openLabel: 'Discover',
+      filters: { 'CSV / Excel': ['csv', 'xlsx'] },
+    });
+
+    if (!picked || picked.length === 0) {
+      return;
+    }
+
+    const inputUri = picked[0];
+    const inputPath = inputUri.fsPath;
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(inputUri);
+    const cliPath = resolveCliPath(workspaceFolder);
+    const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(inputPath);
+    const outputPath = discoveredOutputPath(inputPath);
+
+    execFile(cliPath, ['discover', inputPath, '-o', outputPath], { cwd }, (error, stdout, stderr) => {
+      if (error && error.code === 'ENOENT') {
+        vscode.window.showErrorMessage(
+          `Structifact: could not run "${cliPath}". Checked PATH and this workspace's ` +
+          '.venv/venv, found nothing runnable there. Install Structifact ' +
+          '(pip install structifact, or pip install -e . from a clone) so it is on your ' +
+          'PATH, or set structifact.cliPath in Settings to point at it directly.'
+        );
+        return;
+      }
+
+      const output = `${stdout || ''}${stderr || ''}`;
+
+      // structifact discover fails (non-CSV without --ai, no header
+      // row, file not found, etc.) with a plain explanatory message
+      // on stdout/stderr and a non-zero exit -- surface it as-is, the
+      // same parser validate's failures already use, since neither
+      // case has a "Validation failed:" marker to split on and both
+      // just want "the meaningful lines of whatever came back".
+      if (error) {
+        vscode.window.showErrorMessage(
+          `Structifact: discover failed for ${path.basename(inputPath)} — ` +
+          parseErrors(output).join(' ')
+        );
+        return;
+      }
+
+      const flagLine = extractFlagLine(output);
+
+      vscode.workspace.openTextDocument(outputPath).then((doc) => {
+        vscode.window.showTextDocument(doc);
+
+        if (flagLine) {
+          vscode.window.showWarningMessage(
+            `Structifact: ${flagLine.trim()} — see the NEEDS REVIEW comments in the opened draft.`
+          );
+        } else {
+          vscode.window.showInformationMessage(
+            `Structifact: discovered ${path.basename(outputPath)} — no fields flagged for review.`
+          );
+        }
+      });
+    });
+  });
+
+  context.subscriptions.push(discoverDisposable);
+}
+
+// Matches structifact discover's own default output naming
+// (DiscoveredDataset.name + ".discovered.yml" in discover.py) --
+// passed explicitly via -o so the extension knows exactly where the
+// file landed without parsing it back out of stdout.
+function discoveredOutputPath(inputPath) {
+  const base = path.basename(inputPath, path.extname(inputPath));
+  return path.join(path.dirname(inputPath), `${base}.discovered.yml`);
+}
+
+// discover itself already computes and prints this exact line (see
+// flagged_fields() in structifact/discover.py / structifact/cli.py)
+// -- extracted verbatim from its stdout rather than re-deriving which
+// fields were flagged from the rendered YAML.
+function extractFlagLine(output) {
+  return output.split('\n').find((line) => line.trim().startsWith('⚠'));
 }
 
 // structifact validate carries no line/column information -- errors

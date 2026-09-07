@@ -1,30 +1,45 @@
-# Structifact: Validate (VS Code extension, MVP)
+# Structifact for VS Code (MVP)
 
-One command: **Structifact: Validate**. It saves the active file if dirty,
-shells out to the real `structifact validate <file>` CLI, and shows the
-result as native VS Code diagnostics (Problems panel + inline squiggle) on
-failure, or a status-bar message on success.
+Two commands, both thin, literal wrappers around the real `structifact`
+CLI — no logic is duplicated in JavaScript, no webview/sidebar, no
+packaging/publishing setup yet:
 
-This is deliberately the smallest useful slice, not a full extension:
+- **Structifact: Validate** — saves the active file if dirty, runs
+  `structifact validate <file>`, and shows the result as native VS Code
+  diagnostics (Problems panel + inline squiggle) on failure, or a
+  status-bar message on success.
+- **Structifact: Discover Dataset** — lets you pick an existing CSV or
+  Excel file, runs `structifact discover <file>` against it, opens the
+  resulting `.discovered.yml` draft, and tells you plainly whether any
+  fields came back flagged for review.
 
-- No validation logic is duplicated in JavaScript — every rule check still
-  happens in `structifact/validation.py`, invoked exactly as the CLI runs
-  it. This command is a thin, literal wrapper around a subprocess call.
-- No line/column positions. `structifact validate`'s errors describe a
-  field or constraint by name, not a source location (`validation.py`
-  works on the parsed IR, which carries no YAML line/column data) — every
-  diagnostic is anchored to the file's first line as a best-effort
-  placeholder, not a real position.
+Notes that apply to both:
+
+- No validation or discovery logic is duplicated in JavaScript — every
+  rule check happens in `structifact/validation.py`, and every type/
+  format inference happens in `structifact/discover.py` and
+  `structifact/types.py`, invoked exactly as the CLI runs them.
+- No line/column positions on Validate's diagnostics. `structifact
+  validate`'s errors describe a field or constraint by name, not a
+  source location (`validation.py` works on the parsed IR, which
+  carries no YAML line/column data) — every diagnostic is anchored to
+  the file's first line as a best-effort placeholder, not a real
+  position.
 - No YAML shape/schema validation here — that's already covered live by
   `schemas/structifact-dataset.schema.json` + the Red Hat YAML extension
-  (see `.vscode/settings.json`). This command covers the separate,
-  larger rule set that requires actually running Structifact: cross-field
-  and cross-reference checks (a join's `source` naming a real declared
+  (see `.vscode/settings.json`). Validate covers the separate, larger
+  rule set that requires actually running Structifact: cross-field and
+  cross-reference checks (a join's `source` naming a real declared
   source, a foreign key's target, etc.) that a static JSON Schema can't
   express.
-- No webview, sidebar, additional commands, or packaging/publishing setup
-  yet — see `docs/FUTURE_WORK.md`'s "IDE Integration" section for what
-  might come after this, if it proves useful.
+- Discover Dataset never passes `--ai` — it only runs the deterministic
+  half of `structifact discover`. Picking an `.xlsx` file will fail with
+  the CLI's own real "requires --ai" message (there's no deterministic
+  way to parse a raw Excel/requirements file) — this is Structifact's
+  actual, correct behavior surfaced as-is, not a bug in this extension.
+- No graphical review UI, autocomplete, hover, navigation, or dependency
+  visualization yet — see `docs/FUTURE_WORK.md`'s "IDE Integration"
+  section for what might come after this, if it proves useful.
 
 ## Prerequisites
 
@@ -54,6 +69,9 @@ workspace folder).
    `Run Structifact: Validate extension` launch config in
    `.vscode/launch.json` to open a new Extension Development Host window
    with this extension loaded.
+
+**Validate:**
+
 3. In that new window, open any real dataset YAML file (e.g.
    `examples/customers.yml`), then run **Structifact: Validate** from the
    Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
@@ -61,3 +79,31 @@ workspace folder).
    already catches those live) — e.g. a `foreign_key` constraint naming a
    column that doesn't exist as a field — save, and re-run the command to
    see it appear in the Problems panel.
+
+**Discover Dataset:**
+
+3. Run **Structifact: Discover Dataset** from the Command Palette.
+4. In the file picker, choose a raw CSV file — e.g.
+   `tests/fixtures/messy_orders.csv`, a genuinely messy fixture (mixed
+   date formats, inconsistent currency formatting, zero-padded IDs).
+5. The resulting `messy_orders.discovered.yml` opens automatically, and
+   a notification reports whether any fields were flagged for review —
+   for this fixture, a warning naming `order_id`, `order_date`, `amount`,
+   and `zip_code`, each with a `NEEDS REVIEW` comment in the opened file
+   explaining why.
+
+## Tests
+
+The pure logic (CLI-path resolution, output-path naming, parsing the
+real CLI's stdout for its own flagged-fields summary line) has a small,
+dependency-free test file — no `@vscode/test-electron`, no real
+Extension Host, matching this extension's zero-npm-dependency stance:
+
+```bash
+cd vscode-extension
+npm test
+```
+
+This does not replace manually running the commands in a real
+Extension Development Host — it only covers the logic that doesn't
+need the real `vscode` API to be correct.
