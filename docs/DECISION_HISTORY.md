@@ -950,3 +950,36 @@ The new schema flagged these as unexpected properties, since `structifact/adapte
 The schema stays strict — `additionalProperties: false` at the field level continues to reject a bare `precision`/`scale` pair, matching what the loader actually consumes today, not what a reasonable author might expect it to consume. This is deliberately not "fixed" by loosening the schema to quietly accept the dead keys; that would launder a real gap into an apparently-valid pattern. Also deliberately not fixed in `yaml.py` or the six example files as part of this entry — a decision point of its own (extend the adapter to honor field-level `precision`/`scale`/`length` as a fallback when `type` has no parenthesized params, versus rewriting the six files to the form the loader already honors, i.e. `type: decimal(9,2)`) was raised and deferred rather than resolved unilaterally mid-task. Recorded in `FUTURE_WORK.md`'s "Before a 1.0 Release" list as a real, evidenced gap — not a hypothetical one — for whichever direction gets picked up later.
 
 Worth naming directly: this is the same shape of finding as the `yaml.py` `source_table`/`sources`/`joins` parsing gap recorded earlier in this document, and the missing `openpyxl` dependency, and the DEC type-alias gap from the round immediately above this entry — a small, mechanical, previously-invisible gap in already-checked-in, already-"working" files, found only because a new tool was built that actually reads the authoring contract literally and checks real files against it, rather than trusting that existing examples exercise every field they declare.
+
+---
+
+# Decision: The Schema-to-VS-Code Wiring Confirmed by Direct Human Observation, Not Just Automated Testing (2026-09-07)
+
+## What Happened
+
+The previous entry built `schemas/structifact-dataset.schema.json` and confirmed its content programmatically — real `jsonschema`-library validation runs against real example files and synthetic bad cases, all from a script, none of it through the actual editor. That leaves a real gap unclosed: automated `jsonschema` validation confirms the schema's *rules* are correct, but says nothing about whether the Red Hat YAML extension (`redhat.vscode-yaml`), reading `.vscode/settings.json`'s `yaml.schemas` mapping, actually surfaces those rules as live diagnostics inside VS Code — a different piece of machinery (a language server, a glob-to-schema association, an editor's live-validation loop) that the earlier automated pass never touched at all.
+
+The author closed that gap by hand, in the real editor, per the following procedure: an untracked copy of `examples/customers.yml` was made at `examples/data_quality_demo/_schema_test.yml` (a path already covered by the committed glob list, so the test exercised the actual shipped wiring, not a workaround), then three deliberate errors were introduced one at a time, each checked and reverted before the next:
+
+1. **Required-property violation** — deleted `type: integer` from the `customer_id` field.
+2. **Invalid enum value** — changed `constraints[0].type` from `primary_key` to the invalid `primary_keys`.
+3. **Invalid `foreign_key` shape** — changed `constraints[0].type` to the valid enum value `foreign_key` while leaving `target_table`/`target_column` absent, exercising the schema's `if type == foreign_key then require target_table, target_column` conditional specifically (not just a bare "missing required property," but the conditional-shape logic layered on top of it).
+
+No `structifact validate` or any other Structifact command was run at any point — the test's entire purpose was confirming the diagnostics are live, editor-native, and independent of the CLI.
+
+## What Was Directly Observed
+
+- All three edits produced live diagnostics while editing, with no save and no command run — squiggles appeared and updated on keystroke, consistent with `vscode-yaml`'s live-validation model rather than a batch/CLI check.
+- Edit 1 produced the expected missing-required-property diagnostic on the `customer_id` field.
+- Edit 2 produced the expected enum-violation diagnostic, and the listed allowed values were confirmed to read exactly `primary_key`, `unique`, `foreign_key`, `check` — the literal four-value `enum` array in the schema file, not a paraphrase.
+- Edit 3 produced two separate diagnostics, one for `target_table` and one for `target_column`, confirming the conditional (`allOf`/`if`/`then`) shape-dependent requirement fires correctly, not just the constraint's own top-level `required` list.
+- Hover text and the Problems panel identified the source as `yaml-schema: Structifact dataset definition (authoring format)`, `Source: structifact-dataset.schema.json` — the schema's own `title`, confirming the diagnostics trace to this specific file, not a generic YAML linter or some other schema.
+- The temporary file was restored and deleted; `git status` was clean afterward, confirmed directly, not assumed.
+
+## Scope of What This Confirms — and What It Does Not
+
+This is empirical confirmation, by direct human observation in the real editor, of exactly three things: (1) the schema-to-VS-Code wiring itself works end-to-end — `.vscode/settings.json`'s glob mapping correctly routes a matching file to `schemas/structifact-dataset.schema.json`, and the Red Hat YAML extension correctly renders that schema's violations as live, in-editor diagnostics with no CLI involvement; (2) a bare `required`-property violation surfaces correctly; (3) an `enum` violation surfaces correctly, with the exact allowed-values list; (4) a same-object conditional shape rule (`foreign_key`'s `if/then` requiring `target_table`/`target_column`) surfaces correctly, including firing multiple diagnostics from one conditional.
+
+**It does not confirm every schema-expressible rule in the file.** The `dedup`/`aggregate` mutual-exclusivity check (`source`'s `not: {required: [dedup, aggregate]}`), the `computed`/`expression` bidirectional conditional on `field`, the `depends_on`-requires-`computed` conditional, `uniqueItems` on `depends_on`, `minItems`/`minProperties` on the various non-empty-array/object rules, and every other rule in `schemas/structifact-dataset.schema.json` not exercised by the three edits above remain verified only by the previous entry's automated `jsonschema`-library pass — a real and legitimate form of verification, but a different one, running the schema engine from a script rather than confirming the live editor actually renders it as a human would see it. That distinction is being stated explicitly rather than let this entry read as "the schema works" without qualification: automated testing confirmed the schema's logic broadly; this entry confirms, for a representative sample of three rule categories, that the logic actually reaches a human's screen through the real tool chain.
+
+No implementation, schema, or example file was changed as part of this entry — it records an observation, not a fix or a feature.
