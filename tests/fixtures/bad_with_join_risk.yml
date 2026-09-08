@@ -6,6 +6,9 @@ source_table: CLAIM_HDR
 fields:
   - name: claim_id
     type: banana
+  - name: status
+    type: string
+    source: policy_status
 
 sources:
   - name: policy_status

@@ -248,7 +248,13 @@ def test_correlated_inequality_without_pick_one_order_by_warns():
     table = DatasetSpec(
         name="claims",
         source_table="CLAIM_HDR",
-        fields=[FieldSpec(name="claim_id", type="string")],
+        fields=[
+            FieldSpec(name="claim_id", type="string"),
+            # gives `policy_status` legitimate field usage, so only
+            # the join-risk warning fires here, not the (also real,
+            # separately tested) orphaned-source one.
+            FieldSpec(name="status", type="string", source="policy_status"),
+        ],
         sources=[SourceRef(name="policy_status", table="policy_status_history")],
         joins=[
             JoinSpec(
@@ -272,7 +278,10 @@ def test_correlated_inequality_with_pick_one_order_by_does_not_warn():
     table = DatasetSpec(
         name="claims",
         source_table="CLAIM_HDR",
-        fields=[FieldSpec(name="claim_id", type="string")],
+        fields=[
+            FieldSpec(name="claim_id", type="string"),
+            FieldSpec(name="status", type="string", source="policy_status"),
+        ],
         sources=[SourceRef(name="policy_status", table="policy_status_history")],
         joins=[
             JoinSpec(
@@ -293,7 +302,10 @@ def test_ordinary_equality_join_never_warns():
     table = DatasetSpec(
         name="orders",
         source_table="WO_HDR",
-        fields=[FieldSpec(name="order_id", type="string")],
+        fields=[
+            FieldSpec(name="order_id", type="string"),
+            FieldSpec(name="line_id", type="string", source="lines"),
+        ],
         sources=[SourceRef(name="lines", table="WO_LINE")],
         joins=[
             JoinSpec(source="lines", on="WO_HDR.wo_id = lines.wo_id"),
@@ -327,7 +339,10 @@ def test_inequality_referencing_only_the_joined_sources_own_alias_does_not_warn(
     table = DatasetSpec(
         name="claims",
         source_table="CLAIM_HDR",
-        fields=[FieldSpec(name="claim_id", type="string")],
+        fields=[
+            FieldSpec(name="claim_id", type="string"),
+            FieldSpec(name="status", type="string", source="policy_status"),
+        ],
         sources=[SourceRef(name="policy_status", table="policy_status_history")],
         joins=[
             JoinSpec(

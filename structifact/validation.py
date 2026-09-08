@@ -181,6 +181,67 @@ def _join_needs_pick_one_order_by_review(join, known_aliases: set) -> bool:
     return False
 
 
+# Orphaned-source warning: a declared, joined SourceRef that never
+# actually contributes a value -- found via the same investigation as
+# the join-risk warning above, this time re-examining the workorder
+# requirements-document source-attribution bug (three WO_LINE fields
+# silently defaulted to the primary source instead of `source:
+# work_order_line`, which was declared and joined but never referenced
+# by any field). Confirmed empirically against every real
+# `sources:`-bearing example in the repo before landing on this exact
+# definition of "used" -- see docs/DECISION_HISTORY.md for the full
+# account, including two real false positives found and excluded along
+# the way (a source used only via `source_table == source.name`, and a
+# source used only inside a computed expression's raw text) and one
+# real refinement needed to avoid silently un-catching the actual bug
+# (a join's `on` condition naming another source is plumbing for that
+# OTHER join, not evidence this source contributes a value itself).
+#
+# Deliberately narrow, matching the join-risk warning's own posture:
+# join `on` conditions and `pick_one_order_by` establish *relationships
+# between* sources, not value usage, and are never counted here.
+def _orphaned_sources(table: DatasetSpec) -> list:
+    """
+    Names of declared, joined sources with no legitimate value usage
+    -- not referenced by any FieldSpec.source, any qualified
+    `alias.column` reference in a computed expression, `source_filter`,
+    or another source's `filter`. Lightweight/best-effort text
+    analysis only, reusing the same qualified-reference tokenizer as
+    the join-risk warning above -- no SQL parser, no IR changes.
+    """
+    joined_source_names = {j.source for j in table.joins}
+
+    value_strings = []
+    if table.source_filter:
+        value_strings.append(table.source_filter)
+    for field in table.fields:
+        if field.expression:
+            value_strings.append(field.expression)
+    for source in table.sources:
+        if source.filter:
+            value_strings.append(source.filter)
+
+    used_qualifiers = set()
+    for value_string in value_strings:
+        cleaned = _STRING_LITERAL_RE.sub(" ", value_string)
+        for match in _QUALIFIED_REFERENCE_RE.finditer(cleaned):
+            used_qualifiers.add(match.group(1))
+
+    field_sources = {field.source for field in table.fields if field.source}
+
+    orphaned = []
+    for source in table.sources:
+        if source.name == table.source_table:
+            continue
+        if source.name not in joined_source_names:
+            continue
+        if source.name in field_sources or source.name in used_qualifiers:
+            continue
+        orphaned.append(source.name)
+
+    return orphaned
+
+
 def validate_table(table: DatasetSpec):
     errors = []
     warnings = []
@@ -586,6 +647,22 @@ def validate_table(table: DatasetSpec):
                 f"docs/PICK_ONE_ORDER_BY_CONTRACT.md). Review whether "
                 f"pick_one_order_by is needed here."
             )
+
+    # Orphaned-source warning (see module comment above
+    # _orphaned_sources). Deliberately never appended to `errors` --
+    # this check cannot tell "forgot to attribute fields" apart from
+    # "intentionally joined only to filter primary rows," so it warns
+    # either way rather than guessing.
+    for orphaned_name in _orphaned_sources(table):
+        warnings.append(
+            f"Orphaned source: source '{orphaned_name}' is declared "
+            f"and joined but is not referenced by any output field, "
+            f"computed expression, or filter. Review whether this "
+            f"source is intentionally used only for join filtering, "
+            f"or whether fields were attributed to another source — "
+            f"this check cannot verify legitimate join-only-filter "
+            f"usage, so that case is real and not caught here."
+        )
 
     for field in table.fields:
         if field.source is not None and field.source not in source_names:
