@@ -40,10 +40,12 @@ const source = fs.readFileSync(extensionSourcePath, 'utf8');
 const harness = new Module('extension-under-test');
 harness.paths = Module._nodeModulePaths(path.dirname(extensionSourcePath));
 harness._compile(
-  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, parseErrors };`,
+  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors };`,
   extensionSourcePath
 );
-const { resolveCliPath, discoveredOutputPath, extractFlagLine, parseErrors } = harness.exports.__test__;
+const {
+  resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors,
+} = harness.exports.__test__;
 
 function wsFolder(fsPath) {
   return { uri: { fsPath } };
@@ -152,8 +154,35 @@ test('extractFlagLine returns undefined when nothing was flagged', () => {
   assert.strictEqual(extractFlagLine(output), undefined);
 });
 
-// --- parseErrors, exercised against real discover failure shapes,
-// not just validate's ---
+// --- extractGeneratedArtifactPath ---
+
+test('extractGeneratedArtifactPath finds the real generate -g sql line', () => {
+  // Captured from a real `structifact generate ... -g sql -o ...` run.
+  const output = [
+    '',
+    '--- STRUCTURED VIEW ---',
+    '',
+    'Table: customers',
+    '',
+    'Fields:',
+    '- customer_id (integer)',
+    '- created_at (timestamp)',
+    '',
+    '--- GENERATED ARTIFACTS ---',
+    '- /a/b/generated/customers.sql',
+    '',
+  ].join('\n');
+
+  assert.strictEqual(extractGeneratedArtifactPath(output), '/a/b/generated/customers.sql');
+});
+
+test('extractGeneratedArtifactPath returns undefined when no .sql line is present', () => {
+  const output = '\n--- STRUCTURED VIEW ---\n\nTable: customers\n';
+  assert.strictEqual(extractGeneratedArtifactPath(output), undefined);
+});
+
+// --- parseErrors, exercised against real discover/generate failure
+// shapes, not just validate's ---
 
 test('parseErrors surfaces a plain discover failure message', () => {
   const output = '\nFile not found: /tmp/does_not_exist.csv\n';
@@ -173,6 +202,17 @@ test('parseErrors surfaces the real xlsx-without---ai message', () => {
   );
   assert.deepStrictEqual(parseErrors(output), [
     'A requirements document has no data rows to sample, so structifact can only draft a schema from one with --ai (this reads the document with an LLM; nothing here is generated deterministically).',
+  ]);
+});
+
+test('parseErrors surfaces a real generate validation failure', () => {
+  // Captured from a real `structifact generate` run against a field
+  // with an unsupported type -- generate() calls validate_table()
+  // before generating anything, so this is byte-identical in shape
+  // to a Validate command failure.
+  const output = "\nValidation failed:\n\nUnsupported type 'bogus_type' for field 'f1'\n";
+  assert.deepStrictEqual(parseErrors(output), [
+    "Unsupported type 'bogus_type' for field 'f1'",
   ]);
 });
 

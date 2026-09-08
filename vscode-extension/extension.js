@@ -42,6 +42,18 @@ function resolveCliPath(workspaceFolder) {
   return config.get('cliPath', 'structifact');
 }
 
+// Shared across all three commands -- every one of them can hit this
+// exact failure the same way (a bad/unset cliPath), so the message
+// (and the fix it points at) should read identically everywhere.
+function showCliNotFoundError(cliPath) {
+  vscode.window.showErrorMessage(
+    `Structifact: could not run "${cliPath}". Checked PATH and this workspace's ` +
+    '.venv/venv, found nothing runnable there. Install Structifact ' +
+    '(pip install structifact, or pip install -e . from a clone) so it is on your ' +
+    'PATH, or set structifact.cliPath in Settings to point at it directly.'
+  );
+}
+
 function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection('structifact');
   context.subscriptions.push(diagnostics);
@@ -78,12 +90,7 @@ function activate(context) {
       }
 
       if (error.code === 'ENOENT') {
-        vscode.window.showErrorMessage(
-          `Structifact: could not run "${cliPath}". Checked PATH and this workspace's ` +
-          '.venv/venv, found nothing runnable there. Install Structifact ' +
-          '(pip install structifact, or pip install -e . from a clone) so it is on your ' +
-          'PATH, or set structifact.cliPath in Settings to point at it directly.'
-        );
+        showCliNotFoundError(cliPath);
         return;
       }
 
@@ -123,12 +130,7 @@ function activate(context) {
 
     execFile(cliPath, ['discover', inputPath, '-o', outputPath], { cwd }, (error, stdout, stderr) => {
       if (error && error.code === 'ENOENT') {
-        vscode.window.showErrorMessage(
-          `Structifact: could not run "${cliPath}". Checked PATH and this workspace's ` +
-          '.venv/venv, found nothing runnable there. Install Structifact ' +
-          '(pip install structifact, or pip install -e . from a clone) so it is on your ' +
-          'PATH, or set structifact.cliPath in Settings to point at it directly.'
-        );
+        showCliNotFoundError(cliPath);
         return;
       }
 
@@ -167,6 +169,82 @@ function activate(context) {
   });
 
   context.subscriptions.push(discoverDisposable);
+
+  const generateDisposable = vscode.commands.registerCommand('structifact.generate', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('Structifact: Generate needs an open file.');
+      return;
+    }
+
+    const document = editor.document;
+    if (document.isUntitled) {
+      vscode.window.showErrorMessage('Structifact: Generate needs a saved file.');
+      return;
+    }
+
+    // structifact generate reads the file from disk, not the editor
+    // buffer -- save first so the result matches what's on screen
+    // (same reasoning as Validate).
+    if (document.isDirty) {
+      await document.save();
+    }
+
+    const filePath = document.uri.fsPath;
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    const cliPath = resolveCliPath(workspaceFolder);
+    const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(filePath);
+
+    // Restricted to -g sql so exactly one artifact comes back, with
+    // an unambiguous file to open -- the default generator set (sql,
+    // dbt, catalog) would produce three, and this command's job is
+    // "generate one real artifact," matching the workflow already
+    // proven from the CLI. Written to <file's dir>/generated/,
+    // matching the convention already used throughout this repo's
+    // own examples/ and README (see e.g. `structifact generate
+    // examples/customers/customers.yml -o examples/customers/generated`).
+    const outputDir = path.join(path.dirname(filePath), 'generated');
+
+    execFile(cliPath, ['generate', filePath, '-g', 'sql', '-o', outputDir], { cwd }, (error, stdout, stderr) => {
+      if (error && error.code === 'ENOENT') {
+        showCliNotFoundError(cliPath);
+        return;
+      }
+
+      const output = `${stdout || ''}${stderr || ''}`;
+
+      // generate() calls validate_table() before generating anything,
+      // so a metadata error here produces the exact same "Validation
+      // failed:" shape Validate's own failures do -- and a missing
+      // file produces the same "File not found:" shape Discover's
+      // does. Both already parse correctly with the existing,
+      // unmodified parseErrors().
+      if (error) {
+        vscode.window.showErrorMessage(
+          `Structifact: generate failed for ${path.basename(filePath)} — ` +
+          parseErrors(output).join(' ')
+        );
+        return;
+      }
+
+      const artifactPath = extractGeneratedArtifactPath(output);
+
+      if (!artifactPath) {
+        vscode.window.showErrorMessage(
+          `Structifact: generate for ${path.basename(filePath)} reported success but no ` +
+          'generated SQL file path — this should not happen; see the Output panel for the raw result.'
+        );
+        return;
+      }
+
+      vscode.workspace.openTextDocument(artifactPath).then((doc) => {
+        vscode.window.showTextDocument(doc);
+        vscode.window.showInformationMessage(`Structifact: generated ${path.basename(artifactPath)}.`);
+      });
+    });
+  });
+
+  context.subscriptions.push(generateDisposable);
 }
 
 // Matches structifact discover's own default output naming
@@ -176,6 +254,17 @@ function activate(context) {
 function discoveredOutputPath(inputPath) {
   const base = path.basename(inputPath, path.extname(inputPath));
   return path.join(path.dirname(inputPath), `${base}.discovered.yml`);
+}
+
+// generate -g sql prints exactly one "--- GENERATED ARTIFACTS ---"
+// line ("- <path>") once validation passes, since SQLGenerator (unlike
+// e.g. ModelGenerator) always produces something for a valid dataset
+// -- extracted verbatim from real stdout rather than reconstructing
+// the path from the input filename, which would silently break for
+// any YAML file whose dataset.name differs from its own filename.
+function extractGeneratedArtifactPath(output) {
+  const line = output.split('\n').find((l) => /^- .+\.sql$/.test(l.trim()));
+  return line ? line.trim().slice(2).trim() : undefined;
 }
 
 // discover itself already computes and prints this exact line (see

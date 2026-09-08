@@ -1,6 +1,6 @@
 # Structifact for VS Code (MVP)
 
-Two commands, both thin, literal wrappers around the real `structifact`
+Three commands, all thin, literal wrappers around the real `structifact`
 CLI — no logic is duplicated in JavaScript, no webview/sidebar, no
 packaging/publishing setup yet:
 
@@ -12,13 +12,17 @@ packaging/publishing setup yet:
   Excel file, runs `structifact discover <file>` against it, opens the
   resulting `.discovered.yml` draft, and tells you plainly whether any
   fields came back flagged for review.
+- **Structifact: Generate** — runs `structifact generate <file> -g sql`
+  against the currently open Structifact YAML file and opens the
+  resulting `.sql` file.
 
-Notes that apply to both:
+Notes that apply to all three:
 
-- No validation or discovery logic is duplicated in JavaScript — every
-  rule check happens in `structifact/validation.py`, and every type/
-  format inference happens in `structifact/discover.py` and
-  `structifact/types.py`, invoked exactly as the CLI runs them.
+- No validation, discovery, or generation logic is duplicated in
+  JavaScript — every rule check happens in `structifact/validation.py`,
+  every type/format inference happens in `structifact/discover.py` and
+  `structifact/types.py`, and SQL generation happens in
+  `structifact/generators/sql.py`, invoked exactly as the CLI runs them.
 - No line/column positions on Validate's diagnostics. `structifact
   validate`'s errors describe a field or constraint by name, not a
   source location (`validation.py` works on the parsed IR, which
@@ -37,6 +41,13 @@ Notes that apply to both:
   the CLI's own real "requires --ai" message (there's no deterministic
   way to parse a raw Excel/requirements file) — this is Structifact's
   actual, correct behavior surfaced as-is, not a bug in this extension.
+- Generate always runs with `-g sql` — restricted to exactly one
+  generator (out of the CLI's default three: sql/dbt/catalog) so there's
+  exactly one unambiguous file to open, matching the "generate one real
+  artifact" scope this whole workflow was built and proven against from
+  the CLI. Output goes to `<file's directory>/generated/`, the same
+  convention already used throughout this repo's own `examples/` and
+  README.
 - No graphical review UI, autocomplete, hover, navigation, or dependency
   visualization yet — see `docs/FUTURE_WORK.md`'s "IDE Integration"
   section for what might come after this, if it proves useful.
@@ -92,12 +103,22 @@ workspace folder).
    and `zip_code`, each with a `NEEDS REVIEW` comment in the opened file
    explaining why.
 
+**Generate:**
+
+3. Open a real, valid Structifact dataset YAML file (e.g.
+   `examples/customers.yml`), then run **Structifact: Generate** from
+   the Command Palette.
+4. The generated `customers.sql` opens automatically in
+   `examples/generated/customers.sql`, alongside a confirmation
+   notification.
+
 ## Tests
 
 The pure logic (CLI-path resolution, output-path naming, parsing the
-real CLI's stdout for its own flagged-fields summary line) has a small,
-dependency-free test file — no `@vscode/test-electron`, no real
-Extension Host, matching this extension's zero-npm-dependency stance:
+real CLI's stdout for its own flagged-fields and generated-artifact
+lines) has a small, dependency-free test file — no
+`@vscode/test-electron`, no real Extension Host, matching this
+extension's zero-npm-dependency stance:
 
 ```bash
 cd vscode-extension
