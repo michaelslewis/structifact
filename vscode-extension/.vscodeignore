@@ -1,0 +1,6 @@
+# Development/test material only -- not needed at runtime, so it
+# shouldn't ship in the packaged VSIX. Everything else here
+# (extension.js, package.json, README.md, LICENSE) is either required
+# to run the extension or required/used by the Marketplace listing
+# itself, so nothing else is excluded.
+test/

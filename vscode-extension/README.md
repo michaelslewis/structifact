@@ -94,6 +94,10 @@ workspace folder).
 
 ## Running it
 
+If you installed this from the Marketplace, the four commands are
+already available in your Command Palette — the steps below are for
+running it from source during development.
+
 1. Open the repo root (`structifact/`) as a VS Code workspace folder.
 2. Press F5 (or Run → Start Debugging) — this uses the
    `Run Structifact: Validate extension` launch config in
