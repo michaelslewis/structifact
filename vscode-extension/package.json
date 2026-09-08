@@ -1,7 +1,7 @@
 {
   "name": "structifact-validate",
   "displayName": "Structifact",
-  "description": "Run Structifact's own `validate`, `discover`, and `generate` commands against files in this workspace and show the results as native VS Code UI.",
+  "description": "Run Structifact's own `validate`, `discover`, and `generate` commands against files in this workspace, and review the results, as native VS Code UI.",
   "version": "0.0.1",
   "private": true,
   "publisher": "michaelslewis",
@@ -15,7 +15,8 @@
   "activationEvents": [
     "onCommand:structifact.validate",
     "onCommand:structifact.discoverDataset",
-    "onCommand:structifact.generate"
+    "onCommand:structifact.generate",
+    "onCommand:structifact.review"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -31,6 +32,10 @@
       {
         "command": "structifact.generate",
         "title": "Structifact: Generate"
+      },
+      {
+        "command": "structifact.review",
+        "title": "Structifact: Review"
       }
     ],
     "configuration": {

@@ -1,6 +1,6 @@
 # Structifact for VS Code (MVP)
 
-Three commands, all thin, literal wrappers around the real `structifact`
+Four commands, all thin, literal wrappers around the real `structifact`
 CLI — no logic is duplicated in JavaScript, no webview/sidebar, no
 packaging/publishing setup yet:
 
@@ -15,8 +15,18 @@ packaging/publishing setup yet:
 - **Structifact: Generate** — runs `structifact generate <file> -g sql`
   against the currently open Structifact YAML file and opens the
   resulting `.sql` file.
+- **Structifact: Review** — runs `structifact validate` against the
+  currently open file and combines its errors/warnings with whatever
+  the file's own text already says needs attention (`NEEDS REVIEW`
+  comments from Discover Dataset, `unresolved_notes` from an AI
+  requirements extraction) into one native Quick Pick list. Selecting
+  an item jumps the editor to that line — a real line for
+  `NEEDS REVIEW`/`unresolved_notes` items (found by scanning the open
+  file's own text), a best-effort placeholder (line 1) for
+  validate's own errors/warnings, same as Validate's diagnostics,
+  since the CLI itself carries no position data for those.
 
-Notes that apply to all three:
+Notes that apply to all four:
 
 - No validation, discovery, or generation logic is duplicated in
   JavaScript — every rule check happens in `structifact/validation.py`,
@@ -48,6 +58,15 @@ Notes that apply to all three:
   the CLI. Output goes to `<file's directory>/generated/`, the same
   convention already used throughout this repo's own `examples/` and
   README.
+- Review does not map anything back to the original source document
+  (a requirements `.md`/`.csv`/`.xlsx`) — that provenance doesn't exist
+  as structured data anywhere in Structifact yet. Every jump lands
+  inside the currently open YAML file only.
+- `NEEDS REVIEW`/`unresolved_notes` are found by lightweight text
+  scanning of the open file itself (a YAML comment marker; a
+  known, self-controlled top-level list shape — see the comments on
+  `findNeedsReviewItems`/`findUnresolvedNotes` in `extension.js`), not
+  a real YAML parser — no dependency added for this.
 - No graphical review UI, autocomplete, hover, navigation, or dependency
   visualization yet — see `docs/FUTURE_WORK.md`'s "IDE Integration"
   section for what might come after this, if it proves useful.
@@ -111,6 +130,18 @@ workspace folder).
 4. The generated `customers.sql` opens automatically in
    `examples/generated/customers.sql`, alongside a confirmation
    notification.
+
+**Review:**
+
+3. Open the `messy_orders.discovered.yml` produced by the Discover
+   Dataset walkthrough above (or any Structifact YAML with real
+   issues), then run **Structifact: Review** from the Command Palette.
+4. A Quick Pick opens, grouped into Errors / Warnings /
+   `NEEDS REVIEW` (in this file) / Unresolved Notes sections as
+   applicable. Select any item — for a `NEEDS REVIEW` or
+   `unresolved_notes` entry, the editor jumps straight to that line.
+5. Run it again on a clean, valid file (e.g. `examples/customers.yml`)
+   to see the "nothing to flag" case.
 
 ## Tests
 
