@@ -103,7 +103,7 @@ source venv/bin/activate
 pip install -e ".[excel,ai,duckdb,postgres,dev]"   # dev pulls in pytest, to run the test suite
 ```
 
-See [`examples/customers/`](examples/customers/) for this same
+See [`examples/customers/`](https://github.com/michaelslewis/structifact/tree/main/examples/customers) for this same
 example plus its full generated output already checked in.
 
 ## See It In Action
@@ -259,18 +259,18 @@ One definition, several independently-correct outcomes — generated
 artifacts, real-data validation, dependency resolution, real database
 execution, and cross-dataset reconciliation — all from the same
 source, with no duplicated column descriptions or rules to keep in
-sync by hand. See [`examples/customers/`](examples/customers/) for
+sync by hand. See [`examples/customers/`](https://github.com/michaelslewis/structifact/tree/main/examples/customers) for
 the generation walkthrough,
-[`examples/data_quality_demo/`](examples/data_quality_demo/) for the
+[`examples/data_quality_demo/`](https://github.com/michaelslewis/structifact/tree/main/examples/data_quality_demo) for the
 data-quality walkthrough (including checking a foreign-key
 relationship against a second dataset),
-[`examples/dependency_demo/`](examples/dependency_demo/) for the
+[`examples/dependency_demo/`](https://github.com/michaelslewis/structifact/tree/main/examples/dependency_demo) for the
 dependency-resolution walkthrough (including a deliberately-broken
 cyclic example),
-[`examples/reconciliation_demo/`](examples/reconciliation_demo/) for
+[`examples/reconciliation_demo/`](https://github.com/michaelslewis/structifact/tree/main/examples/reconciliation_demo) for
 the reconciliation walkthrough above, including the exact scope
 boundary of what v1 does and doesn't claim, and
-[`examples/home_warranty_demo/`](examples/home_warranty_demo/) for
+[`examples/home_warranty_demo/`](https://github.com/michaelslewis/structifact/tree/main/examples/home_warranty_demo) for
 how the same generated documentation holds up against a
 deliberately messy multi-source dataset, including an independent
 test where a fresh agent, given only the metadata and generated
@@ -376,8 +376,8 @@ The Intermediate Representation (IR) is the architectural core: every
 input format is normalized into the same `DatasetSpec` model before
 anything downstream touches it, so adapters and generators can evolve
 independently without becoming tangled together. See
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
-[`docs/DECISION_HISTORY.md`](docs/DECISION_HISTORY.md) for the
+[`docs/ARCHITECTURE.md`](https://github.com/michaelslewis/structifact/blob/main/docs/ARCHITECTURE.md) and
+[`docs/DECISION_HISTORY.md`](https://github.com/michaelslewis/structifact/blob/main/docs/DECISION_HISTORY.md) for the
 reasoning behind these choices.
 
 ---
@@ -390,7 +390,7 @@ reasoning behind these choices.
   support; YAML is a strict superset (per-field `source`/
   `source_column`, and everything at the dataset level beyond a bare
   name/description, are YAML-only — see
-  [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the full column
+  [`docs/EXAMPLES.md`](https://github.com/michaelslewis/structifact/blob/main/docs/EXAMPLES.md) for the full column
   reference)
 * An Intermediate Representation (`DatasetSpec` / `FieldSpec` /
   `ConstraintSpec`) as the stable internal model, including optional
@@ -451,7 +451,7 @@ reasoning behind these choices.
   field mapping, since legacy and modern column naming essentially
   never match automatically. Does not compare individual field values
   row by row; see
-  [`examples/reconciliation_demo/`](examples/reconciliation_demo/)
+  [`examples/reconciliation_demo/`](https://github.com/michaelslewis/structifact/tree/main/examples/reconciliation_demo)
   for the exact v1 scope boundary
 * An eight-command CLI (`validate`, `generate`, `discover`,
   `validate-data`, `reconcile`, `deps`, `impact`, `execute`)
@@ -523,14 +523,14 @@ Structifact/
 
 ## Documentation
 
-* [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) — overall vision and current state
-* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system architecture and component design
-* [`docs/DECISION_HISTORY.md`](docs/DECISION_HISTORY.md) — key architectural decisions and rationale
-* [`docs/DESIGN_PRINCIPLES.md`](docs/DESIGN_PRINCIPLES.md) — core engineering philosophy
-* [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) — snapshot of what's actually implemented
-* [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned development, with completed work marked as such
-* [`docs/FUTURE_WORK.md`](docs/FUTURE_WORK.md) — longer-term exploratory ideas
-* [`docs/EXAMPLES.md`](docs/EXAMPLES.md) — additional usage examples, including the full `validate-data` and `deps` walkthroughs
+* [`docs/PROJECT_CONTEXT.md`](https://github.com/michaelslewis/structifact/blob/main/docs/PROJECT_CONTEXT.md) — overall vision and current state
+* [`docs/ARCHITECTURE.md`](https://github.com/michaelslewis/structifact/blob/main/docs/ARCHITECTURE.md) — system architecture and component design
+* [`docs/DECISION_HISTORY.md`](https://github.com/michaelslewis/structifact/blob/main/docs/DECISION_HISTORY.md) — key architectural decisions and rationale
+* [`docs/DESIGN_PRINCIPLES.md`](https://github.com/michaelslewis/structifact/blob/main/docs/DESIGN_PRINCIPLES.md) — core engineering philosophy
+* [`docs/CURRENT_STATE.md`](https://github.com/michaelslewis/structifact/blob/main/docs/CURRENT_STATE.md) — snapshot of what's actually implemented
+* [`docs/ROADMAP.md`](https://github.com/michaelslewis/structifact/blob/main/docs/ROADMAP.md) — planned development, with completed work marked as such
+* [`docs/FUTURE_WORK.md`](https://github.com/michaelslewis/structifact/blob/main/docs/FUTURE_WORK.md) — longer-term exploratory ideas
+* [`docs/EXAMPLES.md`](https://github.com/michaelslewis/structifact/blob/main/docs/EXAMPLES.md) — additional usage examples, including the full `validate-data` and `deps` walkthroughs
 
 ---
 
