@@ -1,0 +1,16 @@
+dataset:
+  name: claims
+
+source_table: CLAIM_HDR
+
+fields:
+  - name: claim_id
+    type: banana
+
+sources:
+  - name: policy_status
+    table: POLICY_STATUS_HISTORY
+
+joins:
+  - source: policy_status
+    "on": CLAIM_HDR.policy_id = policy_status.policy_id and policy_status.effective_date <= CLAIM_HDR.claim_date

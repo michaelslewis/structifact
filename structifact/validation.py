@@ -3,6 +3,22 @@ import re
 from .ir import DatasetSpec
 
 
+class ValidationError(ValueError):
+    """
+    Raised by validate_table() when hard errors are found. A plain
+    ValueError subclass -- every existing `except ValueError` call
+    site is unaffected -- that also carries `warnings` (whatever was
+    collected up to the point of failure), so a caller that wants to
+    show both hard errors and warnings together (see cli.py's
+    `validate` command) can, without warnings being silently lost
+    just because the dataset also has a real error.
+    """
+
+    def __init__(self, message, warnings=None):
+        super().__init__(message)
+        self.warnings = warnings or []
+
+
 SUPPORTED_TYPES = {
     "string",
     "integer",
@@ -654,8 +670,8 @@ def validate_table(table: DatasetSpec):
                 )
 
     if errors:
-        raise ValueError(
-            "\n".join(errors)
+        raise ValidationError(
+            "\n".join(errors), warnings=warnings
         )
 
     return warnings

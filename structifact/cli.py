@@ -20,6 +20,12 @@ from .discover import (
     render_requirements_draft_yaml, extract_text_from_xlsx,
 )
 
+def _print_warnings(warnings):
+    print(f"\n⚠ {len(warnings)} warning(s):\n")
+    for warning in warnings:
+        print(f"  - {warning}")
+
+
 def validate(args):
     try:
         table = load_spec(args.spec)
@@ -31,6 +37,16 @@ def validate(args):
     except ValueError as e:
         print("\nValidation failed:\n")
         print(e)
+
+        # A dataset can have both hard errors and join-risk warnings
+        # at once -- ValidationError (a ValueError subclass) carries
+        # whatever warnings were collected up to the point of
+        # failure, so they're still shown here rather than silently
+        # lost just because validate_table also raised.
+        error_warnings = getattr(e, "warnings", None)
+        if error_warnings:
+            _print_warnings(error_warnings)
+
         return False
 
     print(f"✓ Loaded metadata")
@@ -39,9 +55,7 @@ def validate(args):
     print(f"✓ No constraint violations")
 
     if warnings:
-        print(f"\n⚠ {len(warnings)} warning(s):\n")
-        for warning in warnings:
-            print(f"  - {warning}")
+        _print_warnings(warnings)
 
     return True
 
