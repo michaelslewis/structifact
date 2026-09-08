@@ -23,7 +23,7 @@ from .discover import (
 def validate(args):
     try:
         table = load_spec(args.spec)
-        validate_table(table)
+        warnings = validate_table(table)
 
     except FileNotFoundError as e:
         print(f"\nFile not found: {e.filename}")
@@ -37,6 +37,12 @@ def validate(args):
     print(f"✓ Parsed {len(table.fields)} fields")
     print(f"✓ Valid schema")
     print(f"✓ No constraint violations")
+
+    if warnings:
+        print(f"\n⚠ {len(warnings)} warning(s):\n")
+        for warning in warnings:
+            print(f"  - {warning}")
+
     return True
 
 

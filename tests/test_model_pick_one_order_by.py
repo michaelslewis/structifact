@@ -15,6 +15,7 @@ from structifact.ir import (
 )
 from structifact.validation import validate_table
 from structifact.generators.model import ModelGenerator
+from structifact.adapters.yaml import load_yaml
 
 
 def _gen():
@@ -230,3 +231,131 @@ def test_pick_one_order_by_coexists_with_aggregate_without_validation_error():
     )
 
     validate_table(table)  # should not raise
+
+
+# ---------------------------------------------------------------------
+# Join-risk warning: a non-equality `on` condition correlated with
+# another known source, but no pick_one_order_by (found via a real
+# investigation comparing two independently-discovered "as-of" bugs --
+# examples/value_experiment and examples/coverage_round1's
+# hard_insurance_claims; see docs/PICK_ONE_ORDER_BY_CONTRACT.md).
+# Deliberately a WARNING (validate_table's return value), never a
+# validation failure -- see test_known_false_positive_still_warns
+# below for exactly why it can't be a hard error.
+# ---------------------------------------------------------------------
+
+def test_correlated_inequality_without_pick_one_order_by_warns():
+    table = DatasetSpec(
+        name="claims",
+        source_table="CLAIM_HDR",
+        fields=[FieldSpec(name="claim_id", type="string")],
+        sources=[SourceRef(name="policy_status", table="policy_status_history")],
+        joins=[
+            JoinSpec(
+                source="policy_status",
+                on="CLAIM_HDR.policy_id = policy_status.policy_id and policy_status.effective_date <= CLAIM_HDR.claim_date",
+            ),
+        ],
+    )
+
+    warnings = validate_table(table)
+
+    assert len(warnings) == 1
+    assert "policy_status" in warnings[0]
+    assert "pick_one_order_by" in warnings[0]
+
+
+def test_correlated_inequality_with_pick_one_order_by_does_not_warn():
+    # Identical join condition to the test above -- only difference is
+    # pick_one_order_by is set, which is exactly the fix
+    # docs/PICK_ONE_ORDER_BY_CONTRACT.md §9B specifies for this case.
+    table = DatasetSpec(
+        name="claims",
+        source_table="CLAIM_HDR",
+        fields=[FieldSpec(name="claim_id", type="string")],
+        sources=[SourceRef(name="policy_status", table="policy_status_history")],
+        joins=[
+            JoinSpec(
+                source="policy_status",
+                on="CLAIM_HDR.policy_id = policy_status.policy_id and policy_status.effective_date <= CLAIM_HDR.claim_date",
+                pick_one_order_by=["policy_status.effective_date desc"],
+            ),
+        ],
+    )
+
+    assert validate_table(table) == []
+
+
+def test_ordinary_equality_join_never_warns():
+    # The overwhelming common case -- a join that only ever references
+    # the primary source via plain equality must never warn, or this
+    # would fire on nearly every join in the codebase.
+    table = DatasetSpec(
+        name="orders",
+        source_table="WO_HDR",
+        fields=[FieldSpec(name="order_id", type="string")],
+        sources=[SourceRef(name="lines", table="WO_LINE")],
+        joins=[
+            JoinSpec(source="lines", on="WO_HDR.wo_id = lines.wo_id"),
+        ],
+    )
+
+    assert validate_table(table) == []
+
+
+def test_known_false_positive_still_warns():
+    # examples/value_experiment/order_status_and_revenue_candidates.yml
+    # is a real, already-shipped, deliberately-uncollapsed intermediate
+    # dataset in an older pipeline (a *different* dataset later
+    # collapses its fan-out) -- not a bug, but structurally
+    # indistinguishable from one using only this dataset's own IR.
+    # This is accepted, known noise, not something this check tries to
+    # eliminate -- asserted here explicitly so it's a documented
+    # trade-off, not a silent gap.
+    table = load_yaml("examples/value_experiment/order_status_and_revenue_candidates.yml")
+
+    warnings = validate_table(table)
+
+    assert len(warnings) == 1
+    assert "csh" in warnings[0]
+
+
+def test_inequality_referencing_only_the_joined_sources_own_alias_does_not_warn():
+    # The inequality must correlate with ANOTHER known source, not
+    # just any inequality anywhere in `on` -- a (contrived) condition
+    # comparing the joined source only to itself must not warn.
+    table = DatasetSpec(
+        name="claims",
+        source_table="CLAIM_HDR",
+        fields=[FieldSpec(name="claim_id", type="string")],
+        sources=[SourceRef(name="policy_status", table="policy_status_history")],
+        joins=[
+            JoinSpec(
+                source="policy_status",
+                on="policy_status.start_date <= policy_status.end_date",
+            ),
+        ],
+    )
+
+    assert validate_table(table) == []
+
+
+def test_join_risk_warning_never_raises_or_blocks_other_errors():
+    # A dataset with both a real error and the join-risk pattern still
+    # raises for the real error -- warnings never mask or replace
+    # errors, and never themselves become one.
+    table = DatasetSpec(
+        name="claims",
+        source_table="CLAIM_HDR",
+        fields=[FieldSpec(name="claim_id", type="bogus_type")],
+        sources=[SourceRef(name="policy_status", table="policy_status_history")],
+        joins=[
+            JoinSpec(
+                source="policy_status",
+                on="CLAIM_HDR.policy_id = policy_status.policy_id and policy_status.effective_date <= CLAIM_HDR.claim_date",
+            ),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Unsupported type 'bogus_type'"):
+        validate_table(table)

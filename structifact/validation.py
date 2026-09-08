@@ -106,8 +106,68 @@ def _expression_identifiers(expression: str) -> set:
     return identifiers
 
 
+# Join-risk warning: a JoinSpec's `on` correlated with another known
+# source via a non-equality comparison, with no pick_one_order_by --
+# found via a real investigation comparing two independently-
+# discovered "as-of" bugs (examples/value_experiment and
+# examples/coverage_round1's hard_insurance_claims; see
+# docs/PICK_ONE_ORDER_BY_CONTRACT.md, DECISION_HISTORY.md). Both real
+# cases share the same shape: `on` includes something like
+# "joined.effective_date <= primary.claim_date" -- `DedupRule` (if
+# present at all) cannot see primary.claim_date, since it ranks the
+# source's own rows *before* any join happens, so this either
+# silently fans out into duplicate rows (no dedup at all) or silently
+# nulls out the match (a dedup that picks a row unrelated to the
+# primary row's own date) -- confirmed directly for both shapes, not
+# assumed.
+#
+# Deliberately a WARNING, never appended to `errors`: confirmed
+# directly against every real join in this repo with a non-equality
+# `on` condition that this pattern also matches a real, intentional,
+# already-shipped case --
+# examples/value_experiment/order_status_and_revenue_candidates.yml,
+# a deliberately-uncollapsed intermediate file in an older pipeline,
+# collapsed by a *different*, later dataset rather than
+# pick_one_order_by. Nothing in a single dataset's own IR can
+# distinguish that from a genuine mistake -- see the investigation
+# this implements for the full account. This is real, accepted
+# noise, not something this check tries to eliminate.
+_NON_EQUALITY_OPERATOR_RE = re.compile(r"<=|>=|<>|<|>")
+_QUALIFIED_REFERENCE_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_]*\b"
+)
+
+
+def _join_needs_pick_one_order_by_review(join, known_aliases: set) -> bool:
+    """
+    True if `join.on` looks like the correlated "as-of" pattern
+    described above -- lightweight/best-effort text analysis only, no
+    SQL parser: string-literal contents are stripped first, then
+    checked for (a) a non-equality comparison operator and (b) a
+    qualified reference to some known source *other than* the one
+    this JoinSpec is itself joining in (the primary source, or an
+    earlier-declared source -- exactly what pick_one_order_by's own
+    docstring says it can already see).
+    """
+    if join.pick_one_order_by is not None or not join.on:
+        return False
+
+    cleaned = _STRING_LITERAL_RE.sub(" ", join.on)
+
+    if not _NON_EQUALITY_OPERATOR_RE.search(cleaned):
+        return False
+
+    for match in _QUALIFIED_REFERENCE_RE.finditer(cleaned):
+        alias = match.group(1)
+        if alias != join.source and alias in known_aliases:
+            return True
+
+    return False
+
+
 def validate_table(table: DatasetSpec):
     errors = []
+    warnings = []
 
     if not table.name:
         errors.append(
@@ -439,6 +499,13 @@ def validate_table(table: DatasetSpec):
                         f"expression"
                     )
 
+    # Primary source's own alias, as ModelGenerator actually emits it
+    # (source_table if set, else the dataset's own name) -- combined
+    # with every declared source name, this is the full set of
+    # aliases a join's `on` condition could legitimately reference
+    # (see _join_needs_pick_one_order_by_review above).
+    known_aliases = source_names | {table.source_table or table.name}
+
     for join in table.joins:
         if join.source not in source_names:
             errors.append(
@@ -485,6 +552,24 @@ def validate_table(table: DatasetSpec):
                             f"Join on source '{join.source}' has a "
                             f"blank pick_one_order_by entry"
                         )
+
+        # Join-risk warning (see module comment above
+        # _join_needs_pick_one_order_by_review). Deliberately never
+        # appended to `errors` -- a correlated inequality with no
+        # pick_one_order_by is sometimes exactly right (a source
+        # deliberately left uncollapsed for a downstream dataset to
+        # handle), confirmed directly against a real, already-shipped
+        # example -- see the module comment.
+        if _join_needs_pick_one_order_by_review(join, known_aliases):
+            warnings.append(
+                f"Join on source '{join.source}' has a non-equality "
+                f"condition correlated with another source, but no "
+                f"pick_one_order_by — if more than one row of "
+                f"'{join.source}' can qualify per primary row, this "
+                f"can silently duplicate or drop rows (see "
+                f"docs/PICK_ONE_ORDER_BY_CONTRACT.md). Review whether "
+                f"pick_one_order_by is needed here."
+            )
 
     for field in table.fields:
         if field.source is not None and field.source not in source_names:
@@ -572,3 +657,5 @@ def validate_table(table: DatasetSpec):
         raise ValueError(
             "\n".join(errors)
         )
+
+    return warnings
