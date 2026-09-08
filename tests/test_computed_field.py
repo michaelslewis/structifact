@@ -161,6 +161,100 @@ def test_depends_on_forward_reference_is_valid():
 
 
 # ---------------------------------------------------------------------
+# Expression identifier resolution (found via a real vertical-slice
+# exercise against examples/workorder_demo — see DECISION_HISTORY.md.
+# A real, reproduced bug: discover --ai produced an expression
+# referencing a field that was never defined anywhere in the dataset
+# — structifact validate passed cleanly, and the gap was only found
+# by actually generating and executing the SQL. These tests cover the
+# check added to catch this at validate time instead.)
+# ---------------------------------------------------------------------
+
+def test_expression_referencing_a_known_source_column_passes():
+    table = _table([
+        FieldSpec(name="qty", type="integer", source_column="qty_raw"),
+        FieldSpec(name="unit_price", type="decimal", source_column="price_raw"),
+        FieldSpec(
+            name="gross_amount", type="decimal", computed=True,
+            expression="qty_raw * price_raw",
+        ),
+    ])
+    validate_table(table)  # should not raise
+
+
+def test_expression_referencing_a_sibling_field_name_passes():
+    # A computed field can reference another computed field's own
+    # output alias directly (the exact pattern ModelGenerator already
+    # relies on — see ir.py's JoinSpec docstring on sibling-alias
+    # references), not just raw source_columns.
+    table = _table([
+        FieldSpec(name="wo_type", type="string", source_column="src_wo_type"),
+        FieldSpec(
+            name="sign_adjustment", type="integer", computed=True,
+            expression="CASE WHEN src_wo_type IN ('CRM') THEN -1 ELSE 1 END",
+        ),
+        FieldSpec(
+            name="amount_lc", type="decimal", computed=True,
+            expression="raw_hours * sign_adjustment",
+            source_column=None,
+        ),
+        FieldSpec(name="hours", type="decimal", source_column="raw_hours"),
+    ])
+    validate_table(table)  # should not raise
+
+
+def test_expression_with_unknown_identifier_raises():
+    # The real bug this check exists to catch: an expression
+    # referencing a field name/source_column that isn't defined
+    # anywhere in the dataset (examples/workorder_demo's AI-extracted
+    # draft referenced `resolved_fx_rate`, which was never declared).
+    table = _table([
+        FieldSpec(name="qty", type="integer", source_column="qty_raw"),
+        FieldSpec(
+            name="total", type="decimal", computed=True,
+            expression="qty_raw * resolved_fx_rate",
+        ),
+    ])
+    with pytest.raises(ValueError, match="unknown identifier 'resolved_fx_rate'"):
+        validate_table(table)
+
+
+def test_expression_with_qualified_reference_is_never_checked():
+    # alias.column (a joined-in source's own raw column, referenced
+    # directly per ir.py's JoinSpec docstring) is deliberately outside
+    # this check's scope — resolving whether `alias` is a real
+    # declared source, or `column` a real column on it, is a
+    # source-table-attribution problem this check does not attempt.
+    # Neither `fx_rate` nor `rate_to_usd` is declared anywhere in this
+    # dataset's fields, and this must still pass.
+    table = _table([
+        FieldSpec(
+            name="resolved_fx_rate", type="decimal", computed=True,
+            expression="COALESCE(fx_rate.rate_to_usd, 1.0)",
+        ),
+    ])
+    validate_table(table)  # should not raise
+
+
+def test_expression_sql_keywords_and_literals_are_not_flagged():
+    # CASE/WHEN/THEN/ELSE/END, AND/OR/IN/IS/NULL, COALESCE, and the
+    # contents of string literals must never be treated as unresolved
+    # identifiers — only real column/field-shaped bare words should be.
+    table = _table([
+        FieldSpec(name="status", type="string", source_column="status_raw"),
+        FieldSpec(
+            name="priority", type="string", computed=True,
+            expression=(
+                "CASE WHEN status_raw IS NULL THEN 'unknown' "
+                "WHEN status_raw IN ('urgent', 'high') THEN 'top' "
+                "ELSE COALESCE(status_raw, 'none') END"
+            ),
+        ),
+    ])
+    validate_table(table)  # should not raise
+
+
+# ---------------------------------------------------------------------
 # Docs rendering
 # ---------------------------------------------------------------------
 

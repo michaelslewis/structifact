@@ -33,6 +33,78 @@ SUPPORTED_JOIN_TYPES = {
 NUMERIC_RANGE_TYPES = {"integer", "decimal"}
 PATTERN_TYPES = {"string"}
 
+# Computed-expression identifier resolution (found via a real
+# vertical-slice exercise against examples/workorder_demo -- see
+# DECISION_HISTORY.md). `expression` remains untouched, trusted raw
+# SQL everywhere else in this file (Structifact still doesn't parse
+# or validate it as SQL) -- this is a narrow, separate, best-effort
+# check: does every *bare* (unqualified) word-like token in the
+# expression match some field's `name` or `source_column` elsewhere
+# in this same dataset? A real, reproduced failure mode this check
+# exists to catch: `discover --ai` produced a computed expression
+# referencing a field name that was never actually defined anywhere
+# in the dataset (`resolved_fx_rate`) -- `structifact validate`
+# passed cleanly, and the gap was only found by actually generating
+# and executing the SQL. This check surfaces it at validate time
+# instead.
+#
+# Deliberately narrow in one specific way: a QUALIFIED reference
+# (`alias.column`, e.g. `fx_rate.rate_to_usd`) is skipped entirely,
+# not checked at all -- resolving whether `alias` is a real declared
+# source, and whether `column` is a real column on that source's
+# actual physical table, is a cross-reference / source-table-
+# attribution problem this check does not attempt (Structifact has no
+# knowledge of a source's real schema). Only a *bare* identifier,
+# with no source alias qualifying it, is checkable against what this
+# dataset's own metadata already declares.
+_STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
+_BARE_IDENTIFIER_RE = re.compile(
+    r"(?<!\.)\b[A-Za-z_][A-Za-z0-9_]*\b(?!\.)"
+)
+
+# A deliberately conservative, standard-SQL vocabulary -- common
+# keywords and scalar/aggregate function names likely to appear in a
+# computed expression. Kept small on purpose: the goal is to avoid
+# false-flagging ordinary SQL syntax, not to recognize every function
+# any engine supports.
+# Grounded partly in real checked-in examples, not guessed in the
+# abstract: validating every example/ dataset with a computed field
+# against this check (before shipping it) surfaced GREATEST, LEAST,
+# INTERVAL, and DATE_DIFF as real false positives on already-real,
+# already-committed expressions (home_warranty_demo,
+# coverage_round1) -- added here for exactly that reason, not
+# speculatively.
+_SQL_RESERVED_WORDS = {
+    "CASE", "WHEN", "THEN", "ELSE", "END",
+    "AND", "OR", "NOT", "IN", "IS", "NULL", "TRUE", "FALSE",
+    "AS", "LIKE", "BETWEEN", "EXISTS", "DISTINCT", "ALL", "ANY",
+    "INTERVAL",
+    "COALESCE", "CAST", "NULLIF", "GREATEST", "LEAST", "IFNULL",
+    "SUM", "AVG", "MIN", "MAX", "COUNT", "ROUND", "ABS",
+    "LOWER", "UPPER", "TRIM", "SUBSTRING", "CONCAT",
+    "EXTRACT", "DATE", "DATE_DIFF", "DATE_TRUNC", "DATE_ADD", "NOW", "LENGTH",
+}
+
+
+def _expression_identifiers(expression: str) -> set:
+    """
+    Extracts bare (unqualified) column/field-name-shaped identifiers
+    from a raw SQL expression string -- not a real SQL parser, a
+    best-effort tokenizer for the one narrow check described above.
+    String-literal contents are stripped first so they're never
+    treated as identifiers; qualified references (`alias.column`) and
+    a conservative set of common SQL keywords/functions are excluded.
+    """
+    without_strings = _STRING_LITERAL_RE.sub(" ", expression)
+
+    identifiers = set()
+    for match in _BARE_IDENTIFIER_RE.finditer(without_strings):
+        token = match.group(0)
+        if token.upper() not in _SQL_RESERVED_WORDS:
+            identifiers.add(token)
+
+    return identifiers
+
 
 def validate_table(table: DatasetSpec):
     errors = []
@@ -150,6 +222,18 @@ def validate_table(table: DatasetSpec):
     # as its own pass after the loop above rather than inline with
     # it — a field can validly depend_on a field declared later in
     # the same file.
+    #
+    # known_identifiers backs the bare-identifier check below (see
+    # _expression_identifiers' own comment for the full contract) --
+    # every field's own name (a computed field can reference a sibling
+    # computed field's output alias directly, the same pattern
+    # ModelGenerator already relies on) plus every field's
+    # source_column (the raw column name a bare expression reference
+    # is actually written against).
+    known_identifiers = field_names | {
+        f.source_column for f in table.fields if f.source_column
+    }
+
     for field in table.fields:
 
         if field.computed:
@@ -183,6 +267,25 @@ def validate_table(table: DatasetSpec):
                     errors.append(
                         f"Field '{field.name}' depends_on unknown "
                         f"field '{dep}'"
+                    )
+
+        # Bare-identifier resolution (found via a real vertical-slice
+        # exercise — see the module-level comment above
+        # known_identifiers for the full contract and the real bug
+        # that motivated it). Only checked when there's an expression
+        # to check at all; a qualified reference (alias.column) is
+        # never included in _expression_identifiers' result, so this
+        # never second-guesses a source attribution — only a bare
+        # word with no known field name or source_column behind it
+        # anywhere in this dataset gets flagged.
+        if field.expression:
+            for identifier in sorted(_expression_identifiers(field.expression)):
+                if identifier not in known_identifiers:
+                    errors.append(
+                        f"Field '{field.name}' has an expression "
+                        f"referencing unknown identifier '{identifier}' "
+                        f"— it does not match any field name or "
+                        f"source_column in this dataset"
                     )
 
     # Dataset-level depends_on well-formedness (Phase 7 remainder —

@@ -168,6 +168,8 @@ def test_materialize_source_target_collision_fails_before_connecting(capsys, tmp
     yaml_file.write_text(
         "dataset:\n  name: order_items\nfields:\n"
         "  - name: order_id\n    type: integer\n"
+        "  - name: quantity\n    type: integer\n"
+        "  - name: unit_price\n    type: decimal(9,2)\n"
         "  - name: line_total\n    type: decimal(15,2)\n"
         "    computed: true\n    expression: \"quantity * unit_price\"\n"
     )
