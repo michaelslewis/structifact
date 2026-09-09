@@ -98,12 +98,13 @@ const source = fs.readFileSync(extensionSourcePath, 'utf8');
 const harness = new Module('extension-under-test');
 harness.paths = Module._nodeModulePaths(path.dirname(extensionSourcePath));
 harness._compile(
-  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover };`,
+  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes };`,
   extensionSourcePath
 );
 const {
   resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors,
   parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover,
+  findRelatedNotes,
 } = harness.exports.__test__;
 
 function wsFolder(fsPath) {
@@ -461,6 +462,168 @@ await test('findUnresolvedNotes falls back to raw text for a non-JSON-quoted ent
   assert.deepStrictEqual(findUnresolvedNotes(text), [
     { line: 1, text: 'a note without quotes' },
   ]);
+});
+
+// --- findRelatedNotes ---
+// Each excerpt below is drawn directly from a real discover --ai
+// draft already in this repo (or, for hard_insurance_claims, was
+// once real output before the pick_one_order_by fix -- see
+// docs/PICK_ONE_ORDER_BY_CONTRACT.md) -- not synthesized in the
+// abstract, matching investigation finding #5's own evidence.
+
+await test('findRelatedNotes links the real resolved_fx_rate/labor_amount_usd case (workorder_demo)', () => {
+  // examples/workorder_demo/work_order_source.discovered.yml: a
+  // computed field's expression references resolved_fx_rate, which
+  // is never itself declared as a field -- the note doesn't name
+  // "resolved_fx_rate" as a declared identifier (it can't; nothing by
+  // that name is declared), but it does name "labor_amount_usd", the
+  // real declared field whose expression is the actual problem.
+  const text = [
+    'fields:',
+    '  - name: "labor_amount_lc"',
+    '    type: "decimal(15,2)"',
+    '',
+    '  - name: "labor_amount_usd"',
+    '    type: "decimal(15,2)"',
+    '    computed: true',
+    '    expression: "labor_amount_lc * resolved_fx_rate"',
+    '',
+    'unresolved_notes:',
+    '  - "resolved_fx_rate is referenced in labor_amount_usd expression but not explicitly defined as a source column \\u2014 inferred as output of FX lookup with fallback logic applied"',
+  ].join('\n');
+
+  assert.deepStrictEqual(findRelatedNotes(text), [
+    {
+      name: 'labor_amount_usd',
+      kind: 'field',
+      declarationLine: 4,
+      noteLine: 10,
+      noteText: (
+        'resolved_fx_rate is referenced in labor_amount_usd expression but not ' +
+        'explicitly defined as a source column — inferred as output of FX ' +
+        'lookup with fallback logic applied'
+      ),
+    },
+  ]);
+});
+
+await test('findRelatedNotes links the real policy_status join case (hard_insurance_claims) to both its source and its join', () => {
+  // examples/coverage_round1/requirements_docs/hard_insurance_claims.discovered.yml:
+  // the note names "policy_status" (and, lowercased, its table
+  // POLICY_STATUS_HISTORY) -- both the sources[] declaration and the
+  // joins[] entry pulling it in are real, separate declarations that
+  // should each surface this note, not just one of them.
+  const text = [
+    'fields:',
+    '  - name: "policy_status_as_of_claim"',
+    '    source: "policy_status"',
+    '',
+    'source_table: "CLAIM_HDR"',
+    '',
+    'sources:',
+    '  - name: "policy_status"',
+    '    table: "POLICY_STATUS_HISTORY"',
+    '',
+    'joins:',
+    '  - source: "policy_status"',
+    '    "on": "CLAIM_HDR.policy_id = policy_status.policy_id and policy_status.effective_date <= CLAIM_HDR.claim_date"',
+    '',
+    'unresolved_notes:',
+    '  - "policy_status join on policy_status_history requires selecting the row with the most recent effective_date on or before the claim_date; this dedup/priority rule is not fully expressible in the \'on\' condition alone and may require window function logic in the actual query."',
+  ].join('\n');
+
+  const noteText = (
+    'policy_status join on policy_status_history requires selecting the row ' +
+    "with the most recent effective_date on or before the claim_date; this " +
+    "dedup/priority rule is not fully expressible in the 'on' condition alone " +
+    'and may require window function logic in the actual query.'
+  );
+
+  assert.deepStrictEqual(findRelatedNotes(text), [
+    { name: 'policy_status', kind: 'source', declarationLine: 7, noteLine: 15, noteText },
+    { name: 'policy_status', kind: 'join', declarationLine: 11, noteLine: 15, noteText },
+  ]);
+});
+
+await test('findRelatedNotes links the real ADRC filter case (output/Vendors.discovered.yml) and leaves the unlinkable sibling note unlinked', () => {
+  // This repo's own real end-to-end test file (this session):
+  // output/Vendors.discovered.yml has two notes about the same ADRC
+  // filter -- one that names "ADRC" (linkable) and a second that
+  // names nothing declared at all ("filter text inserted as-is
+  // pending clarification"), a real, unlinkable case -- confirming
+  // this function correctly returns nothing for a note it has no
+  // real basis to link, rather than guessing.
+  const text = [
+    'sources:',
+    '  - name: "lfb1"',
+    '    table: "lfb1"',
+    '  - name: "adrc"',
+    '    table: "adrc"',
+    '    filter: "date_from <= \'12/31/9999\' AND date_to >= \'12/31/9999\'"',
+    '',
+    'joins:',
+    '  - source: "adrc"',
+    '    "on": "lfa1.adrnr = adrc.addrnumber"',
+    '',
+    'unresolved_notes:',
+    '  - "ADRC table note states \'Filter = Valid To 12/31/9999\' but the exact filter logic (whether this is a date range constraint or equality check) is not fully specified; interpreted as a validity window constraint."',
+    '  - "No explicit \'Valid To 12/31/9999\' filter SQL syntax provided; filter text inserted as-is pending clarification."',
+  ].join('\n');
+
+  const links = findRelatedNotes(text);
+
+  const adrcNoteText = (
+    "ADRC table note states 'Filter = Valid To 12/31/9999' but the exact " +
+    'filter logic (whether this is a date range constraint or equality ' +
+    'check) is not fully specified; interpreted as a validity window constraint.'
+  );
+
+  assert.deepStrictEqual(links, [
+    { name: 'adrc', kind: 'source', declarationLine: 3, noteLine: 12, noteText: adrcNoteText },
+    { name: 'adrc', kind: 'join', declarationLine: 8, noteLine: 12, noteText: adrcNoteText },
+  ]);
+
+  // The second note (line 13) never names ADRC or lfb1 -- confirm
+  // nothing links to it.
+  assert.ok(!links.some((l) => l.noteLine === 13));
+});
+
+await test('findRelatedNotes does not false-positive on a name embedded inside a longer compound token', () => {
+  // A real excerpt from output/Vendors.discovered.yml: the note talks
+  // about "struct_lfb1_mandt" (a descriptive compound term the AI
+  // invented, not a real declared identifier) -- "lfb1" must NOT be
+  // treated as mentioned just because it appears as a substring of
+  // that compound word. The same note also genuinely names the real
+  // declared field "mandt" as its own quoted word, which SHOULD link.
+  const text = [
+    'fields:',
+    '  - name: "mandt"',
+    '',
+    'sources:',
+    '  - name: "lfb1"',
+    '    table: "lfb1"',
+    '',
+    'unresolved_notes:',
+    '  - "struct_lfb1_mandt, struct_lfm1_mandt, struct_adrc_client, struct_adr6_client appear to represent the same \'mandt\' (Client) field across multiple source tables; only included from lfa1 main table and referenced via source joins."',
+  ].join('\n');
+
+  const links = findRelatedNotes(text);
+
+  const noteText = (
+    'struct_lfb1_mandt, struct_lfm1_mandt, struct_adrc_client, struct_adr6_client ' +
+    "appear to represent the same 'mandt' (Client) field across multiple source " +
+    'tables; only included from lfa1 main table and referenced via source joins.'
+  );
+
+  assert.deepStrictEqual(links, [
+    { name: 'mandt', kind: 'field', declarationLine: 1, noteLine: 8, noteText },
+  ]);
+  assert.ok(!links.some((l) => l.name === 'lfb1'));
+});
+
+await test('findRelatedNotes returns an empty array when there are no unresolved_notes', () => {
+  const text = 'fields:\n  - name: "customer_id"\n    type: "integer"\n';
+  assert.deepStrictEqual(findRelatedNotes(text), []);
 });
 
 // --- runAiDiscover ---

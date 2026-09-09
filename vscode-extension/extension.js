@@ -310,6 +310,29 @@ function activate(context) {
       const text = document.getText();
       const needsReviewItems = findNeedsReviewItems(text);
       const unresolvedNotes = findUnresolvedNotes(text);
+      const relatedNotes = findRelatedNotes(text);
+
+      // Group findRelatedNotes' flat (note, declaration) pairs back
+      // up by the declaration -- surfaced as one Quick Pick row per
+      // field/source/join that has at least one linked note, rather
+      // than the reviewer having to notice the name match themselves
+      // while reading the Unresolved Notes section above. Selecting a
+      // row jumps to the first linked note (the actionable next
+      // step); the description shows where the field/source/join
+      // itself is declared.
+      const relatedGroups = new Map();
+      for (const link of relatedNotes) {
+        const key = `${link.kind}|${link.name}|${link.declarationLine}`;
+        if (!relatedGroups.has(key)) {
+          relatedGroups.set(key, {
+            kind: link.kind,
+            name: link.name,
+            declarationLine: link.declarationLine,
+            noteLines: [],
+          });
+        }
+        relatedGroups.get(key).noteLines.push(link.noteLine);
+      }
 
       const items = [];
 
@@ -349,6 +372,18 @@ function activate(context) {
         }
       }
 
+      if (relatedGroups.size > 0) {
+        items.push({ label: 'Related to Unresolved Notes', kind: vscode.QuickPickItemKind.Separator });
+        for (const group of relatedGroups.values()) {
+          const count = group.noteLines.length;
+          items.push({
+            label: `$(link) ${group.kind} '${group.name}' — ${count} related unresolved ${count === 1 ? 'note' : 'notes'}`,
+            description: `declared at line ${group.declarationLine + 1}`,
+            line: group.noteLines[0],
+          });
+        }
+      }
+
       if (items.length === 0) {
         vscode.window.showInformationMessage(
           cliMissing
@@ -363,6 +398,7 @@ function activate(context) {
       if (warningMessages.length) summaryParts.push(`${warningMessages.length} warning(s)`);
       if (needsReviewItems.length) summaryParts.push(`${needsReviewItems.length} needs-review`);
       if (unresolvedNotes.length) summaryParts.push(`${unresolvedNotes.length} unresolved note(s)`);
+      if (relatedGroups.size) summaryParts.push(`${relatedGroups.size} note link(s)`);
 
       vscode.window.showQuickPick(items, {
         placeHolder: `Structifact: Review — ${summaryParts.join(', ')} (select to jump to it)`,
@@ -664,6 +700,123 @@ function findUnresolvedNotes(text) {
   }
 
   return items;
+}
+
+// Scans a document's own text for where each field/source/join is
+// DECLARED -- same lightweight text-scanning posture as
+// findNeedsReviewItems/findUnresolvedNotes above, tracking which
+// top-level YAML section (fields:/sources:/joins:/etc.) each line
+// falls under by watching for an unindented "<word>:" header line,
+// the same shape render_requirements_draft_yaml()/render_draft_yaml()
+// always emit those top-level keys in (see discover.py). Not a real
+// YAML parser -- only recognizes the exact declaration shapes those
+// two renderers actually produce:
+//   fields:   "  - name: <value>"
+//   sources:  "  - name: <value>" (the source's own logical alias),
+//             plus a same-block "    table: <value>" (the physical
+//             table name) folded into the SAME declaration rather
+//             than a second one -- a note mentioning either name is
+//             evidence about the same source, and findRelatedNotes
+//             below should link both back to one place, not two.
+//   joins:    "  - source: <value>" (the sources[].name being joined
+//             in here)
+function findDeclaredNames(text) {
+  const declarations = [];
+  const lines = text.split('\n');
+  let section = null;
+  let pendingSource = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const sectionHeader = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*$/);
+    if (sectionHeader) {
+      section = sectionHeader[1];
+      pendingSource = null;
+      continue;
+    }
+
+    if (section === 'fields') {
+      const match = line.match(/^\s*-\s*name:\s*"?([A-Za-z0-9_]+)"?\s*$/);
+      if (match) {
+        declarations.push({ name: match[1], kind: 'field', line: i });
+      }
+    } else if (section === 'sources') {
+      const nameMatch = line.match(/^\s*-\s*name:\s*"?([A-Za-z0-9_]+)"?\s*$/);
+      if (nameMatch) {
+        pendingSource = { name: nameMatch[1], kind: 'source', line: i };
+        declarations.push(pendingSource);
+        continue;
+      }
+
+      const tableMatch = line.match(/^\s*table:\s*"?([A-Za-z0-9_]+)"?\s*$/);
+      if (tableMatch && pendingSource) {
+        pendingSource.table = tableMatch[1];
+      }
+    } else if (section === 'joins') {
+      const match = line.match(/^\s*-\s*source:\s*"?([A-Za-z0-9_]+)"?\s*$/);
+      if (match) {
+        declarations.push({ name: match[1], kind: 'join', line: i });
+      }
+    }
+  }
+
+  return declarations;
+}
+
+// True if `decl` (a field/source/join declaration from
+// findDeclaredNames) is mentioned by name in `noteText` -- whole-word,
+// case-insensitive. Whole-word matters: a real unresolved_notes entry
+// referencing "struct_lfb1_mandt" (a compound descriptive term, not a
+// real declared identifier) must NOT be treated as a mention of the
+// real declared source "lfb1" just because it appears as a substring
+// -- confirmed against a real note in output/Vendors.discovered.yml
+// that does exactly this (see findRelatedNotes' own tests).
+function _declarationMentionedIn(decl, noteText) {
+  const candidates = decl.table ? [decl.name, decl.table] : [decl.name];
+  return candidates.some((candidate) => new RegExp(`\\b${candidate}\\b`, 'i').test(noteText));
+}
+
+// Investigation finding #5 (see DECISION_HISTORY.md): rather than
+// asking the AI to self-report provenance (a prompt/IR change, out of
+// scope here), an unresolved_notes entry can very often be linked
+// back to the specific field/source/join it's actually about
+// deterministically, because the AI's own note text already names it
+// -- confirmed against three real, independently-discovered problem
+// drafts before this was written: examples/workorder_demo (a note
+// naming "labor_amount_usd", the field whose expression references
+// the undefined resolved_fx_rate), examples/coverage_round1's
+// hard_insurance_claims (a note naming "policy_status", both the
+// declared source and the join pulling it in), and this repo's own
+// output/Vendors.discovered.yml (a note naming "ADRC", the source
+// carrying a filter whose exact logic the AI says it interpreted
+// rather than read verbatim).
+//
+// Deliberately does not attempt to link a note that names nothing
+// declared (a real, unlinkable case exists in that same Vendors.xlsx
+// draft — see this function's tests) -- no fallback guess, matching
+// every other best-effort text scan in this file: silence here means
+// "no name match found", not "nothing to review".
+function findRelatedNotes(text) {
+  const declarations = findDeclaredNames(text).filter((d) => d.name.length >= 3);
+  const notes = findUnresolvedNotes(text);
+
+  const links = [];
+  for (const note of notes) {
+    for (const decl of declarations) {
+      if (_declarationMentionedIn(decl, note.text)) {
+        links.push({
+          name: decl.name,
+          kind: decl.kind,
+          declarationLine: decl.line,
+          noteLine: note.line,
+          noteText: note.text,
+        });
+      }
+    }
+  }
+
+  return links;
 }
 
 function makeDiagnostic(document, message) {
