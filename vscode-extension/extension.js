@@ -114,7 +114,7 @@ function activate(context) {
       canSelectMany: false,
       defaultUri,
       openLabel: 'Discover',
-      filters: { 'CSV / Excel': ['csv', 'xlsx'] },
+      filters: { 'CSV / Excel / Requirements (.md, .txt)': ['csv', 'xlsx', 'md', 'txt'] },
     });
 
     if (!picked || picked.length === 0) {
@@ -127,6 +127,16 @@ function activate(context) {
     const cliPath = resolveCliPath(workspaceFolder);
     const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(inputPath);
     const outputPath = discoveredOutputPath(inputPath);
+
+    // .md/.txt/.xlsx route to discover_requirements() in
+    // structifact/cli.py, which always requires --ai -- there is no
+    // deterministic half for a requirements document (no data rows
+    // to sample). A separate branch, not a change to the CSV path
+    // below, which is completely untouched.
+    if (isRequirementsDocument(inputPath)) {
+      await runAiDiscover({ cliPath, cwd, inputPath, outputPath });
+      return;
+    }
 
     execFile(cliPath, ['discover', inputPath, '-o', outputPath], { cwd }, (error, stdout, stderr) => {
       if (error && error.code === 'ENOENT') {
@@ -384,6 +394,129 @@ function activate(context) {
 function discoveredOutputPath(inputPath) {
   const base = path.basename(inputPath, path.extname(inputPath));
   return path.join(path.dirname(inputPath), `${base}.discovered.yml`);
+}
+
+// .md/.txt/.xlsx route to discover_requirements() in
+// structifact/cli.py, which always requires --ai -- there is no
+// deterministic half for a requirements document (no data rows to
+// sample). .csv keeps using the existing deterministic-by-default
+// path in the command above, completely unchanged.
+function isRequirementsDocument(inputPath) {
+  return /\.(md|txt|xlsx)$/i.test(inputPath);
+}
+
+// Runs `structifact discover <path> --ai -o <path>` WITHOUT -y, reads
+// the CLI's own real cost estimate off its live stdout (the exact
+// "Estimate: ..." line AnthropicLLMClient.estimate_cost() produces),
+// and shows it in a modal VS Code dialog *before* writing "y"/"n" to
+// the child process's stdin -- the same y/N prompt a real terminal
+// user would answer, answered through native VS Code UI instead of a
+// terminal this extension has no way to render. No cost-estimation
+// logic is duplicated in JavaScript; the number always comes from the
+// real CLI, read off its real output, never recomputed here.
+//
+// Confirmed directly before building this (see DECISION_HISTORY.md):
+// the estimate line reliably streams through execFile's own returned
+// ChildProcess handle in well under a second, even without forcing
+// unbuffered Python output -- verified against real .md and real
+// .xlsx requirements documents, declining each time (zero cost, zero
+// API calls, nothing written), before this code existed at all.
+function runAiDiscover({ cliPath, cwd, inputPath, outputPath }) {
+  return new Promise((resolve) => {
+    let buffer = '';
+    let responded = false;
+    let declined = false;
+
+    const timeout = setTimeout(() => {
+      if (!responded) {
+        responded = true;
+        vscode.window.showErrorMessage(
+          `Structifact: discover --ai for ${path.basename(inputPath)} never reached its ` +
+          'cost estimate within 20s.'
+        );
+        child.kill();
+      }
+    }, 20000);
+
+    const child = execFile(
+      cliPath,
+      ['discover', inputPath, '--ai', '-o', outputPath],
+      { cwd },
+      (error, stdout, stderr) => {
+        clearTimeout(timeout);
+
+        if (error && error.code === 'ENOENT') {
+          showCliNotFoundError(cliPath);
+          resolve();
+          return;
+        }
+
+        if (declined) {
+          vscode.window.showInformationMessage(
+            'Structifact: discover skipped — no AI request made, nothing written.'
+          );
+          resolve();
+          return;
+        }
+
+        const output = `${stdout || ''}${stderr || ''}`;
+
+        // Covers both "failed after a real attempt" and "closed
+        // before ever reaching the estimate line at all" (e.g. a
+        // missing ANTHROPIC_API_KEY) -- either way, the same parser
+        // every other command's failures already use.
+        if (error) {
+          vscode.window.showErrorMessage(
+            `Structifact: discover failed for ${path.basename(inputPath)} — ` +
+            parseErrors(output).join(' ')
+          );
+          resolve();
+          return;
+        }
+
+        vscode.workspace.openTextDocument(outputPath).then(async (doc) => {
+          await vscode.window.showTextDocument(doc);
+
+          // Chains directly into the already-built Review command --
+          // it re-runs validate and combines errors/warnings/
+          // unresolved_notes into one Quick Pick; nothing about that
+          // is re-implemented here.
+          await vscode.commands.executeCommand('structifact.review');
+          resolve();
+        });
+      }
+    );
+
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk.toString();
+
+      if (responded) {
+        return;
+      }
+
+      const match = buffer.match(/Estimate:\s*(.+)/);
+      if (!match) {
+        return;
+      }
+
+      responded = true;
+      clearTimeout(timeout);
+
+      vscode.window.showWarningMessage(
+        `Structifact: AI-assisted extraction for ${path.basename(inputPath)} — ` +
+        `${match[1].trim()}. Proceed with this real API call?`,
+        { modal: true },
+        'Proceed'
+      ).then((choice) => {
+        if (choice === 'Proceed') {
+          child.stdin.write('y\n');
+        } else {
+          declined = true;
+          child.stdin.write('n\n');
+        }
+      });
+    });
+  });
 }
 
 // generate -g sql prints exactly one "--- GENERATED ARTIFACTS ---"
