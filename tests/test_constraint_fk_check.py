@@ -183,7 +183,7 @@ def test_sql_generator_emits_foreign_key():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "FOREIGN KEY (customer_id) REFERENCES customers (customer_id)" in artifact.content
+    assert 'FOREIGN KEY ("customer_id") REFERENCES "customers" ("customer_id")' in artifact.content
 
 
 def test_sql_generator_emits_check():
@@ -217,7 +217,7 @@ def test_sql_generator_emits_both_fk_and_check_together():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "FOREIGN KEY (customer_id) REFERENCES customers (customer_id)" in artifact.content
+    assert 'FOREIGN KEY ("customer_id") REFERENCES "customers" ("customer_id")' in artifact.content
     assert "CHECK (quantity > 0)" in artifact.content
 
 
@@ -230,5 +230,5 @@ def test_sql_generator_still_emits_primary_key_and_unique():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "PRIMARY KEY (order_id)" in artifact.content
-    assert "UNIQUE (customer_id)" in artifact.content
+    assert 'PRIMARY KEY ("order_id")' in artifact.content
+    assert 'UNIQUE ("customer_id")' in artifact.content

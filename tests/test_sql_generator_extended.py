@@ -47,7 +47,7 @@ def test_nullable_false_emits_not_null():
         fields=[FieldSpec(name="order_id", type="integer", nullable=False)],
     )
     sql = _gen().generate(table).content
-    assert "order_id INTEGER NOT NULL" in sql
+    assert '"order_id" INTEGER NOT NULL' in sql
 
 
 def test_nullable_true_omits_not_null():
@@ -106,7 +106,7 @@ fields:
 """)
     table = load_yaml(path)
     sql = _gen().generate(table).content
-    assert "order_id INTEGER NOT NULL" in sql
+    assert '"order_id" INTEGER NOT NULL' in sql
 
 
 # ---------------------------------------------------------------------
@@ -120,7 +120,7 @@ def test_primary_key_constraint_emitted():
         constraints=[ConstraintSpec(type="primary_key", columns=["order_id"])],
     )
     sql = _gen().generate(table).content
-    assert "PRIMARY KEY (order_id)" in sql
+    assert 'PRIMARY KEY ("order_id")' in sql
 
 
 def test_unique_constraint_emitted():
@@ -130,7 +130,7 @@ def test_unique_constraint_emitted():
         constraints=[ConstraintSpec(type="unique", columns=["email"])],
     )
     sql = _gen().generate(table).content
-    assert "UNIQUE (email)" in sql
+    assert 'UNIQUE ("email")' in sql
 
 
 def test_composite_primary_key_emitted():
@@ -143,7 +143,7 @@ def test_composite_primary_key_emitted():
         constraints=[ConstraintSpec(type="primary_key", columns=["order_id", "line_id"])],
     )
     sql = _gen().generate(table).content
-    assert "PRIMARY KEY (order_id, line_id)" in sql
+    assert 'PRIMARY KEY ("order_id", "line_id")' in sql
 
 
 # ---------------------------------------------------------------------
@@ -164,7 +164,7 @@ def test_computed_field_gets_comment_annotation():
     )
     sql = _gen().generate(table).content
     assert "-- computed: gross_amount = qty * unit_price" in sql
-    assert "gross_amount DECIMAL" in sql
+    assert '"gross_amount" DECIMAL' in sql
 
 
 def test_computed_field_produces_valid_ddl_shape():
@@ -195,9 +195,9 @@ def test_computed_field_produces_valid_ddl_shape():
 
     stripped = "\n".join(stripped_lines)
     assert ",," not in stripped.replace(" ", "").replace("\n", "")
-    assert "qty INTEGER" in stripped
-    assert "unit_price DECIMAL" in stripped
-    assert "gross_amount DECIMAL" in stripped
+    assert '"qty" INTEGER' in stripped
+    assert '"unit_price" DECIMAL' in stripped
+    assert '"gross_amount" DECIMAL' in stripped
 
 
 def test_non_computed_field_no_comment():
@@ -216,4 +216,74 @@ def test_computed_true_without_expression_gets_no_comment():
     )
     sql = _gen().generate(table).content
     assert "-- computed" not in sql
-    assert "x INTEGER" in sql
+    assert '"x" INTEGER' in sql
+
+
+# ---------------------------------------------------------------------
+# Identifier quoting (Issue #1 — a dataset/field/constraint-reference
+# name that isn't a valid unquoted SQL identifier, e.g. one with
+# spaces, previously produced invalid, unrunnable SQL with no warning
+# anywhere in the pipeline). See structifact/sql_identifiers.py for
+# the quoting rule itself; these tests confirm SQLGenerator actually
+# applies it everywhere an identifier is emitted. Deliberately scoped
+# to SQLGenerator + the two executors' load_rows (see
+# tests/test_executors.py) — ModelGenerator is untouched by this fix,
+# a separate, undecided design question (see DECISION_HISTORY.md).
+# ---------------------------------------------------------------------
+
+def test_dataset_name_with_spaces_is_quoted():
+    # The real, reported bug: dataset.name: "Vendor Data" (exactly the
+    # AI-inferred name from output/Vendors.discovered.yml, the real
+    # file Issue #1 was reproduced against) previously generated
+    # `CREATE TABLE Vendor Data (...)` -- invalid SQL, reported as a
+    # success by `structifact generate` regardless.
+    table = DatasetSpec(
+        name="Vendor Data",
+        fields=[FieldSpec(name="vendor_id", type="integer")],
+    )
+    sql = _gen().generate(table).content
+    assert 'CREATE TABLE "Vendor Data" (' in sql
+    assert "CREATE TABLE Vendor Data (" not in sql
+
+
+def test_already_safe_names_are_quoted_but_functionally_unaffected():
+    # Regression: an ordinary, already-safe name (lowercase, no
+    # spaces, not a reserved word) is quoted unconditionally too --
+    # deliberately not a "quote only if needed" heuristic (see
+    # sql_identifiers.py) -- but this must not change what the DDL
+    # actually declares, only its literal spelling. Every column,
+    # the PRIMARY KEY reference, and the table name itself keep their
+    # exact names, just wrapped in double quotes.
+    table = DatasetSpec(
+        name="orders",
+        fields=[
+            FieldSpec(name="order_id", type="integer"),
+            FieldSpec(name="customer_id", type="integer"),
+        ],
+        constraints=[ConstraintSpec(type="primary_key", columns=["order_id"])],
+    )
+    sql = _gen().generate(table).content
+    assert sql == (
+        'CREATE TABLE "orders" (\n'
+        '    "order_id" INTEGER,\n'
+        '    "customer_id" INTEGER,\n'
+        '    PRIMARY KEY ("order_id")\n'
+        ');'
+    )
+
+
+def test_dataset_name_with_embedded_double_quote_is_escaped():
+    # ANSI SQL rule: an embedded double quote inside a quoted
+    # identifier must be doubled, or the generated SQL is broken in a
+    # different way (the quote would prematurely close the
+    # identifier). Deliberately an unusual but real-shaped name (a
+    # human-authored dataset title containing a quoted term), not a
+    # contrived string -- confirms sql_identifiers.quote_identifier()
+    # actually reaches this generator's output correctly escaped, not
+    # just naively wrapped.
+    table = DatasetSpec(
+        name='Bob\'s "Special" Orders',
+        fields=[FieldSpec(name="order_id", type="integer")],
+    )
+    sql = _gen().generate(table).content
+    assert 'CREATE TABLE "Bob\'s ""Special"" Orders" (' in sql

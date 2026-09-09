@@ -60,6 +60,45 @@ def test_duckdb_executor_load_rows_empty_list_is_noop():
     executor.close()
 
 
+def test_create_table_and_load_rows_round_trip_for_dataset_name_with_spaces():
+    # Issue #1's cross-file risk: SQLGenerator's CREATE TABLE and
+    # DuckDBExecutor's load_rows() are two independently-written code
+    # paths that must agree on how they quote the SAME table/column
+    # names for --materialize/execute to keep working -- fixing one
+    # without the other would silently desync them (e.g. a table
+    # created quoted but inserted into unquoted, or with different
+    # case-folding). This exercises the real generator's DDL output,
+    # not a hand-written CREATE TABLE string, together with the real
+    # executor's load_rows(), for a name shaped exactly like the real
+    # bug report (output/Vendors.discovered.yml's dataset.name).
+    from structifact.ir import DatasetSpec, FieldSpec
+
+    table = DatasetSpec(
+        name="Vendor Data",
+        fields=[
+            FieldSpec(name="vendor_id", type="integer"),
+            FieldSpec(name="vendor name", type="string"),
+        ],
+    )
+    ddl = SQLGenerator().generate(table).content
+    assert 'CREATE TABLE "Vendor Data"' in ddl  # sanity: exercising the real bug shape
+
+    executor = DuckDBExecutor()
+    executor.connect()
+    executor.execute_ddl(ddl)
+
+    executor.load_rows(
+        "Vendor Data", ["vendor_id", "vendor name"],
+        [{"vendor_id": "1", "vendor name": "Acme"}],
+    )
+
+    result = executor.query('SELECT * FROM "Vendor Data"')
+    assert len(result) == 1
+    assert result[0]["vendor name"] == "Acme"
+
+    executor.close()
+
+
 def test_duckdb_executor_requires_connection_before_ddl():
     executor = DuckDBExecutor()
 

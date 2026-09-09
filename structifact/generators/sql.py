@@ -1,5 +1,6 @@
 from .base import Generator, Artifact
 from ..ir import DatasetSpec
+from ..sql_identifiers import quote_identifier
 
 
 SQL_TYPE_MAP = {
@@ -55,7 +56,7 @@ class SQLGenerator(Generator):
             if f.computed and f.expression:
                 lines.append(f"    -- computed: {f.name} = {f.expression}")
 
-            column_def = f"    {f.name} {_sql_type(f)}"
+            column_def = f"    {quote_identifier(f.name)} {_sql_type(f)}"
 
             if not f.nullable:
                 column_def += " NOT NULL"
@@ -64,18 +65,18 @@ class SQLGenerator(Generator):
 
         for c in table.constraints:
             if c.type == "primary_key":
-                columns = ", ".join(c.columns)
+                columns = ", ".join(quote_identifier(col) for col in c.columns)
                 lines.append(f"    PRIMARY KEY ({columns})")
 
             elif c.type == "unique":
-                columns = ", ".join(c.columns)
+                columns = ", ".join(quote_identifier(col) for col in c.columns)
                 lines.append(f"    UNIQUE ({columns})")
 
             elif c.type == "foreign_key":
-                column = c.columns[0]
+                column = quote_identifier(c.columns[0])
                 lines.append(
                     f"    FOREIGN KEY ({column}) "
-                    f"REFERENCES {c.target_table} ({c.target_column})"
+                    f"REFERENCES {quote_identifier(c.target_table)} ({quote_identifier(c.target_column)})"
                 )
 
             elif c.type == "check":
@@ -83,7 +84,7 @@ class SQLGenerator(Generator):
 
         joined_columns = ',\n'.join(lines)
 
-        sql = f"""CREATE TABLE {table.name} (
+        sql = f"""CREATE TABLE {quote_identifier(table.name)} (
 {joined_columns}
 );"""
 

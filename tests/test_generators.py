@@ -29,9 +29,9 @@ def test_sql_generator():
     artifact = generator.generate(table)
 
     assert artifact.filename == "customers.sql"
-    assert "CREATE TABLE customers" in artifact.content
-    assert "customer_id TEXT" in artifact.content
-    assert "created_at TIMESTAMP" in artifact.content
+    assert 'CREATE TABLE "customers"' in artifact.content
+    assert '"customer_id" TEXT' in artifact.content
+    assert '"created_at" TIMESTAMP' in artifact.content
 
 
 def test_sql_generator_decimal_uses_precision_and_scale():
@@ -49,7 +49,7 @@ def test_sql_generator_decimal_uses_precision_and_scale():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "amount DECIMAL(13,2)" in artifact.content
+    assert '"amount" DECIMAL(13,2)' in artifact.content
 
 
 def test_sql_generator_string_uses_length():
@@ -66,7 +66,7 @@ def test_sql_generator_string_uses_length():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "clientid VARCHAR(3)" in artifact.content
+    assert '"clientid" VARCHAR(3)' in artifact.content
 
 
 def test_sql_generator_string_without_length_stays_text():
@@ -86,7 +86,7 @@ def test_sql_generator_string_without_length_stays_text():
 
     artifact = SQLGenerator().generate(table)
 
-    assert "notes TEXT" in artifact.content
+    assert '"notes" TEXT' in artifact.content
 
 
 def test_dbt_yaml_generator():

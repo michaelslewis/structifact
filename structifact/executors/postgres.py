@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List
 
 from .base import Executor
+from ..sql_identifiers import quote_identifier
 
 
 class PostgresExecutor(Executor):
@@ -56,9 +57,9 @@ class PostgresExecutor(Executor):
         if not rows:
             return
 
-        column_list = ", ".join(columns)
+        column_list = ", ".join(quote_identifier(c) for c in columns)
         placeholders = ", ".join(["%s"] * len(columns))
-        insert_sql = f"INSERT INTO {table_name} ({column_list}) VALUES ({placeholders})"
+        insert_sql = f"INSERT INTO {quote_identifier(table_name)} ({column_list}) VALUES ({placeholders})"
 
         values = [[row.get(col) for col in columns] for row in rows]
         with self._conn.cursor() as cur:
