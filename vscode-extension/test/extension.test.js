@@ -96,6 +96,15 @@ require.cache.vscode = { id: 'vscode', filename: 'vscode', loaded: true, exports
 const extensionSourcePath = path.join(__dirname, '..', 'extension.js');
 const source = fs.readFileSync(extensionSourcePath, 'utf8');
 const harness = new Module('extension-under-test');
+// _compile's own filename argument (below) sets __filename/__dirname
+// inside the compiled code, but NOT this Module instance's own
+// .filename -- and extension.js now has a real relative require
+// (./bootstrap), which Module.prototype.require resolves against
+// THIS module's .filename, not its .paths (.paths is only consulted
+// for bare/node_modules-style specifiers). Set explicitly so that
+// resolution lands on the real bootstrap.js next to the real
+// extension.js, not on the literal id string 'extension-under-test'.
+harness.filename = extensionSourcePath;
 harness.paths = Module._nodeModulePaths(path.dirname(extensionSourcePath));
 harness._compile(
   `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes };`,
@@ -216,6 +225,54 @@ await test('resolveCliPath respects an explicit setting over an available .venv'
 await test('resolveCliPath falls back to bare "structifact" with no workspace folder', () => {
   mockConfig = { value: undefined, explicit: false };
   assert.strictEqual(resolveCliPath(undefined), 'structifact');
+});
+
+// --- resolveCliPath's new third tier: an extension-bootstrapped
+// install (bootstrap.js), below an explicit setting and a workspace
+// .venv/venv, above bare "structifact" on PATH ---
+
+await test('resolveCliPath falls back to a bootstrapped install when no explicit setting and no workspace venv exist', () => {
+  const dir = path.join(tmpRoot, 'no-workspace-venv');
+  fs.mkdirSync(dir, { recursive: true });
+  const installed = path.join(tmpRoot, 'bootstrapped', 'bin', 'structifact');
+  fs.mkdirSync(path.dirname(installed), { recursive: true });
+  fs.writeFileSync(installed, '');
+  mockConfig = { value: undefined, explicit: false };
+
+  assert.strictEqual(resolveCliPath(wsFolder(dir), installed), installed);
+});
+
+await test('resolveCliPath ignores a bootstrapped install path that no longer exists on disk', () => {
+  const dir = path.join(tmpRoot, 'no-workspace-venv');
+  const deletedInstall = path.join(tmpRoot, 'bootstrapped-deleted', 'bin', 'structifact');
+  mockConfig = { value: undefined, explicit: false };
+
+  // Same posture as the workspace .venv/venv check above: a path
+  // that doesn't actually exist (the venv could have been deleted
+  // since install) falls through to the next tier rather than being
+  // trusted blindly.
+  assert.strictEqual(resolveCliPath(wsFolder(dir), deletedInstall), 'structifact');
+});
+
+await test('resolveCliPath still prefers an explicit setting over a bootstrapped install', () => {
+  const dir = path.join(tmpRoot, 'no-workspace-venv');
+  const installed = path.join(tmpRoot, 'bootstrapped', 'bin', 'structifact');
+  mockConfig = { value: '/custom/structifact', explicit: true };
+
+  assert.strictEqual(resolveCliPath(wsFolder(dir), installed), '/custom/structifact');
+});
+
+await test('resolveCliPath still prefers a workspace .venv over a bootstrapped install', () => {
+  const dir = path.join(tmpRoot, 'dotvenv'); // has .venv/bin/structifact from the first test above
+  const installed = path.join(tmpRoot, 'bootstrapped', 'bin', 'structifact');
+  fs.mkdirSync(path.dirname(installed), { recursive: true });
+  fs.writeFileSync(installed, '');
+  mockConfig = { value: undefined, explicit: false };
+
+  assert.strictEqual(
+    resolveCliPath(wsFolder(dir), installed),
+    path.join(dir, '.venv', 'bin', 'structifact')
+  );
 });
 
 // --- discoveredOutputPath ---

@@ -2,6 +2,13 @@ const vscode = require('vscode');
 const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const {
+  MIN_PYTHON_VERSION,
+  INSTALLED_CLI_PATH_KEY,
+  looksLikeMissingExcelExtra,
+  installStructifact,
+  installExcelExtra,
+} = require('./bootstrap');
 
 // A project virtualenv's bin/ is only on PATH inside an activated
 // shell -- VS Code does not activate it, so the bare "structifact"
@@ -10,7 +17,19 @@ const fs = require('fs');
 // this, see DECISION_HISTORY.md). Only auto-detects when the user
 // hasn't explicitly set structifact.cliPath themselves -- an
 // explicit setting always wins, unchanged from before.
-function resolveCliPath(workspaceFolder) {
+//
+// `installedFallbackPath`, when given, is a THIRD, lowest-priority
+// tier (below an explicit setting and a workspace .venv/venv, above
+// bare "structifact" on PATH) -- the path this extension's own
+// bootstrap install (bootstrap.js) wrote to context.globalState.
+// Deliberately NOT read from the structifact.cliPath *setting*
+// itself: writing the bootstrapped path there would make it
+// "explicitly set" for every future workspace, silently outranking
+// this exact .venv/venv check above for anyone who already has a
+// real per-project venv. Checked with fs.existsSync the same way the
+// workspace venv candidates are, in case the bootstrapped venv was
+// since deleted.
+function resolveCliPath(workspaceFolder, installedFallbackPath) {
   const config = vscode.workspace.getConfiguration('structifact');
   const inspected = config.inspect('cliPath');
   const explicitlySet = !!inspected && (
@@ -39,18 +58,143 @@ function resolveCliPath(workspaceFolder) {
     }
   }
 
+  if (installedFallbackPath && fs.existsSync(installedFallbackPath)) {
+    return installedFallbackPath;
+  }
+
   return config.get('cliPath', 'structifact');
 }
 
-// Shared across all three commands -- every one of them can hit this
-// exact failure the same way (a bad/unset cliPath), so the message
-// (and the fix it points at) should read identically everywhere.
-function showCliNotFoundError(cliPath) {
+// Maps one bootstrap.js install-attempt result to a specific, honest
+// message -- never a generic "install failed". `stderr`, when
+// present, is real captured output from the real pip/venv command
+// that failed (truncated to its last few lines) -- this is the one
+// thing that can say something useful about a corporate-managed
+// machine blocking pip, a proxy, or any other failure this code has
+// no specific name for.
+function showInstallFailureMessage(result) {
+  if (result.reason === 'not-found') {
+    vscode.window.showErrorMessage(
+      'Structifact: could not find a Python interpreter anywhere on PATH (or via the ' +
+      'VS Code Python extension, if installed). Install Python ' +
+      `${MIN_PYTHON_VERSION.major}.${MIN_PYTHON_VERSION.minor}+ from python.org, then try ` +
+      'again -- or, if Structifact is already installed somewhere, set structifact.cliPath ' +
+      'in Settings to point at it directly.'
+    );
+    return;
+  }
+
+  if (result.reason === 'too-old') {
+    const found = (result.attempted || [])
+      .map((a) => `${a.command} (${a.version.major}.${a.version.minor})`)
+      .join(', ') || 'none parseable';
+    vscode.window.showErrorMessage(
+      'Structifact: found Python, but none new enough (Structifact needs ' +
+      `${MIN_PYTHON_VERSION.major}.${MIN_PYTHON_VERSION.minor}+; found: ${found}). Install a ` +
+      'newer Python from python.org and try again.'
+    );
+    return;
+  }
+
+  const stderrExcerpt = (result.stderr || '').split('\n').slice(-8).join('\n').trim();
+  const detail = stderrExcerpt ? `\n\nLast output:\n${stderrExcerpt}` : '';
+  const fallback = 'You can set structifact.cliPath in Settings to point at an install of ' +
+    'your own instead — see this extension\'s README.';
+
+  if (result.reason === 'verify-failed') {
+    vscode.window.showErrorMessage(
+      `Structifact: installed, but could not confirm it runs correctly, so nothing was ` +
+      `wired up. ${fallback}${detail}`
+    );
+    return;
+  }
+
+  // install-failed or venv-failed: nothing was left behind either
+  // way (see runVenvInstall in bootstrap.js) -- covers no network,
+  // no permission to write/install, and a corporate-managed machine
+  // blocking pip alike, since none of those can be distinguished
+  // reliably from pip's own error text alone.
   vscode.window.showErrorMessage(
-    `Structifact: could not run "${cliPath}". Checked PATH and this workspace's ` +
-    '.venv/venv, found nothing runnable there. Install Structifact ' +
-    '(pip install structifact, or pip install -e . from a clone) so it is on your ' +
-    'PATH, or set structifact.cliPath in Settings to point at it directly.'
+    `Structifact: install failed (no network connection and a machine that blocks package ` +
+    `installs are both common causes). Nothing was left behind. ${fallback}${detail}`
+  );
+}
+
+// Offers to install Structifact when the configured CLI can't be
+// run at all (see the ENOENT checks below) -- never automatic, per
+// the "state cost/confirm before any real action" posture this
+// extension already applies to real API calls (runAiDiscover). On
+// acceptance, runs bootstrap.js's real install flow inside a native
+// progress notification with honest, specific step messages; nothing
+// is reported as successful until installStructifact's own
+// `structifact --help` verification actually passes.
+async function handleCliNotFound(cliPath, context) {
+  const choice = await vscode.window.showErrorMessage(
+    `Structifact: could not run "${cliPath}". Checked PATH and this workspace's .venv/venv, ` +
+    'found nothing runnable there.',
+    'Install Structifact',
+    'Set Path Manually'
+  );
+
+  if (choice === 'Set Path Manually') {
+    await vscode.commands.executeCommand('workbench.action.openSettings', 'structifact.cliPath');
+    return;
+  }
+
+  if (choice !== 'Install Structifact') {
+    return;
+  }
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Structifact', cancellable: false },
+    async (progress) => {
+      const report = (message) => progress.report({ message });
+      const result = await installStructifact({ context, report });
+
+      if (result.success) {
+        vscode.window.showInformationMessage(
+          `Structifact: installed successfully at ${result.cliPath}. Run the command again.`
+        );
+        return;
+      }
+
+      showInstallFailureMessage(result);
+    }
+  );
+}
+
+// The deferred, explicitly-prompted follow-up for .xlsx discovery
+// specifically (see runAiDiscover below) -- only ever offered when
+// the CLI actually in use is this extension's own bootstrapped
+// install (checked at the call site), since this extension has no
+// business pip-installing into a venv/interpreter it didn't create.
+async function offerExcelExtraInstall(context, inputPath) {
+  const choice = await vscode.window.showWarningMessage(
+    `Structifact: reading ${path.basename(inputPath)} needs the 'excel' extra (~110MB more, ` +
+    'via pandas) on top of the base install. Install it now?',
+    'Install',
+    'Not now'
+  );
+
+  if (choice !== 'Install') {
+    return;
+  }
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Structifact', cancellable: false },
+    async (progress) => {
+      const report = (message) => progress.report({ message });
+      const result = await installExcelExtra({ context, report });
+
+      if (result.success) {
+        vscode.window.showInformationMessage(
+          "Structifact: the 'excel' extra is installed. Try discovering this file again."
+        );
+        return;
+      }
+
+      showInstallFailureMessage(result);
+    }
   );
 }
 
@@ -79,7 +223,7 @@ function activate(context) {
 
     const filePath = document.uri.fsPath;
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-    const cliPath = resolveCliPath(workspaceFolder);
+    const cliPath = resolveCliPath(workspaceFolder, context.globalState.get(INSTALLED_CLI_PATH_KEY));
     const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(filePath);
 
     execFile(cliPath, ['validate', filePath], { cwd }, (error, stdout, stderr) => {
@@ -90,7 +234,7 @@ function activate(context) {
       }
 
       if (error.code === 'ENOENT') {
-        showCliNotFoundError(cliPath);
+        handleCliNotFound(cliPath, context);
         return;
       }
 
@@ -124,7 +268,7 @@ function activate(context) {
     const inputUri = picked[0];
     const inputPath = inputUri.fsPath;
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(inputUri);
-    const cliPath = resolveCliPath(workspaceFolder);
+    const cliPath = resolveCliPath(workspaceFolder, context.globalState.get(INSTALLED_CLI_PATH_KEY));
     const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(inputPath);
     const outputPath = discoveredOutputPath(inputPath);
 
@@ -134,13 +278,13 @@ function activate(context) {
     // to sample). A separate branch, not a change to the CSV path
     // below, which is completely untouched.
     if (isRequirementsDocument(inputPath)) {
-      await runAiDiscover({ cliPath, cwd, inputPath, outputPath });
+      await runAiDiscover({ cliPath, cwd, inputPath, outputPath, context });
       return;
     }
 
     execFile(cliPath, ['discover', inputPath, '-o', outputPath], { cwd }, (error, stdout, stderr) => {
       if (error && error.code === 'ENOENT') {
-        showCliNotFoundError(cliPath);
+        handleCliNotFound(cliPath, context);
         return;
       }
 
@@ -202,7 +346,7 @@ function activate(context) {
 
     const filePath = document.uri.fsPath;
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-    const cliPath = resolveCliPath(workspaceFolder);
+    const cliPath = resolveCliPath(workspaceFolder, context.globalState.get(INSTALLED_CLI_PATH_KEY));
     const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(filePath);
 
     // Restricted to -g sql so exactly one artifact comes back, with
@@ -217,7 +361,7 @@ function activate(context) {
 
     execFile(cliPath, ['generate', filePath, '-g', 'sql', '-o', outputDir], { cwd }, (error, stdout, stderr) => {
       if (error && error.code === 'ENOENT') {
-        showCliNotFoundError(cliPath);
+        handleCliNotFound(cliPath, context);
         return;
       }
 
@@ -275,7 +419,7 @@ function activate(context) {
 
     const filePath = document.uri.fsPath;
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-    const cliPath = resolveCliPath(workspaceFolder);
+    const cliPath = resolveCliPath(workspaceFolder, context.globalState.get(INSTALLED_CLI_PATH_KEY));
     const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(filePath);
 
     execFile(cliPath, ['validate', filePath], { cwd }, (error, stdout, stderr) => {
@@ -283,7 +427,7 @@ function activate(context) {
       // from the document's own text, not the CLI -- still useful even
       // if the CLI can't be found at all, so this doesn't return early.
       if (error && error.code === 'ENOENT') {
-        showCliNotFoundError(cliPath);
+        handleCliNotFound(cliPath, context);
       }
 
       const output = `${stdout || ''}${stderr || ''}`;
@@ -457,7 +601,7 @@ function isRequirementsDocument(inputPath) {
 // unbuffered Python output -- verified against real .md and real
 // .xlsx requirements documents, declining each time (zero cost, zero
 // API calls, nothing written), before this code existed at all.
-function runAiDiscover({ cliPath, cwd, inputPath, outputPath }) {
+function runAiDiscover({ cliPath, cwd, inputPath, outputPath, context }) {
   return new Promise((resolve) => {
     let buffer = '';
     let responded = false;
@@ -482,7 +626,7 @@ function runAiDiscover({ cliPath, cwd, inputPath, outputPath }) {
         clearTimeout(timeout);
 
         if (error && error.code === 'ENOENT') {
-          showCliNotFoundError(cliPath);
+          handleCliNotFound(cliPath, context);
           resolve();
           return;
         }
@@ -496,6 +640,24 @@ function runAiDiscover({ cliPath, cwd, inputPath, outputPath }) {
         }
 
         const output = `${stdout || ''}${stderr || ''}`;
+
+        // A missing 'excel' extra is a specific, actionable case --
+        // offer the same explicit-confirmation install flow as a
+        // missing CLI, but only when the CLI actually in use is this
+        // extension's own bootstrapped venv (checked against the
+        // same globalState key handleCliNotFound's install writes to)
+        // -- this extension has no business pip-installing into a
+        // venv/interpreter it didn't create itself.
+        if (
+          error &&
+          looksLikeMissingExcelExtra(output) &&
+          context &&
+          cliPath === context.globalState.get(INSTALLED_CLI_PATH_KEY)
+        ) {
+          offerExcelExtraInstall(context, inputPath);
+          resolve();
+          return;
+        }
 
         // Covers both "failed after a real attempt" and "closed
         // before ever reaching the estimate line at all" (e.g. a
