@@ -2,6 +2,16 @@
 
 SYNTHETIC EXAMPLE (fictional company/data) — see
 `REQUIREMENTS_workorder.md`'s own header for the full disclaimer.
+
+**New here? Start with [`WALKTHROUGH.md`](WALKTHROUGH.md)** — a
+straight-through, six-step read (requirements doc → AI draft → real
+`validate` findings → human-corrected metadata → generated SQL → why
+that whole path matters) using the exact files in this directory. The
+rest of this README is the more detailed development history behind
+one specific piece of that story — three real AI extraction runs
+against this same document, kept side by side as a before/after
+record of a real bug found and fixed.
+
 This directory holds two unrelated things:
 
 1. A hand-authored dataset (`work_order_source.yml`,

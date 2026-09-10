@@ -1,0 +1,224 @@
+# REVIEWED metadata — a human correction of
+# work_order_source.discovered.v3.yml, the real, unedited
+# discover --ai draft in this same folder.
+#
+# Every field, source, join, and note below is copied unchanged from
+# that draft EXCEPT for the two fixes listed here, each one made in
+# direct response to a real `structifact validate` finding against
+# v3 (see WALKTHROUGH.md in this folder for the actual command and
+# output):
+#
+# 1. Added the "resolved_fx_rate" field (with source: "fx_rate"),
+#    which v3 never declared even though labor_amount_usd's
+#    expression references it by name, and the fx_rate source was
+#    declared/joined but never used by anything. This single field
+#    fixes both:
+#      - "Field 'labor_amount_usd' has an expression referencing
+#         unknown identifier 'resolved_fx_rate'..."
+#      - "⚠ Orphaned source: source 'fx_rate' is declared and joined
+#         but is not referenced by any output field..."
+#
+# 2. Translated sign_adjustment's expression from the pseudocode the
+#    AI copied verbatim from the requirements document
+#    ("if src_wo_hdr_wo_type in ('CRM','RET') then -1 else 1") into
+#    real SQL ("CASE WHEN ... THEN ... ELSE ... END"). This is the
+#    one step ir.py's own FieldSpec.expression docstring says is
+#    always a human decision, never automatic — Structifact does not
+#    (and does not claim to) translate discovery-draft logic into SQL
+#    itself. That fixes:
+#      - "Field 'sign_adjustment' has an expression referencing
+#         unknown identifier 'if'..."
+#
+# What this file deliberately does NOT fix, because Structifact has
+# no way to express it yet (see ir.py's own documented scope, and
+# model.py's ModelGenerator docstring): the FX conversion's
+# conditional fallback logic (if no rate is found and the currency is
+# USD, use 1.0; otherwise leave the converted amount null). That real
+# business rule stays exactly where the AI draft already correctly
+# left it — in unresolved_notes below, for a human to implement by
+# hand downstream, not silently dropped and not fabricated into a
+# structured field this file can't actually back up.
+#
+# Original draft header, unchanged from v3:
+#
+# This is a first-pass suggestion from an LLM reading the raw
+# document below. It has not been validated, and the AI has
+# not seen your actual data — only the requirements text.
+#
+# Source: REQUIREMENTS_workorder.md
+
+dataset:
+  name: "work_order_source"
+
+fields:
+  - name: "wo_id"
+    description: "Work Order ID"
+    role: "dimension"
+    source_column: "src_wo_hdr_wo_id"
+    type: "varchar(12)"
+
+  - name: "wo_date"
+    description: "Work Order Date"
+    role: "dimension"
+    source_column: "src_wo_hdr_wo_date"
+    type: "date"
+
+  - name: "currency_code"
+    description: "Currency Code"
+    role: "dimension"
+    source_column: "src_wo_hdr_currency_code"
+    type: "varchar(3)"
+
+  - name: "wo_type"
+    description: "Work Order Type"
+    role: "dimension"
+    source_column: "src_wo_hdr_wo_type"
+    type: "varchar(4)"
+
+  - name: "sign_adjustment"
+    description: "Sign Adjustment"
+    role: "measure"
+    source_column: "src_wo_hdr_status_code"
+    type: "integer"
+    computed: true
+    expression: "CASE WHEN src_wo_hdr_wo_type IN ('CRM','RET') THEN -1 ELSE 1 END"
+
+  - name: "line_id"
+    description: "Line ID"
+    role: "dimension"
+    source: "wo_line"
+    source_column: "src_wo_line_line_id"
+    type: "varchar(6)"
+
+  - name: "labor_hours"
+    description: "Labor Hours"
+    role: "measure"
+    source: "wo_line"
+    source_column: "src_wo_line_labor_hours"
+    type: "decimal(7,2)"
+
+  - name: "rate_code"
+    description: "Rate Code"
+    role: "dimension"
+    source: "wo_line"
+    source_column: "src_wo_line_rate_code"
+    type: "varchar(4)"
+
+  - name: "labor_rate"
+    description: "Labor Rate"
+    role: "measure"
+    source: "price_condition"
+    source_column: "src_price_cond_labor_rate"
+    type: "decimal(9,2)"
+
+  - name: "labor_amount_lc"
+    description: "Labor Amount (LC)"
+    role: "measure"
+    type: "decimal(15,2)"
+    computed: true
+    expression: "src_wo_line_labor_hours * src_price_cond_labor_rate * sign_adjustment"
+
+  - name: "resolved_fx_rate"
+    description: "Exchange rate to USD, resolved from fx_rate_lookup with a 1.0 fallback for USD-denominated work orders only"
+    role: "measure"
+    source: "fx_rate"
+    type: "decimal(9,6)"
+
+  - name: "labor_amount_usd"
+    description: "Labor Amount (USD)"
+    role: "measure"
+    type: "decimal(15,2)"
+    computed: true
+    expression: "labor_amount_lc * resolved_fx_rate"
+
+  - name: "customer_name"
+    description: "Customer Name"
+    role: "dimension"
+    source: "customer"
+    source_column: "src_cust_mst_customer_name"
+    type: "varchar(60)"
+
+  - name: "region_code"
+    description: "Region Code"
+    role: "dimension"
+    source: "customer"
+    source_column: "src_cust_mst_region_code"
+    type: "varchar(4)"
+
+  - name: "requested_by_name"
+    description: "Requested By (Name)"
+    role: "dimension"
+    source: "requested_by_contact"
+    source_column: "src_partner_requested_by_name"
+    type: "varchar(60)"
+
+  - name: "billed_to_name"
+    description: "Billed To (Name)"
+    role: "dimension"
+    source: "billed_to_contact"
+    source_column: "src_partner_billed_to_name"
+    type: "varchar(60)"
+
+  - name: "site_contact_name"
+    description: "Site Contact (Name)"
+    role: "dimension"
+    source: "site_contact"
+    source_column: "src_partner_site_contact_name"
+    type: "varchar(60)"
+
+  - name: "site_contact_phone"
+    description: "Site Contact (Phone)"
+    role: "dimension"
+    source: "site_contact"
+    source_column: "src_partner_site_contact_phone"
+    type: "varchar(20)"
+
+source_table: "WO_HDR"
+
+sources:
+  - name: "wo_line"
+    table: "WO_LINE"
+  - name: "customer"
+    table: "CUST_MST"
+  - name: "price_condition"
+    table: "PRICE_COND"
+  - name: "requested_by_contact"
+    table: "PARTNER_ROLE"
+    filter: "role_code = 'REQ'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "billed_to_contact"
+    table: "PARTNER_ROLE"
+    filter: "role_code = 'BILL'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "site_contact"
+    table: "PARTNER_ROLE"
+    filter: "role_code = 'SITE'"
+    dedup:
+      partition_by: ["wo_id"]
+      order_by: ["is_current desc", "updated_at desc"]
+  - name: "fx_rate"
+    table: "fx_rate_lookup"
+
+joins:
+  - source: "wo_line"
+    "on": "WO_HDR.wo_id = wo_line.wo_id"
+  - source: "customer"
+    "on": "WO_HDR.customer_id = customer.customer_id"
+  - source: "price_condition"
+    "on": "wo_line.rate_code = price_condition.rate_code"
+  - source: "requested_by_contact"
+    "on": "WO_HDR.wo_id = requested_by_contact.wo_id"
+  - source: "billed_to_contact"
+    "on": "WO_HDR.wo_id = billed_to_contact.wo_id"
+  - source: "site_contact"
+    "on": "WO_HDR.wo_id = site_contact.wo_id"
+  - source: "fx_rate"
+    "on": "WO_HDR.currency_code = fx_rate.currency_code and WO_HDR.wo_date = fx_rate.rate_date"
+
+unresolved_notes:
+  - "FX fallback logic: if no rate found and currency is USD, treat rate as 1.0; otherwise leave converted amount null — this is a conditional business rule that should be applied in the expression or in data preparation, but the exact field expression was not provided in the source document."
+  - "Status Code field (src_wo_hdr_status_code) was marked deprioritized (grey highlight) for v1 and has been omitted from fields, though it appears as a source_column reference in the sign_adjustment field definition — this may indicate a documentation inconsistency in the source material."

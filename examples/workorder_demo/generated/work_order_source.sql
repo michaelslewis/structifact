@@ -1,0 +1,23 @@
+CREATE TABLE "work_order_source" (
+    "wo_id" VARCHAR(12),
+    "wo_date" DATE,
+    "currency_code" VARCHAR(3),
+    "wo_type" VARCHAR(4),
+    -- computed: sign_adjustment = CASE WHEN src_wo_hdr_wo_type IN ('CRM','RET') THEN -1 ELSE 1 END,
+    "sign_adjustment" INTEGER,
+    "line_id" VARCHAR(6),
+    "labor_hours" DECIMAL(7,2),
+    "rate_code" VARCHAR(4),
+    "labor_rate" DECIMAL(9,2),
+    -- computed: labor_amount_lc = src_wo_line_labor_hours * src_price_cond_labor_rate * sign_adjustment,
+    "labor_amount_lc" DECIMAL(15,2),
+    "resolved_fx_rate" DECIMAL(9,6),
+    -- computed: labor_amount_usd = labor_amount_lc * resolved_fx_rate,
+    "labor_amount_usd" DECIMAL(15,2),
+    "customer_name" VARCHAR(60),
+    "region_code" VARCHAR(4),
+    "requested_by_name" VARCHAR(60),
+    "billed_to_name" VARCHAR(60),
+    "site_contact_name" VARCHAR(60),
+    "site_contact_phone" VARCHAR(20)
+);

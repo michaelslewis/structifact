@@ -1,0 +1,19 @@
+name,description,role,type,length
+wo_id,Work Order ID,dimension,string,12
+wo_date,Work Order Date,dimension,date,
+currency_code,Currency Code,dimension,string,3
+wo_type,Work Order Type,dimension,string,4
+sign_adjustment,Sign Adjustment,measure,integer,
+line_id,Line ID,dimension,string,6
+labor_hours,Labor Hours,measure,decimal,"7,2"
+rate_code,Rate Code,dimension,string,4
+labor_rate,Labor Rate,measure,decimal,"9,2"
+labor_amount_lc,Labor Amount (LC),measure,decimal,"15,2"
+resolved_fx_rate,"Exchange rate to USD, resolved from fx_rate_lookup with a 1.0 fallback for USD-denominated work orders only",measure,decimal,"9,6"
+labor_amount_usd,Labor Amount (USD),measure,decimal,"15,2"
+customer_name,Customer Name,dimension,string,60
+region_code,Region Code,dimension,string,4
+requested_by_name,Requested By (Name),dimension,string,60
+billed_to_name,Billed To (Name),dimension,string,60
+site_contact_name,Site Contact (Name),dimension,string,60
+site_contact_phone,Site Contact (Phone),dimension,string,20

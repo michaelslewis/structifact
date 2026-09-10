@@ -1,0 +1,95 @@
+version: 2
+models:
+- name: work_order_source
+  columns:
+  - name: wo_id
+    description: Work Order ID
+    meta:
+      role: dimension
+      source_field: wo.id
+  - name: wo_date
+    description: Work Order Date
+    meta:
+      role: dimension
+      source_field: wo.date
+  - name: currency_code
+    description: Currency Code
+    meta:
+      role: dimension
+      source_field: currency.code
+  - name: wo_type
+    description: Work Order Type
+    meta:
+      role: dimension
+      source_field: wo.type
+  - name: sign_adjustment
+    description: Sign Adjustment
+    meta:
+      role: measure
+      source_field: sign.adjustment
+  - name: line_id
+    description: Line ID
+    meta:
+      role: dimension
+      source_field: line.id
+  - name: labor_hours
+    description: Labor Hours
+    meta:
+      role: measure
+      source_field: labor.hours
+  - name: rate_code
+    description: Rate Code
+    meta:
+      role: dimension
+      source_field: rate.code
+  - name: labor_rate
+    description: Labor Rate
+    meta:
+      role: measure
+      source_field: labor.rate
+  - name: labor_amount_lc
+    description: Labor Amount (LC)
+    meta:
+      role: measure
+      source_field: labor.amount.lc
+  - name: resolved_fx_rate
+    description: Exchange rate to USD, resolved from fx_rate_lookup with a 1.0 fallback
+      for USD-denominated work orders only
+    meta:
+      role: measure
+      source_field: resolved.fx.rate
+  - name: labor_amount_usd
+    description: Labor Amount (USD)
+    meta:
+      role: measure
+      source_field: labor.amount.usd
+  - name: customer_name
+    description: Customer Name
+    meta:
+      role: dimension
+      source_field: customer.name
+  - name: region_code
+    description: Region Code
+    meta:
+      role: dimension
+      source_field: region.code
+  - name: requested_by_name
+    description: Requested By (Name)
+    meta:
+      role: dimension
+      source_field: requested.by.name
+  - name: billed_to_name
+    description: Billed To (Name)
+    meta:
+      role: dimension
+      source_field: billed.to.name
+  - name: site_contact_name
+    description: Site Contact (Name)
+    meta:
+      role: dimension
+      source_field: site.contact.name
+  - name: site_contact_phone
+    description: Site Contact (Phone)
+    meta:
+      role: dimension
+      source_field: site.contact.phone
