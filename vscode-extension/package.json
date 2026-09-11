@@ -2,7 +2,7 @@
   "name": "structifact-validate",
   "displayName": "Structifact",
   "description": "Run Structifact's own `validate`, `discover`, and `generate` commands against files in this workspace, and review the results, as native VS Code UI.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "michaelslewis",
   "license": "MIT",
   "repository": {
