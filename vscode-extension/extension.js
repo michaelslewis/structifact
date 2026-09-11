@@ -10,6 +10,23 @@ const {
   installExcelExtra,
 } = require('./bootstrap');
 
+// Where Review's "Acknowledge" state lives (see buildReviewQuickPickItems
+// and noteAcknowledgeKey/relatedAcknowledgeKey below) -- workspaceState,
+// not the file itself: acknowledging a note never writes YAML, and
+// workspace-scoped (not global) so acknowledgments from one project's
+// review session don't leak into an unrelated one.
+const ACKNOWLEDGED_NOTES_STATE_KEY = 'structifact.acknowledgedNotes';
+
+function getAcknowledgedKeys(context) {
+  return new Set(context.workspaceState.get(ACKNOWLEDGED_NOTES_STATE_KEY, []));
+}
+
+async function acknowledgeNote(context, ackKey) {
+  const keys = getAcknowledgedKeys(context);
+  keys.add(ackKey);
+  await context.workspaceState.update(ACKNOWLEDGED_NOTES_STATE_KEY, Array.from(keys));
+}
+
 // A project virtualenv's bin/ is only on PATH inside an activated
 // shell -- VS Code does not activate it, so the bare "structifact"
 // default fails for the common case of a workspace with its own
@@ -478,55 +495,17 @@ function activate(context) {
         relatedGroups.get(key).noteLines.push(link.noteLine);
       }
 
-      const items = [];
+      const relatedGroupsArray = Array.from(relatedGroups.values());
+      const buildItems = () => buildReviewQuickPickItems({
+        errorMessages,
+        warningMessages,
+        needsReviewItems,
+        unresolvedNotes,
+        relatedGroups: relatedGroupsArray,
+        acknowledgedKeys: getAcknowledgedKeys(context),
+      });
 
-      if (errorMessages.length > 0) {
-        items.push({ label: 'Errors', kind: vscode.QuickPickItemKind.Separator });
-        for (const message of errorMessages) {
-          items.push({ label: `$(error) ${message}`, line: 0 });
-        }
-      }
-
-      if (warningMessages.length > 0) {
-        items.push({ label: 'Warnings', kind: vscode.QuickPickItemKind.Separator });
-        for (const message of warningMessages) {
-          items.push({ label: `$(warning) ${message}`, line: 0 });
-        }
-      }
-
-      if (needsReviewItems.length > 0) {
-        items.push({ label: 'NEEDS REVIEW (in this file)', kind: vscode.QuickPickItemKind.Separator });
-        for (const item of needsReviewItems) {
-          items.push({
-            label: `$(comment) ${item.text}`,
-            description: `line ${item.line + 1}`,
-            line: item.line,
-          });
-        }
-      }
-
-      if (unresolvedNotes.length > 0) {
-        items.push({ label: 'Unresolved Notes', kind: vscode.QuickPickItemKind.Separator });
-        for (const item of unresolvedNotes) {
-          items.push({
-            label: `$(note) ${item.text}`,
-            description: `line ${item.line + 1}`,
-            line: item.line,
-          });
-        }
-      }
-
-      if (relatedGroups.size > 0) {
-        items.push({ label: 'Related to Unresolved Notes', kind: vscode.QuickPickItemKind.Separator });
-        for (const group of relatedGroups.values()) {
-          const count = group.noteLines.length;
-          items.push({
-            label: `$(link) ${group.kind} '${group.name}' — ${count} related unresolved ${count === 1 ? 'note' : 'notes'}`,
-            description: `declared at line ${group.declarationLine + 1}`,
-            line: group.noteLines[0],
-          });
-        }
-      }
+      const items = buildItems();
 
       if (items.length === 0) {
         vscode.window.showInformationMessage(
@@ -542,17 +521,10 @@ function activate(context) {
       if (warningMessages.length) summaryParts.push(`${warningMessages.length} warning(s)`);
       if (needsReviewItems.length) summaryParts.push(`${needsReviewItems.length} needs-review`);
       if (unresolvedNotes.length) summaryParts.push(`${unresolvedNotes.length} unresolved note(s)`);
-      if (relatedGroups.size) summaryParts.push(`${relatedGroups.size} note link(s)`);
+      if (relatedGroupsArray.length) summaryParts.push(`${relatedGroupsArray.length} note link(s)`);
 
-      vscode.window.showQuickPick(items, {
-        placeHolder: `Structifact: Review — ${summaryParts.join(', ')} (select to jump to it)`,
-        matchOnDescription: true,
-      }).then(async (selected) => {
-        if (!selected || typeof selected.line !== 'number') {
-          return;
-        }
-
-        const targetLine = Math.min(selected.line, document.lineCount - 1);
+      const jumpToLine = async (line) => {
+        const targetLine = Math.min(line, document.lineCount - 1);
         const revealedEditor = await vscode.window.showTextDocument(document, {
           viewColumn: editor.viewColumn,
           preserveFocus: false,
@@ -560,7 +532,40 @@ function activate(context) {
         const range = revealedEditor.document.lineAt(targetLine).range;
         revealedEditor.selection = new vscode.Selection(range.start, range.start);
         revealedEditor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+      };
+
+      // createQuickPick(), not the simpler showQuickPick() this command
+      // used before -- only the lower-level API fires
+      // onDidTriggerItemButton, which the Acknowledge button needs.
+      // Rebuilding and reassigning .items after an acknowledgment keeps
+      // this same still-open session in sync too, not just future runs.
+      const quickPick = vscode.window.createQuickPick();
+      quickPick.items = items;
+      quickPick.placeholder = `Structifact: Review — ${summaryParts.join(', ')} (select to jump to it)`;
+      quickPick.matchOnDescription = true;
+
+      quickPick.onDidTriggerItemButton(async (event) => {
+        if (!event.item || !event.item.ackKey) {
+          return;
+        }
+        await acknowledgeNote(context, event.item.ackKey);
+        quickPick.items = buildItems();
       });
+
+      quickPick.onDidAccept(async () => {
+        const selected = quickPick.selectedItems[0];
+        quickPick.hide();
+
+        if (!selected || typeof selected.line !== 'number') {
+          return;
+        }
+
+        await jumpToLine(selected.line);
+      });
+
+      quickPick.onDidHide(() => quickPick.dispose());
+
+      quickPick.show();
     });
   });
 
@@ -979,6 +984,138 @@ function findRelatedNotes(text) {
   }
 
   return links;
+}
+
+// Tooltip shown on the per-item "Acknowledge" button in Review's
+// Unresolved Notes / Related to Unresolved Notes sections --
+// deliberately not "Accept" or "Resolve": acknowledging a note only
+// records that a human has looked at it, it never changes the file
+// (no YAML is written), and it says so explicitly so it can't be
+// mistaken for validation of the note's content.
+const ACKNOWLEDGE_BUTTON_TOOLTIP = 'Mark as reviewed (does not change the file)';
+
+// Content-based keys for acknowledgment, deliberately NOT based on
+// line number -- an edit anywhere earlier in the file shifts every
+// line below it, which would silently disconnect a real acknowledgment
+// from the note a human actually reviewed (see findRelatedNotes'
+// investigation, DECISION_HISTORY.md). Keying by the note's own text
+// (or, for a related-note group, by which field/source/join it's
+// about) means an already-acknowledged note keeps matching after
+// unrelated edits shift its line, and -- for free -- a note a human
+// has since fixed by hand simply stops being found by
+// findUnresolvedNotes() at all, so its old acknowledgment just never
+// matches anything again rather than needing explicit cleanup.
+function noteAcknowledgeKey(text) {
+  return `note:${text}`;
+}
+
+function relatedAcknowledgeKey(kind, name) {
+  return `related:${kind}:${name}`;
+}
+
+// Builds Review's full Quick Pick item list, including the
+// Acknowledge button on note/related-note items and the
+// filter/demote behavior once one has been acknowledged -- pure and
+// testable: takes plain data in (including `acknowledgedKeys`, a
+// Set<string> the caller reads from context.workspaceState) and
+// returns a plain items array, no vscode UI interaction of its own.
+// An acknowledged item is never removed from the list entirely (the
+// button's own tooltip promises only "reviewed," not "resolved" or
+// "gone") -- it's relabeled with a checkmark and moved into a
+// trailing "Acknowledged" section instead, so it stays visible and
+// still jumps to its line if selected again.
+function buildReviewQuickPickItems({
+  errorMessages,
+  warningMessages,
+  needsReviewItems,
+  unresolvedNotes,
+  relatedGroups,
+  acknowledgedKeys,
+}) {
+  const items = [];
+  const acknowledgedItems = [];
+
+  if (errorMessages.length > 0) {
+    items.push({ label: 'Errors', kind: vscode.QuickPickItemKind.Separator });
+    for (const message of errorMessages) {
+      items.push({ label: `$(error) ${message}`, line: 0 });
+    }
+  }
+
+  if (warningMessages.length > 0) {
+    items.push({ label: 'Warnings', kind: vscode.QuickPickItemKind.Separator });
+    for (const message of warningMessages) {
+      items.push({ label: `$(warning) ${message}`, line: 0 });
+    }
+  }
+
+  if (needsReviewItems.length > 0) {
+    items.push({ label: 'NEEDS REVIEW (in this file)', kind: vscode.QuickPickItemKind.Separator });
+    for (const item of needsReviewItems) {
+      items.push({
+        label: `$(comment) ${item.text}`,
+        description: `line ${item.line + 1}`,
+        line: item.line,
+      });
+    }
+  }
+
+  const activeNotes = [];
+  for (const item of unresolvedNotes) {
+    const ackKey = noteAcknowledgeKey(item.text);
+    if (acknowledgedKeys.has(ackKey)) {
+      acknowledgedItems.push({
+        label: `$(check) ${item.text}`,
+        description: `line ${item.line + 1} · acknowledged`,
+        line: item.line,
+      });
+    } else {
+      activeNotes.push({
+        label: `$(note) ${item.text}`,
+        description: `line ${item.line + 1}`,
+        line: item.line,
+        buttons: [{ iconPath: new vscode.ThemeIcon('check'), tooltip: ACKNOWLEDGE_BUTTON_TOOLTIP }],
+        ackKey,
+      });
+    }
+  }
+  if (activeNotes.length > 0) {
+    items.push({ label: 'Unresolved Notes', kind: vscode.QuickPickItemKind.Separator });
+    items.push(...activeNotes);
+  }
+
+  const activeRelated = [];
+  for (const group of relatedGroups) {
+    const ackKey = relatedAcknowledgeKey(group.kind, group.name);
+    const count = group.noteLines.length;
+    const label = `$(link) ${group.kind} '${group.name}' — ${count} related unresolved ${count === 1 ? 'note' : 'notes'}`;
+    if (acknowledgedKeys.has(ackKey)) {
+      acknowledgedItems.push({
+        label: label.replace('$(link)', '$(check)'),
+        description: `declared at line ${group.declarationLine + 1} · acknowledged`,
+        line: group.noteLines[0],
+      });
+    } else {
+      activeRelated.push({
+        label,
+        description: `declared at line ${group.declarationLine + 1}`,
+        line: group.noteLines[0],
+        buttons: [{ iconPath: new vscode.ThemeIcon('check'), tooltip: ACKNOWLEDGE_BUTTON_TOOLTIP }],
+        ackKey,
+      });
+    }
+  }
+  if (activeRelated.length > 0) {
+    items.push({ label: 'Related to Unresolved Notes', kind: vscode.QuickPickItemKind.Separator });
+    items.push(...activeRelated);
+  }
+
+  if (acknowledgedItems.length > 0) {
+    items.push({ label: 'Acknowledged', kind: vscode.QuickPickItemKind.Separator });
+    items.push(...acknowledgedItems);
+  }
+
+  return items;
 }
 
 function makeDiagnostic(document, message) {

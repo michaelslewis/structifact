@@ -84,6 +84,19 @@ const fakeVscode = {
       return Promise.resolve();
     },
   },
+  // Only what buildReviewQuickPickItems touches: a Separator marker
+  // (its exact value doesn't matter, only that items can be compared
+  // against it) and a real-shaped ThemeIcon stand-in (the Acknowledge
+  // button's iconPath) -- no other Quick Pick machinery is faked here
+  // since createQuickPick() itself is exercised only in a real
+  // Extension Host, never by these tests (see this file's own header
+  // comment).
+  QuickPickItemKind: { Separator: -1 },
+  ThemeIcon: class ThemeIcon {
+    constructor(id) {
+      this.id = id;
+    }
+  },
 };
 
 const originalResolveFilename = Module._resolveFilename;
@@ -107,13 +120,13 @@ const harness = new Module('extension-under-test');
 harness.filename = extensionSourcePath;
 harness.paths = Module._nodeModulePaths(path.dirname(extensionSourcePath));
 harness._compile(
-  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes };`,
+  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems };`,
   extensionSourcePath
 );
 const {
   resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors,
   parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover,
-  findRelatedNotes,
+  findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems,
 } = harness.exports.__test__;
 
 function wsFolder(fsPath) {
@@ -681,6 +694,130 @@ await test('findRelatedNotes does not false-positive on a name embedded inside a
 await test('findRelatedNotes returns an empty array when there are no unresolved_notes', () => {
   const text = 'fields:\n  - name: "customer_id"\n    type: "integer"\n';
   assert.deepStrictEqual(findRelatedNotes(text), []);
+});
+
+// --- noteAcknowledgeKey / relatedAcknowledgeKey ---
+// The whole point of a content-based key: it must survive the note's
+// own line number changing (an edit anywhere earlier in the file
+// shifts every line below it) -- these test the raw key functions in
+// isolation; buildReviewQuickPickItems' own tests below cover the
+// same guarantee at the level Review actually uses it.
+
+await test('noteAcknowledgeKey produces the same key for the same text regardless of line number', () => {
+  const text = 'resolved_fx_rate is referenced in labor_amount_usd expression but not explicitly defined as a source column';
+  assert.strictEqual(noteAcknowledgeKey(text), noteAcknowledgeKey(text));
+  // deliberately no line number is ever passed in -- this line exists
+  // only to make that omission explicit, not to exercise anything
+  // noteAcknowledgeKey's own signature doesn't already guarantee.
+});
+
+await test('noteAcknowledgeKey produces different keys for different text', () => {
+  assert.notStrictEqual(noteAcknowledgeKey('first note'), noteAcknowledgeKey('second note'));
+});
+
+await test('relatedAcknowledgeKey produces the same key regardless of declarationLine, but differs by kind or name', () => {
+  assert.strictEqual(relatedAcknowledgeKey('source', 'policy_status'), relatedAcknowledgeKey('source', 'policy_status'));
+  assert.notStrictEqual(relatedAcknowledgeKey('source', 'policy_status'), relatedAcknowledgeKey('join', 'policy_status'));
+  assert.notStrictEqual(relatedAcknowledgeKey('source', 'policy_status'), relatedAcknowledgeKey('source', 'fx_rate'));
+});
+
+// --- buildReviewQuickPickItems ---
+// Real-shaped fixtures reused from findRelatedNotes' own tests above
+// (the workorder resolved_fx_rate note, the hard_insurance_claims
+// policy_status source/join pair) -- not synthesized in the abstract.
+
+function _fixtureInput(overrides) {
+  return Object.assign({
+    errorMessages: [],
+    warningMessages: [],
+    needsReviewItems: [],
+    unresolvedNotes: [],
+    relatedGroups: [],
+    acknowledgedKeys: new Set(),
+  }, overrides);
+}
+
+const FX_NOTE_TEXT = (
+  'resolved_fx_rate is referenced in labor_amount_usd expression but not ' +
+  'explicitly defined as a source column — inferred as output of FX ' +
+  'lookup with fallback logic applied'
+);
+const POLICY_STATUS_GROUP = {
+  kind: 'source', name: 'policy_status', declarationLine: 7, noteLines: [15],
+};
+
+await test('buildReviewQuickPickItems shows an Acknowledge button on note/related items and no Acknowledged section when nothing is acknowledged', () => {
+  const items = buildReviewQuickPickItems(_fixtureInput({
+    unresolvedNotes: [{ line: 10, text: FX_NOTE_TEXT }],
+    relatedGroups: [POLICY_STATUS_GROUP],
+  }));
+
+  const labels = items.map((i) => i.label);
+  assert.ok(labels.includes('Unresolved Notes'));
+  assert.ok(labels.includes('Related to Unresolved Notes'));
+  assert.ok(!labels.includes('Acknowledged'));
+
+  const noteItem = items.find((i) => i.label === `$(note) ${FX_NOTE_TEXT}`);
+  assert.ok(noteItem, 'expected the note item to be present, unacknowledged');
+  assert.strictEqual(noteItem.buttons.length, 1);
+  assert.strictEqual(noteItem.ackKey, noteAcknowledgeKey(FX_NOTE_TEXT));
+
+  const relatedItem = items.find((i) => i.ackKey === relatedAcknowledgeKey('source', 'policy_status'));
+  assert.ok(relatedItem, 'expected the related-note item to be present, unacknowledged');
+  assert.strictEqual(relatedItem.buttons.length, 1);
+});
+
+await test('buildReviewQuickPickItems demotes an acknowledged note into a trailing Acknowledged section, with no button, and drops the empty Unresolved Notes section', () => {
+  const items = buildReviewQuickPickItems(_fixtureInput({
+    unresolvedNotes: [{ line: 10, text: FX_NOTE_TEXT }],
+    relatedGroups: [POLICY_STATUS_GROUP], // left unacknowledged, for contrast
+    acknowledgedKeys: new Set([noteAcknowledgeKey(FX_NOTE_TEXT)]),
+  }));
+
+  const labels = items.map((i) => i.label);
+  assert.ok(!labels.includes('Unresolved Notes'), 'the only note was acknowledged, so this section should be gone');
+  assert.ok(labels.includes('Acknowledged'));
+  assert.ok(labels.includes('Related to Unresolved Notes'), 'the unrelated, unacknowledged related-note item should still show normally');
+
+  const acknowledgedItem = items.find((i) => i.label === `$(check) ${FX_NOTE_TEXT}`);
+  assert.ok(acknowledgedItem, 'expected the checkmark-relabeled item');
+  assert.ok(acknowledgedItem.description.includes('acknowledged'));
+  assert.ok(!acknowledgedItem.buttons || acknowledgedItem.buttons.length === 0);
+});
+
+await test('buildReviewQuickPickItems recognizes an acknowledgment even when the note\'s line number has since changed', () => {
+  // The acknowledgment was recorded against this exact text while it
+  // sat at line 10 (e.g. before an unrelated edit earlier in the file
+  // shifted everything below it down); Review now finds the SAME text
+  // at line 42. A line-keyed implementation would miss this and show
+  // it as unacknowledged again -- the whole reason this is
+  // content-keyed at all.
+  const acknowledgedKeys = new Set([noteAcknowledgeKey(FX_NOTE_TEXT)]);
+
+  const items = buildReviewQuickPickItems(_fixtureInput({
+    unresolvedNotes: [{ line: 42, text: FX_NOTE_TEXT }],
+    acknowledgedKeys,
+  }));
+
+  const acknowledgedItem = items.find((i) => i.label === `$(check) ${FX_NOTE_TEXT}`);
+  assert.ok(acknowledgedItem, 'expected the note to still be recognized as acknowledged at its new line');
+  assert.ok(acknowledgedItem.description.includes('line 43'));
+  assert.ok(!items.some((i) => i.label === 'Unresolved Notes'));
+});
+
+await test('buildReviewQuickPickItems never attaches an Acknowledge button to Errors/Warnings/NEEDS REVIEW items', () => {
+  const items = buildReviewQuickPickItems(_fixtureInput({
+    errorMessages: ['bad thing'],
+    warningMessages: ['careful'],
+    needsReviewItems: [{ line: 2, text: 'looks off' }],
+  }));
+
+  const nonSeparators = items.filter((i) => i.kind !== fakeVscode.QuickPickItemKind.Separator);
+  assert.ok(nonSeparators.length > 0);
+  for (const item of nonSeparators) {
+    assert.ok(!item.buttons, `expected no buttons on: ${item.label}`);
+    assert.strictEqual(item.ackKey, undefined);
+  }
 });
 
 // --- runAiDiscover ---
