@@ -1,165 +1,80 @@
-# Structifact for VS Code (MVP)
+# Structifact for VS Code
 
-Four commands, all thin, literal wrappers around the real `structifact`
-CLI — no logic is duplicated in JavaScript, no webview/sidebar, no
-packaging/publishing setup yet:
+From messy spreadsheets and requirements docs to validated, generated artifacts — with a human in the loop at every step.
 
-- **Structifact: Validate** — saves the active file if dirty, runs
-  `structifact validate <file>`, and shows the result as native VS Code
-  diagnostics (Problems panel + inline squiggle) on failure, or a
-  status-bar message on success.
-- **Structifact: Discover Dataset** — lets you pick an existing CSV or
-  Excel file, runs `structifact discover <file>` against it, opens the
-  resulting `.discovered.yml` draft, and tells you plainly whether any
-  fields came back flagged for review.
-- **Structifact: Generate** — runs `structifact generate <file> -g sql`
-  against the currently open Structifact YAML file and opens the
-  resulting `.sql` file.
-- **Structifact: Review** — runs `structifact validate` against the
-  currently open file and combines its errors/warnings with whatever
-  the file's own text already says needs attention (`NEEDS REVIEW`
-  comments from Discover Dataset, `unresolved_notes` from an AI
-  requirements extraction) into one native Quick Pick list. Selecting
-  an item jumps the editor to that line — a real line for
-  `NEEDS REVIEW`/`unresolved_notes` items (found by scanning the open
-  file's own text), a best-effort placeholder (line 1) for
-  validate's own errors/warnings, same as Validate's diagnostics,
-  since the CLI itself carries no position data for those.
+Structifact for VS Code brings that whole workflow into the editor: pick a messy input, let AI propose a first-pass draft when there's no deterministic way to read it, review and triage what it found, and generate real artifacts from what you've confirmed — all as thin, literal wrappers around the real [`structifact`](https://pypi.org/project/structifact/) CLI. No logic is duplicated in JavaScript; every check, inference, and generation step runs in the real engine, exactly as the CLI runs it.
 
-Notes that apply to all four:
+## Requirements
 
-- No validation, discovery, or generation logic is duplicated in
-  JavaScript — every rule check happens in `structifact/validation.py`,
-  every type/format inference happens in `structifact/discover.py` and
-  `structifact/types.py`, and SQL generation happens in
-  `structifact/generators/sql.py`, invoked exactly as the CLI runs them.
-- No line/column positions on Validate's diagnostics. `structifact
-  validate`'s errors describe a field or constraint by name, not a
-  source location (`validation.py` works on the parsed IR, which
-  carries no YAML line/column data) — every diagnostic is anchored to
-  the file's first line as a best-effort placeholder, not a real
-  position.
-- No YAML shape/schema validation here — that's already covered live by
-  `schemas/structifact-dataset.schema.json` + the Red Hat YAML extension
-  (see `.vscode/settings.json`). Validate covers the separate, larger
-  rule set that requires actually running Structifact: cross-field and
-  cross-reference checks (a join's `source` naming a real declared
-  source, a foreign key's target, etc.) that a static JSON Schema can't
-  express.
-- Discover Dataset never passes `--ai` — it only runs the deterministic
-  half of `structifact discover`. Picking an `.xlsx` file will fail with
-  the CLI's own real "requires --ai" message (there's no deterministic
-  way to parse a raw Excel/requirements file) — this is Structifact's
-  actual, correct behavior surfaced as-is, not a bug in this extension.
-- Generate always runs with `-g sql` — restricted to exactly one
-  generator (out of the CLI's default three: sql/dbt/catalog) so there's
-  exactly one unambiguous file to open, matching the "generate one real
-  artifact" scope this whole workflow was built and proven against from
-  the CLI. Output goes to `<file's directory>/generated/`, the same
-  convention already used throughout this repo's own `examples/` and
-  README.
-- Review does not map anything back to the original source document
-  (a requirements `.md`/`.csv`/`.xlsx`) — that provenance doesn't exist
-  as structured data anywhere in Structifact yet. Every jump lands
-  inside the currently open YAML file only.
-- `NEEDS REVIEW`/`unresolved_notes` are found by lightweight text
-  scanning of the open file itself (a YAML comment marker; a
-  known, self-controlled top-level list shape — see the comments on
-  `findNeedsReviewItems`/`findUnresolvedNotes` in `extension.js`), not
-  a real YAML parser — no dependency added for this.
-- No graphical review UI, autocomplete, hover, navigation, or dependency
-  visualization yet — see `docs/FUTURE_WORK.md`'s "IDE Integration"
-  section for what might come after this, if it proves useful.
+Structifact itself needs to be installed (Python 3.11+) — but you don't have to do this yourself first. If the extension can't find it, the first command that needs it offers to install it for you: a dedicated, isolated environment (not your global Python, not an unrelated project's), with real progress shown at each step, and nothing wired up until the install is confirmed actually working. It's entirely optional — decline it and point `structifact.cliPath` at your own install instead (see **Settings** below).
 
-## Prerequisites
+AI-assisted discovery (see below) additionally needs an [Anthropic API key](https://console.anthropic.com) set as `ANTHROPIC_API_KEY` — only required at the moment you actually use it, never for Validate, Review, or Generate.
 
-Structifact itself must be installed so its `structifact` console script
-exists:
+## Commands
 
-```bash
-pip install -e .
-```
+### Structifact: Validate
 
-**You should not need to set `structifact.cliPath` manually anymore.**
-Earlier, a project virtualenv's `structifact` wasn't found because a
-venv's `bin/` is only on `PATH` inside an activated shell, and VS Code
-doesn't activate it — the extension now checks the open workspace's own
-`.venv/` or `venv/` folder for a `structifact` binary directly (before
-falling back to bare `PATH`), so the normal case — a virtualenv living
-inside the project, exactly like this repo's own `.venv/` — resolves
-with zero configuration. Confirmed directly against this repo's real
-`.venv/bin/structifact`. Only set `structifact.cliPath` yourself for an
-unusual setup (a virtualenv with some other name, or living outside the
-workspace folder).
+Saves the active file if it has unsaved changes, runs `structifact validate` against it, and shows the result as native VS Code diagnostics — inline squiggles and Problems-panel entries on failure, a status-bar confirmation on success.
 
-## Running it
+### Structifact: Discover Dataset
 
-If you installed this from the Marketplace, the four commands are
-already available in your Command Palette — the steps below are for
-running it from source during development.
+Pick a file to turn into a first-draft metadata definition:
+
+- **CSV** — deterministic inference (column names, types, nullability). Anything the inference is genuinely unsure about is written into the draft with a `NEEDS REVIEW` comment explaining why, not silently guessed.
+- **Requirements document (.md, .txt) or Excel (.xlsx)** — there's no deterministic way to read freeform text or a spreadsheet's layout, so this always uses AI. Before any request is sent, you see the CLI's own real cost estimate and a modal asking you to confirm — nothing is sent, and nothing is written, unless you explicitly approve. If you have a previously reviewed version of this same document saved nearby (see below), you're offered to include it as context first.
+
+Either way, the resulting draft opens automatically and flows straight into Review.
+
+### Structifact: Review
+
+Runs `validate` against the currently open file and combines its findings with whatever the file's own text already flags — `NEEDS REVIEW` comments from CSV discovery, `unresolved_notes` from AI discovery — into one Quick Pick list, grouped by kind. Selecting an item jumps the editor to that line.
+
+Note-shaped items carry an **Acknowledge** action: mark something as reviewed without changing the file at all — nothing gets written back to the YAML. Acknowledged items move into their own section, so you can always see what's actually still outstanding versus what you've already triaged.
+
+### Structifact: Generate
+
+Choose what to produce from the currently open, valid dataset definition:
+
+- **SQL schema** — a `CREATE TABLE` definition for the target shape.
+- **Transformation model** — the executable `SELECT` that actually implements the dataset's joins, dedup rules, and computed fields.
+- **Both.**
+
+Whatever's produced opens automatically. (A dataset with no joins, computed fields, filters, or renamed columns has nothing for the transformation model to add beyond the schema — you're told that plainly rather than seeing an error.)
+
+## Reviewed-metadata context
+
+If you've hand-corrected an AI-generated draft and saved it as `<document-name>.reviewed.yml` next to the original source document, the next time you run AI-assisted Discover Dataset on that same document, you'll be offered to include your corrected version as context — so the AI has a chance to build on your correction instead of starting from scratch. This is entirely additive: skip it, and discovery behaves exactly as it would without a reviewed file present.
+
+## Settings
+
+- **`structifact.cliPath`** — path to the Structifact CLI executable. You shouldn't normally need to set this: the extension checks this workspace's own `.venv/`/`venv/` folder, then an install it may have bootstrapped for you, before falling back to `PATH`. Set this explicitly only for an unusual setup — a differently-named or differently-located virtualenv, or an install you manage yourself.
+
+---
+
+## Development / Contributing
+
+The sections above are what a Marketplace install needs. Everything below is for running this extension from source.
+
+### Running it from source
 
 1. Open the repo root (`structifact/`) as a VS Code workspace folder.
-2. Press F5 (or Run → Start Debugging) — this uses the
-   `Run Structifact: Validate extension` launch config in
-   `.vscode/launch.json` to open a new Extension Development Host window
-   with this extension loaded.
+2. Press F5 (or Run → Start Debugging) — this uses the `Run Structifact: Validate extension` launch config in `.vscode/launch.json` to open a new Extension Development Host window with this extension loaded.
+3. From that new window's Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`), the four commands above are available exactly as they would be from a Marketplace install.
 
-**Validate:**
+A few real fixtures already in this repo are useful for trying each command:
 
-3. In that new window, open any real dataset YAML file (e.g.
-   `examples/customers.yml`), then run **Structifact: Validate** from the
-   Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
-4. Introduce a real validation error (not a YAML-shape one — the schema
-   already catches those live) — e.g. a `foreign_key` constraint naming a
-   column that doesn't exist as a field — save, and re-run the command to
-   see it appear in the Problems panel.
+- **Validate**: open `examples/customers.yml`, introduce a real validation error (e.g. a `foreign_key` naming a column that doesn't exist), save, and re-run.
+- **Discover Dataset**: pick `tests/fixtures/messy_orders.csv` — a genuinely messy fixture (mixed date formats, inconsistent currency formatting, zero-padded IDs) that reliably produces real `NEEDS REVIEW` flags.
+- **Generate**: run against `examples/customers.yml`.
+- **Review**: run against the `messy_orders.discovered.yml` produced above (real findings to review), then again against a clean file like `examples/customers.yml` (the "nothing to flag" case).
 
-**Discover Dataset:**
+### Tests
 
-3. Run **Structifact: Discover Dataset** from the Command Palette.
-4. In the file picker, choose a raw CSV file — e.g.
-   `tests/fixtures/messy_orders.csv`, a genuinely messy fixture (mixed
-   date formats, inconsistent currency formatting, zero-padded IDs).
-5. The resulting `messy_orders.discovered.yml` opens automatically, and
-   a notification reports whether any fields were flagged for review —
-   for this fixture, a warning naming `order_id`, `order_date`, `amount`,
-   and `zip_code`, each with a `NEEDS REVIEW` comment in the opened file
-   explaining why.
-
-**Generate:**
-
-3. Open a real, valid Structifact dataset YAML file (e.g.
-   `examples/customers.yml`), then run **Structifact: Generate** from
-   the Command Palette.
-4. The generated `customers.sql` opens automatically in
-   `examples/generated/customers.sql`, alongside a confirmation
-   notification.
-
-**Review:**
-
-3. Open the `messy_orders.discovered.yml` produced by the Discover
-   Dataset walkthrough above (or any Structifact YAML with real
-   issues), then run **Structifact: Review** from the Command Palette.
-4. A Quick Pick opens, grouped into Errors / Warnings /
-   `NEEDS REVIEW` (in this file) / Unresolved Notes sections as
-   applicable. Select any item — for a `NEEDS REVIEW` or
-   `unresolved_notes` entry, the editor jumps straight to that line.
-5. Run it again on a clean, valid file (e.g. `examples/customers.yml`)
-   to see the "nothing to flag" case.
-
-## Tests
-
-The pure logic (CLI-path resolution, output-path naming, parsing the
-real CLI's stdout for its own flagged-fields and generated-artifact
-lines) has a small, dependency-free test file — no
-`@vscode/test-electron`, no real Extension Host, matching this
-extension's zero-npm-dependency stance:
+The pure logic — CLI-path resolution, output-path naming, parsing the real CLI's stdout, Quick Pick item construction, the CLI-bootstrap helpers — has two small, dependency-free test files. No `@vscode/test-electron`, no real Extension Host, matching this extension's zero-npm-dependency stance:
 
 ```bash
 cd vscode-extension
 npm test
 ```
 
-This does not replace manually running the commands in a real
-Extension Development Host — it only covers the logic that doesn't
-need the real `vscode` API to be correct.
+This does not replace manually running the commands in a real Extension Development Host — it only covers the logic that doesn't need the real `vscode` API to be correct. Anything that depends on actual Quick Pick/dialog interaction, the real install flow, or real process spawning needs to be exercised by hand in a real Extension Host.
