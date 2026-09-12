@@ -171,6 +171,33 @@ def test_prompt_includes_document_text():
     assert "sign_adjustment" in prompt
 
 
+def test_prompt_omits_prior_reviewed_section_when_not_given():
+    # Regression: the default (no --reviewed-metadata) path must
+    # produce byte-identical prompt shape to before this feature
+    # existed -- no new section, no mention of a prior draft.
+    prompt = build_requirements_prompt(GRID_DOC)
+    assert "PRIOR REVIEWED DRAFT" not in prompt
+
+
+def test_prompt_includes_prior_reviewed_content_verbatim_when_given():
+    reviewed_yaml = (
+        "dataset:\n  name: \"wholesale_order_source\"\n\n"
+        "fields:\n  - name: \"sign_adjustment\"\n    computed: true\n"
+        "    expression: \"CASE WHEN order_type IN ('CRM','RET') THEN -1 ELSE 1 END\"\n"
+    )
+
+    prompt = build_requirements_prompt(GRID_DOC, prior_reviewed=reviewed_yaml)
+
+    assert "PRIOR REVIEWED DRAFT" in prompt
+    assert "treat as authoritative" in prompt.lower() or "authoritative" in prompt
+    # The reviewed content itself must appear verbatim -- this
+    # function passes it through as-is, never diffs or rewrites it.
+    assert reviewed_yaml in prompt
+    # Still says to extract everything else fresh -- this is
+    # reference context, not a replacement for reading the document.
+    assert "still extract everything else fresh" in prompt
+
+
 def test_prompt_instructs_yaml_only_response():
     prompt = build_requirements_prompt(PROSE_DOC)
     assert "ONLY valid YAML" in prompt
@@ -662,12 +689,13 @@ def _write(path, content):
 
 
 class _Args:
-    def __init__(self, spec, output=None, ai=False, yes=False, sample_size=100):
+    def __init__(self, spec, output=None, ai=False, yes=False, sample_size=100, reviewed_metadata=None):
         self.spec = spec
         self.output = output
         self.ai = ai
         self.yes = yes
         self.sample_size = sample_size
+        self.reviewed_metadata = reviewed_metadata
 
 
 def test_md_input_without_ai_makes_no_request_and_writes_nothing(tmp_path):
@@ -732,6 +760,53 @@ def test_default_output_path_uses_dataset_name(tmp_path, monkeypatch):
     discover(args, ai_client=fake)
 
     assert (tmp_path / "wholesale_order_source.discovered.yml").exists()
+
+
+def test_reviewed_metadata_flag_reaches_the_real_prompt(tmp_path):
+    # The actual point of --reviewed-metadata: its content must reach
+    # the exact prompt sent to the LLM, not just be read and discarded.
+    spec = _write(tmp_path / "REQUIREMENTS.md", GRID_DOC)
+    reviewed_content = "dataset:\n  name: \"wholesale_order_source\"\nfields: []\n"
+    reviewed_path = _write(tmp_path / "prior.reviewed.yml", reviewed_content)
+    fake = FakeLLMClient(canned_response=GRID_RESPONSE)
+    output_path = str(tmp_path / "out.yml")
+    args = _Args(spec=spec, output=output_path, ai=True, yes=True, reviewed_metadata=reviewed_path)
+
+    discover(args, ai_client=fake)
+
+    assert len(fake.prompts_received) == 1
+    assert reviewed_content in fake.prompts_received[0]
+    assert "PRIOR REVIEWED DRAFT" in fake.prompts_received[0]
+
+
+def test_reviewed_metadata_absent_behaves_exactly_as_before(tmp_path):
+    # Regression, at the CLI level this time (test_prompt_omits_prior_
+    # reviewed_section_when_not_given covers build_requirements_prompt
+    # directly): omitting the flag must not add anything to the real
+    # prompt sent.
+    spec = _write(tmp_path / "REQUIREMENTS.md", GRID_DOC)
+    fake = FakeLLMClient(canned_response=GRID_RESPONSE)
+    output_path = str(tmp_path / "out.yml")
+    args = _Args(spec=spec, output=output_path, ai=True, yes=True)
+
+    discover(args, ai_client=fake)
+
+    assert "PRIOR REVIEWED DRAFT" not in fake.prompts_received[0]
+
+
+def test_reviewed_metadata_missing_file_reports_error_and_makes_no_request(tmp_path):
+    spec = _write(tmp_path / "REQUIREMENTS.md", GRID_DOC)
+    fake = FakeLLMClient(canned_response=GRID_RESPONSE)
+    args = _Args(
+        spec=spec, ai=True, yes=True,
+        reviewed_metadata=str(tmp_path / "does_not_exist.yml"),
+    )
+
+    result = discover(args, ai_client=fake)
+
+    assert result is False
+    assert fake.prompts_received == []  # no AI request made at all
+    assert not (tmp_path / "wholesale_order_source.discovered.yml").exists()
 
 
 def test_unparseable_ai_response_does_not_crash_and_writes_nothing(tmp_path):

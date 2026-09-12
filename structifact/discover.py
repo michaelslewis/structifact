@@ -30,7 +30,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 import yaml
 
@@ -380,12 +380,31 @@ def extract_text_from_xlsx(path: str) -> str:
     return "\n\n".join(blocks)
 
 
-def build_requirements_prompt(text: str) -> str:
+def build_requirements_prompt(text: str, prior_reviewed: Optional[str] = None) -> str:
     """
     Build the prompt sent to an LLM asking it to extract a draft
     field list from a raw requirements document. Only called when a
     user explicitly opts in via `structifact discover --ai` on a
     .md/.txt file — never automatically.
+
+    `prior_reviewed`, when given, is the raw text of a previously
+    human-reviewed Structifact YAML for this same document (see
+    `discover_requirements()`'s `--reviewed-metadata` flag in cli.py)
+    — passed through to the model as-is, verbatim, as reference
+    context to treat as authoritative wherever it covers something.
+
+    Deliberately NOT a diff or a correction-tracking mechanism: this
+    function never compares `prior_reviewed` against `text` or
+    against anything else, and never tries to infer which specific
+    fields a human actually changed. The model receives the whole
+    reviewed file and is told to trust it where it applies — a real,
+    accepted limitation: if a field present in the raw
+    document is absent, renamed, or substantially different in
+    `prior_reviewed`, nothing here signals that the change was
+    intentional, and the model may independently re-propose it from
+    the document below anyway. Detecting and communicating a removal/
+    rename explicitly is future scope, not this pass (see
+    DECISION_HISTORY.md for the investigation this implements).
     """
     lines = [
         "You are helping a data engineer extract a draft dataset schema "
@@ -605,6 +624,24 @@ def build_requirements_prompt(text: str) -> str:
         "",
         text,
     ]
+
+    if prior_reviewed:
+        lines += [
+            "",
+            "--- PRIOR REVIEWED DRAFT (human-corrected; treat as authoritative) ---",
+            "",
+            "A human has already reviewed an earlier AI-generated draft of "
+            "this exact document and made the decisions captured below. "
+            "Treat every decision in this reviewed draft as authoritative "
+            "wherever it covers something — do not re-propose a different "
+            "answer for anything it already resolves (a field's type, "
+            "expression, source attribution, a join, etc.). This reviewed "
+            "draft is not necessarily complete: still extract everything "
+            "else fresh from the requirements document above that it "
+            "doesn't cover.",
+            "",
+            prior_reviewed,
+        ]
 
     return "\n".join(lines)
 

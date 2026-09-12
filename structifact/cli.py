@@ -674,6 +674,16 @@ def discover_requirements(args, ai_client=None):
         )
         return False
 
+    prior_reviewed = None
+    reviewed_metadata_path = getattr(args, "reviewed_metadata", None)
+    if reviewed_metadata_path:
+        try:
+            with open(reviewed_metadata_path, "r") as f:
+                prior_reviewed = f.read()
+        except FileNotFoundError as e:
+            print(f"\nFile not found: {e.filename}")
+            return False
+
     if ai_client is None:
         from .llm import AnthropicLLMClient
 
@@ -683,7 +693,7 @@ def discover_requirements(args, ai_client=None):
             print(f"\n{e}")
             return False
 
-    prompt = build_requirements_prompt(text)
+    prompt = build_requirements_prompt(text, prior_reviewed=prior_reviewed)
     estimate = ai_client.estimate_cost(prompt)
 
     print(f"\nAI-assisted requirements-document extraction requested.")
@@ -1044,6 +1054,19 @@ def main():
     discover_parser.add_argument(
         "-y", "--yes", action="store_true",
         help="Skip the confirmation prompt when using --ai.",
+    )
+
+    discover_parser.add_argument(
+        "--reviewed-metadata", default=None,
+        help=(
+            "Path to a previously human-reviewed Structifact YAML for "
+            "this exact requirements document (.md/.txt/.xlsx input "
+            "only) — passed to the AI as reference context to treat as "
+            "authoritative wherever it applies, so a fresh extraction "
+            "doesn't repeat a mistake already corrected once. Passed "
+            "through as-is, not diffed against anything; still extracts "
+            "everything else fresh from the document."
+        ),
     )
 
     discover_parser.set_defaults(func=discover)
