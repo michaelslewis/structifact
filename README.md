@@ -255,6 +255,51 @@ the metadata and this generated file alone, without reading the
 generated SQL. Row-level computed results for a specific claim
 still require the underlying source data.
 
+The default `-g sql` artifact above is schema only — a `CREATE
+TABLE` for the target shape, with each computed field's logic
+present as a comment, not executable. The joins, dedup rule, and
+computed expressions are a separate, executable transformation,
+generated with `-g model`:
+
+```bash
+$ structifact generate examples/home_warranty_demo/home_warranty_claims.yml -g model
+```
+
+**`generated/home_warranty_claims_model.sql`** (excerpt)
+
+```sql
+contracts as (
+    select *
+    from (
+        select *,
+            row_number() over (
+                partition by contract_id
+                order by record_entered_date desc
+            ) as rn
+        from contracts
+    ) t
+    where rn = 1
+),
+...
+final as (
+    select
+        ...
+        NOT is_pre_existing_exclusion AND coverage_rules.covered IS NOT NULL AND coverage_rules.covered = TRUE as is_covered,
+        CASE WHEN NOT is_covered THEN 0 ELSE LEAST(GREATEST(claims.claim_amount - effective_copay, 0), COALESCE(coverage_rules.coverage_cap, claims.claim_amount)) * CASE WHEN contractor_network.network_status = 'In-Network' THEN 1.0 ELSE 0.8 END END as reimbursement_amount
+    from claims
+    left join contracts on contracts.contract_id = claims.contract_id
+    left join coverage_rules on coverage_rules.plan_tier = contracts.plan_tier AND ...
+    left join contractor_network on contractor_network.contractor_id = claims.contractor_id
+)
+```
+
+This exact transformation has been run against a real in-memory
+DuckDB with per-value assertions on every claim above (see
+[`examples/home_warranty_demo/README.md`](examples/home_warranty_demo/README.md)'s
+"Verified results" and `tests/test_home_warranty_demo.py`) — `-g
+model` isn't a hypothetical second option, it's already proven
+against this exact dataset.
+
 One definition, several independently-correct outcomes — generated
 artifacts, real-data validation, dependency resolution, real database
 execution, and cross-dataset reconciliation — all from the same

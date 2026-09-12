@@ -120,11 +120,12 @@ const harness = new Module('extension-under-test');
 harness.filename = extensionSourcePath;
 harness.paths = Module._nodeModulePaths(path.dirname(extensionSourcePath));
 harness._compile(
-  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems };`,
+  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, extractGeneratedArtifactPaths, modelHasNothingToGenerate, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems };`,
   extensionSourcePath
 );
 const {
-  resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, parseErrors,
+  resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath,
+  extractGeneratedArtifactPaths, modelHasNothingToGenerate, parseErrors,
   parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover,
   findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems,
 } = harness.exports.__test__;
@@ -376,6 +377,51 @@ await test('extractGeneratedArtifactPath finds the real generate -g sql line', (
 await test('extractGeneratedArtifactPath returns undefined when no .sql line is present', () => {
   const output = '\n--- STRUCTURED VIEW ---\n\nTable: customers\n';
   assert.strictEqual(extractGeneratedArtifactPath(output), undefined);
+});
+
+// --- extractGeneratedArtifactPaths (plural) ---
+
+await test('extractGeneratedArtifactPaths finds both artifacts from a real -g sql,model run', () => {
+  // Captured from a real `structifact generate home_warranty_claims.yml
+  // -g sql,model` run -- both generators produced a real .sql file.
+  const output = [
+    '',
+    '--- GENERATED ARTIFACTS ---',
+    '- output/home_warranty_claims.sql',
+    '- output/home_warranty_claims_model.sql',
+    '',
+  ].join('\n');
+
+  assert.deepStrictEqual(extractGeneratedArtifactPaths(output), [
+    'output/home_warranty_claims.sql',
+    'output/home_warranty_claims_model.sql',
+  ]);
+});
+
+await test('extractGeneratedArtifactPaths returns a single-entry array for the plain -g sql case', () => {
+  const output = '\n--- GENERATED ARTIFACTS ---\n- output/customers.sql\n';
+  assert.deepStrictEqual(extractGeneratedArtifactPaths(output), ['output/customers.sql']);
+});
+
+await test('extractGeneratedArtifactPaths returns an empty array when no .sql line is present', () => {
+  const output = '\n--- GENERATED ARTIFACTS ---\n- model: nothing to generate for this dataset\n';
+  assert.deepStrictEqual(extractGeneratedArtifactPaths(output), []);
+});
+
+// --- modelHasNothingToGenerate ---
+
+await test('modelHasNothingToGenerate recognizes the real cli.py line for a None result', () => {
+  // Captured from a real `structifact generate customers.yml -g model`
+  // run -- customers.yml has no computed fields, no sources/joins, no
+  // source_filter, and no renamed columns (ModelGenerator's own None
+  // boundary, see DECISION_HISTORY.md).
+  const output = '\n--- GENERATED ARTIFACTS ---\n- model: nothing to generate for this dataset\n';
+  assert.strictEqual(modelHasNothingToGenerate(output), true);
+});
+
+await test('modelHasNothingToGenerate is false when a real model artifact was produced', () => {
+  const output = '\n--- GENERATED ARTIFACTS ---\n- output/home_warranty_claims_model.sql\n';
+  assert.strictEqual(modelHasNothingToGenerate(output), false);
 });
 
 // --- parseErrors, exercised against real discover/generate failure

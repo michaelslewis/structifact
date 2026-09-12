@@ -204,3 +204,102 @@ def test_cli_unknown_generator_lists_available(tmp_path, capsys):
     assert "Unknown generator" in out
     assert "catalog_extended" in out  # tells them what IS available
     assert not (tmp_path / "customers.sql").exists()  # nothing written
+
+
+# --- CLI: "transformation semantics not in the SQL schema" note ---
+#
+# Mirrors ModelGenerator.generate()'s own None-return condition
+# exactly (structifact/generators/model.py) -- see cli.py's generate()
+# for why this is deliberately duplicated rather than shared: it's
+# four cheap reads of the loaded DatasetSpec, and sharing it would
+# mean changing ModelGenerator itself, out of scope for this note.
+
+def _write_yaml(tmp_path, name, content):
+    path = tmp_path / name
+    path.write_text(content)
+    return str(path)
+
+
+_JOINED_DATASET_YAML = """
+dataset:
+  name: orders
+
+source_table: ORDERS
+
+fields:
+  - name: order_id
+    type: integer
+  - name: customer_name
+    type: string
+    source: customer
+
+sources:
+  - name: customer
+    table: CUSTOMER
+
+joins:
+  - source: customer
+    "on": "ORDERS.customer_id = customer.customer_id"
+"""
+
+
+def test_cli_generate_note_absent_for_trivial_dataset_default_generators(tmp_path, capsys):
+    from structifact.cli import generate as generate_cmd
+
+    # customers_with_roles.yml has no computed fields, no sources/
+    # joins, no source_filter, and no renamed columns -- exactly
+    # ModelGenerator's own None boundary (see
+    # test_cli_model_generator_none_result_prints_explanation above).
+    args = argparse.Namespace(
+        spec="tests/fixtures/customers_with_roles.yml",
+        output=str(tmp_path),
+        generators=None,
+    )
+    generate_cmd(args)
+
+    out = capsys.readouterr().out
+    assert "Transformation semantics" not in out
+
+
+def test_cli_generate_note_present_for_dataset_with_joins_default_generators(tmp_path, capsys):
+    from structifact.cli import generate as generate_cmd
+
+    spec = _write_yaml(tmp_path, "orders.yml", _JOINED_DATASET_YAML)
+    args = argparse.Namespace(spec=spec, output=str(tmp_path), generators=None)
+    generate_cmd(args)
+
+    out = capsys.readouterr().out
+    assert (
+        "Transformation semantics are present in this metadata but are not "
+        "represented in the SQL schema artifact. Use -g model to generate "
+        "the executable transformation."
+    ) in out
+
+
+def test_cli_generate_note_absent_when_model_explicitly_requested(tmp_path, capsys):
+    from structifact.cli import generate as generate_cmd
+
+    spec = _write_yaml(tmp_path, "orders.yml", _JOINED_DATASET_YAML)
+    args = argparse.Namespace(spec=spec, output=str(tmp_path), generators="sql,model")
+    generate_cmd(args)
+
+    out = capsys.readouterr().out
+    assert "Transformation semantics" not in out
+    assert (tmp_path / "orders_model.sql").exists()
+
+
+def test_generate_help_text_includes_model(capsys):
+    from structifact.cli import main
+    import sys
+
+    old_argv = sys.argv
+    try:
+        sys.argv = ["structifact", "generate", "--help"]
+        with pytest.raises(SystemExit):
+            main()
+    finally:
+        sys.argv = old_argv
+
+    out = capsys.readouterr().out
+    assert "model" in out
+    assert "sql" in out

@@ -361,22 +361,39 @@ function activate(context) {
       await document.save();
     }
 
+    // Which artifact(s): the schema-only DDL (-g sql, this command's
+    // previous hardcoded behavior, kept first in the list and
+    // therefore the natural choice on a plain Enter, since
+    // showQuickPick has no separate "preselected default" concept for
+    // a fresh list), the executable transformation (-g model), or
+    // both in one run. Structural choice, not free text, since these
+    // are the only three shapes this command knows how to open
+    // afterward.
+    const target = await vscode.window.showQuickPick(
+      [
+        { label: 'SQL schema', description: 'CREATE TABLE DDL for the target shape', generators: 'sql' },
+        { label: 'Transformation model', description: 'Executable SELECT implementing joins, dedup, and computed fields', generators: 'model' },
+        { label: 'Both', description: 'SQL schema and transformation model', generators: 'sql,model' },
+      ],
+      { placeHolder: 'Structifact: Generate — which artifact?' }
+    );
+
+    if (!target) {
+      return;
+    }
+
     const filePath = document.uri.fsPath;
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
     const cliPath = resolveCliPath(workspaceFolder, context.globalState.get(INSTALLED_CLI_PATH_KEY));
     const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : path.dirname(filePath);
 
-    // Restricted to -g sql so exactly one artifact comes back, with
-    // an unambiguous file to open -- the default generator set (sql,
-    // dbt, catalog) would produce three, and this command's job is
-    // "generate one real artifact," matching the workflow already
-    // proven from the CLI. Written to <file's dir>/generated/,
-    // matching the convention already used throughout this repo's
-    // own examples/ and README (see e.g. `structifact generate
-    // examples/customers/customers.yml -o examples/customers/generated`).
+    // Written to <file's dir>/generated/, matching the convention
+    // already used throughout this repo's own examples/ and README
+    // (see e.g. `structifact generate examples/customers/customers.yml
+    // -o examples/customers/generated`).
     const outputDir = path.join(path.dirname(filePath), 'generated');
 
-    execFile(cliPath, ['generate', filePath, '-g', 'sql', '-o', outputDir], { cwd }, (error, stdout, stderr) => {
+    execFile(cliPath, ['generate', filePath, '-g', target.generators, '-o', outputDir], { cwd }, (error, stdout, stderr) => {
       if (error && error.code === 'ENOENT') {
         handleCliNotFound(cliPath, context);
         return;
@@ -398,9 +415,23 @@ function activate(context) {
         return;
       }
 
-      const artifactPath = extractGeneratedArtifactPath(output);
+      const artifactPaths = extractGeneratedArtifactPaths(output);
 
-      if (!artifactPath) {
+      if (artifactPaths.length === 0) {
+        // A real, expected outcome for "Transformation model" alone
+        // on a dataset with no computed fields, no sources/joins, no
+        // source_filter, and no renamed columns (see
+        // modelHasNothingToGenerate above) -- ModelGenerator
+        // correctly has nothing to add over the dataset's own schema
+        // in that case. Told plainly, not treated as a failure.
+        if (target.generators === 'model' && modelHasNothingToGenerate(output)) {
+          vscode.window.showInformationMessage(
+            `Structifact: ${path.basename(filePath)} has no joins, computed fields, filters, or ` +
+            'renamed columns — the transformation model has nothing to add beyond the SQL schema.'
+          );
+          return;
+        }
+
         vscode.window.showErrorMessage(
           `Structifact: generate for ${path.basename(filePath)} reported success but no ` +
           'generated SQL file path — this should not happen; see the Output panel for the raw result.'
@@ -408,9 +439,16 @@ function activate(context) {
         return;
       }
 
-      vscode.workspace.openTextDocument(artifactPath).then((doc) => {
-        vscode.window.showTextDocument(doc);
-        vscode.window.showInformationMessage(`Structifact: generated ${path.basename(artifactPath)}.`);
+      Promise.all(artifactPaths.map((artifactPath) => (
+        vscode.workspace.openTextDocument(artifactPath).then((doc) => vscode.window.showTextDocument(doc, { preview: false }))
+      ))).then(() => {
+        const names = artifactPaths.map((p) => path.basename(p)).join(', ');
+        const modelOmitted = target.generators === 'sql,model' && modelHasNothingToGenerate(output);
+        const suffix = modelOmitted
+          ? ' (the transformation model had nothing to add for this dataset — no joins, computed fields, filters, or renamed columns)'
+          : '';
+
+        vscode.window.showInformationMessage(`Structifact: generated ${names}.${suffix}`);
       });
     });
   });
@@ -731,6 +769,33 @@ function runAiDiscover({ cliPath, cwd, inputPath, outputPath, context }) {
 function extractGeneratedArtifactPath(output) {
   const line = output.split('\n').find((l) => /^- .+\.sql$/.test(l.trim()));
   return line ? line.trim().slice(2).trim() : undefined;
+}
+
+// Same real "- <path>" line shape as extractGeneratedArtifactPath
+// above, but returns every match rather than just the first -- needed
+// once Generate can request both "sql" and "model" in one run and
+// both artifacts appear in the same stdout. extractGeneratedArtifactPath
+// itself is left untouched (still used, and already tested, for the
+// single-artifact case) rather than changed to return an array, which
+// would have been a breaking change to its existing contract for no
+// real benefit.
+function extractGeneratedArtifactPaths(output) {
+  return output
+    .split('\n')
+    .filter((l) => /^- .+\.sql$/.test(l.trim()))
+    .map((l) => l.trim().slice(2).trim());
+}
+
+// cli.py's generate() prints this exact line (unchanged, pre-existing
+// behavior) whenever a requested generator's generate() returns None
+// -- e.g. ModelGenerator on a dataset with no computed fields, no
+// sources/joins, no source_filter, and no renamed columns (see
+// DECISION_HISTORY.md's investigation into that exact boundary).
+// Matched verbatim rather than re-deriving "does this dataset have
+// transformation semantics" here in JS, which would duplicate
+// ModelGenerator's own condition a second time.
+function modelHasNothingToGenerate(output) {
+  return output.includes('model: nothing to generate for this dataset');
 }
 
 // discover itself already computes and prints this exact line (see

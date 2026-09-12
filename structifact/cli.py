@@ -786,6 +786,32 @@ def generate(args):
 
         print(f"- {path}")
 
+    # Mirrors ModelGenerator.generate()'s own None-return condition
+    # exactly (structifact/generators/model.py) -- confirmed by direct
+    # investigation to be the one and only boundary: a dataset with a
+    # computed field, a source/join, a source_filter, or a renamed
+    # column is structurally guaranteed a non-None model.py result, so
+    # this must stay a literal mirror of that check, not a separately
+    # invented one, or the two will silently drift apart. Duplicated
+    # here rather than importing a shared helper because it's four
+    # cheap, stable reads of `table` -- adding a shared predicate would
+    # mean touching model.py itself, out of scope for this change.
+    has_computed = any(f.computed for f in table.fields)
+    has_sources = bool(table.sources) or bool(table.joins)
+    has_filter = bool(table.source_filter)
+    has_renaming = any(
+        f.source_column and f.source_column != f.name
+        for f in table.fields
+    )
+    model_was_requested = any(g.name == "model" for g in selected)
+
+    if not model_was_requested and (has_computed or has_sources or has_filter or has_renaming):
+        print(
+            "\nNote: Transformation semantics are present in this metadata "
+            "but are not represented in the SQL schema artifact. Use -g "
+            "model to generate the executable transformation."
+        )
+
     return True
 
 
@@ -844,8 +870,8 @@ def main():
         help=(
             "Comma-separated generator names to run instead of the "
             "default set (e.g. 'sql,catalog_extended'). Run without "
-            "this flag to see the default generators; an unknown "
-            "name lists what's available."
+            "this flag to see the default generators. Available: " +
+            ", ".join(sorted(g.name for g in ALL_GENERATORS)) + "."
         ),
     )
 
