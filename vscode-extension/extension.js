@@ -295,7 +295,28 @@ function activate(context) {
     // to sample). A separate branch, not a change to the CSV path
     // below, which is completely untouched.
     if (isRequirementsDocument(inputPath)) {
-      await runAiDiscover({ cliPath, cwd, inputPath, outputPath, context });
+      // Convention-based only (see reviewedMetadataCandidatePath) --
+      // when no such file exists yet (the common, first-time case),
+      // this adds nothing: no dialog, reviewedMetadataPath stays
+      // undefined, and runAiDiscover constructs the exact same
+      // command it always has.
+      let reviewedMetadataPath;
+      const reviewedCandidate = reviewedMetadataCandidatePath(inputPath);
+
+      if (fs.existsSync(reviewedCandidate)) {
+        const choice = await vscode.window.showInformationMessage(
+          `Structifact: found "${path.basename(reviewedCandidate)}" — include the ` +
+          'previously reviewed metadata as context for this extraction?',
+          { modal: true },
+          'Use it', 'Skip'
+        );
+
+        if (choice === 'Use it') {
+          reviewedMetadataPath = reviewedCandidate;
+        }
+      }
+
+      await runAiDiscover({ cliPath, cwd, inputPath, outputPath, context, reviewedMetadataPath });
       return;
     }
 
@@ -619,6 +640,21 @@ function discoveredOutputPath(inputPath) {
   return path.join(path.dirname(inputPath), `${base}.discovered.yml`);
 }
 
+// Same basename convention as discoveredOutputPath above, swapped for
+// the real, already-established ".reviewed.yml" naming a human's
+// corrected draft ends up under (see
+// examples/workorder_demo/work_order_source.reviewed.yml) -- pure
+// path derivation, no filesystem access itself. The caller checks
+// fs.existsSync on the result; per the investigation this implements,
+// a convention-based check matches this extension's only existing
+// file-suggestion precedent (resolveCliPath's own fs.existsSync
+// checks against fixed candidate paths) -- no workspace-wide glob
+// search, deliberately.
+function reviewedMetadataCandidatePath(inputPath) {
+  const base = path.basename(inputPath, path.extname(inputPath));
+  return path.join(path.dirname(inputPath), `${base}.reviewed.yml`);
+}
+
 // .md/.txt/.xlsx route to discover_requirements() in
 // structifact/cli.py, which always requires --ai -- there is no
 // deterministic half for a requirements document (no data rows to
@@ -644,7 +680,24 @@ function isRequirementsDocument(inputPath) {
 // unbuffered Python output -- verified against real .md and real
 // .xlsx requirements documents, declining each time (zero cost, zero
 // API calls, nothing written), before this code existed at all.
-function runAiDiscover({ cliPath, cwd, inputPath, outputPath, context }) {
+// Identical to the plain ['discover', inputPath, '--ai', '-o',
+// outputPath] runAiDiscover always constructed, with two extra array
+// elements only when a reviewed-metadata file was selected -- still
+// passed as separate argv entries via execFile (never a shell
+// string), so a path containing spaces needs no manual escaping here,
+// same as inputPath/outputPath already don't. Pure and separately
+// testable so "the exact same command as before" is a real,
+// mechanical assertion rather than something only checked by eye.
+function buildDiscoverAiArgs(inputPath, outputPath, reviewedMetadataPath) {
+  const args = ['discover', inputPath, '--ai'];
+  if (reviewedMetadataPath) {
+    args.push('--reviewed-metadata', reviewedMetadataPath);
+  }
+  args.push('-o', outputPath);
+  return args;
+}
+
+function runAiDiscover({ cliPath, cwd, inputPath, outputPath, context, reviewedMetadataPath }) {
   return new Promise((resolve) => {
     let buffer = '';
     let responded = false;
@@ -663,7 +716,7 @@ function runAiDiscover({ cliPath, cwd, inputPath, outputPath, context }) {
 
     const child = execFile(
       cliPath,
-      ['discover', inputPath, '--ai', '-o', outputPath],
+      buildDiscoverAiArgs(inputPath, outputPath, reviewedMetadataPath),
       { cwd },
       (error, stdout, stderr) => {
         clearTimeout(timeout);

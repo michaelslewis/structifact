@@ -37,6 +37,7 @@ let warningMessageCalls = [];
 let warningMessageResponse;
 let errorMessageCalls = [];
 let infoMessageCalls = [];
+let infoMessageResponse;
 let openTextDocumentCalls = [];
 let showTextDocumentCalls = [];
 let executeCommandCalls = [];
@@ -46,6 +47,7 @@ function resetVscodeMocks() {
   warningMessageResponse = undefined;
   errorMessageCalls = [];
   infoMessageCalls = [];
+  infoMessageResponse = undefined;
   openTextDocumentCalls = [];
   showTextDocumentCalls = [];
   executeCommandCalls = [];
@@ -72,6 +74,7 @@ const fakeVscode = {
     },
     showInformationMessage: (...args) => {
       infoMessageCalls.push(args);
+      return Promise.resolve(infoMessageResponse);
     },
     showTextDocument: (doc) => {
       showTextDocumentCalls.push(doc);
@@ -120,7 +123,7 @@ const harness = new Module('extension-under-test');
 harness.filename = extensionSourcePath;
 harness.paths = Module._nodeModulePaths(path.dirname(extensionSourcePath));
 harness._compile(
-  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, extractGeneratedArtifactPaths, modelHasNothingToGenerate, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems };`,
+  `${source}\nmodule.exports.__test__ = { resolveCliPath, discoveredOutputPath, extractFlagLine, extractGeneratedArtifactPath, extractGeneratedArtifactPaths, modelHasNothingToGenerate, parseErrors, parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover, findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems, reviewedMetadataCandidatePath, buildDiscoverAiArgs };`,
   extensionSourcePath
 );
 const {
@@ -128,6 +131,7 @@ const {
   extractGeneratedArtifactPaths, modelHasNothingToGenerate, parseErrors,
   parseWarnings, findNeedsReviewItems, findUnresolvedNotes, isRequirementsDocument, runAiDiscover,
   findRelatedNotes, noteAcknowledgeKey, relatedAcknowledgeKey, buildReviewQuickPickItems,
+  reviewedMetadataCandidatePath, buildDiscoverAiArgs,
 } = harness.exports.__test__;
 
 function wsFolder(fsPath) {
@@ -167,6 +171,8 @@ fs.writeFileSync(fakeCliPath, [
   'const args = process.argv.slice(2);',
   "const outIdx = args.indexOf('-o');",
   'const outputPath = outIdx >= 0 ? args[outIdx + 1] : undefined;',
+  "const reviewedIdx = args.indexOf('--reviewed-metadata');",
+  'const reviewedPath = reviewedIdx >= 0 ? args[reviewedIdx + 1] : undefined;',
   '',
   "process.stdout.write('Estimate: ~$0.05 estimated (rough approximation)\\n');",
   '',
@@ -187,7 +193,8 @@ fs.writeFileSync(fakeCliPath, [
   '  }',
   '',
   '  if (outputPath) {',
-  '    fs.writeFileSync(outputPath, \'dataset:\\n  name: "Test"\\nfields: []\\n\');',
+  '    fs.writeFileSync(outputPath, \'dataset:\\n  name: "Test"\\nfields: []\\n\' + ' +
+    "'# reviewed-metadata-received: ' + (reviewedPath || 'none') + '\\n');",
   '  }',
   "  process.stdout.write('Wrote draft metadata to ' + outputPath + '\\n');",
   '  process.exit(0);',
@@ -302,6 +309,22 @@ await test('discoveredOutputPath strips the extension regardless of type', () =>
   assert.strictEqual(
     discoveredOutputPath('/a/b/requirements.xlsx'),
     path.join('/a/b', 'requirements.discovered.yml')
+  );
+});
+
+// --- reviewedMetadataCandidatePath ---
+
+await test('reviewedMetadataCandidatePath swaps the extension for .reviewed.yml, same directory', () => {
+  assert.strictEqual(
+    reviewedMetadataCandidatePath('/a/b/REQUIREMENTS_workorder.md'),
+    path.join('/a/b', 'REQUIREMENTS_workorder.reviewed.yml')
+  );
+});
+
+await test('reviewedMetadataCandidatePath strips the extension regardless of type', () => {
+  assert.strictEqual(
+    reviewedMetadataCandidatePath('/a/b/Vendors.xlsx'),
+    path.join('/a/b', 'Vendors.reviewed.yml')
   );
 });
 
@@ -866,6 +889,43 @@ await test('buildReviewQuickPickItems never attaches an Acknowledge button to Er
   }
 });
 
+// --- buildDiscoverAiArgs ---
+// This is the exact, mechanical answer to "is the same CLI command
+// constructed as before" -- covers all three real scenarios directly,
+// with no need to intercept execFile itself.
+
+await test('buildDiscoverAiArgs constructs the exact same command as before when no reviewed-metadata path is given', () => {
+  assert.deepStrictEqual(
+    buildDiscoverAiArgs('/a/b/REQUIREMENTS.md', '/a/b/REQUIREMENTS.discovered.yml', undefined),
+    ['discover', '/a/b/REQUIREMENTS.md', '--ai', '-o', '/a/b/REQUIREMENTS.discovered.yml']
+  );
+});
+
+await test('buildDiscoverAiArgs includes --reviewed-metadata <path> when one is given', () => {
+  assert.deepStrictEqual(
+    buildDiscoverAiArgs('/a/b/REQUIREMENTS.md', '/a/b/REQUIREMENTS.discovered.yml', '/a/b/REQUIREMENTS.reviewed.yml'),
+    [
+      'discover', '/a/b/REQUIREMENTS.md', '--ai',
+      '--reviewed-metadata', '/a/b/REQUIREMENTS.reviewed.yml',
+      '-o', '/a/b/REQUIREMENTS.discovered.yml',
+    ]
+  );
+});
+
+await test('buildDiscoverAiArgs passes a reviewed-metadata path containing a space through as one array element', () => {
+  const args = buildDiscoverAiArgs(
+    '/a/b/REQUIREMENTS.md',
+    '/a/b/REQUIREMENTS.discovered.yml',
+    '/a/b/Vendor Data.reviewed.yml'
+  );
+
+  // A single array element, not split on the space -- execFile passes
+  // this as one real argv entry with no shell involved, so this needs
+  // no escaping here (see the real end-to-end confirmation below).
+  assert.strictEqual(args[args.indexOf('--reviewed-metadata') + 1], '/a/b/Vendor Data.reviewed.yml');
+  assert.strictEqual(args.length, 7);
+});
+
 // --- runAiDiscover ---
 // Exercises the real function against the real fake-CLI child process
 // above (not a mock of execFile) -- the interactive-stdin technique
@@ -949,6 +1009,51 @@ await test('runAiDiscover reports a clear error when the CLI cannot be found at 
   assert.strictEqual(warningMessageCalls.length, 0, 'should fail before ever reaching a cost estimate');
   assert.strictEqual(errorMessageCalls.length, 1);
   assert.ok(errorMessageCalls[0][0].includes(`could not run "${missingCliPath}"`));
+});
+
+await test('runAiDiscover passes a reviewed-metadata path containing a space through to the real child process intact', async () => {
+  // End-to-end, through a REAL spawned process (the fake CLI script),
+  // not just the pure buildDiscoverAiArgs unit tests above -- if
+  // execFile's array-based argv passing ever needed manual escaping
+  // for a space, this would be where it broke.
+  resetVscodeMocks();
+  warningMessageResponse = 'Proceed';
+  delete process.env.FAKE_CLI_MODE;
+
+  const inputPath = path.join(tmpRoot, 'requirements5.md');
+  const outputPath = path.join(tmpRoot, 'requirements5.discovered.yml');
+  const reviewedDir = path.join(tmpRoot, 'Vendor Data folder');
+  fs.mkdirSync(reviewedDir, { recursive: true });
+  const reviewedMetadataPath = path.join(reviewedDir, 'Vendor Data.reviewed.yml');
+  fs.writeFileSync(reviewedMetadataPath, 'dataset:\n  name: "Vendor Data"\nfields: []\n');
+  fs.writeFileSync(inputPath, '# requirements\n');
+
+  await runAiDiscover({ cliPath: fakeCliPath, cwd: tmpRoot, inputPath, outputPath, reviewedMetadataPath });
+
+  assert.strictEqual(warningMessageCalls.length, 1);
+  assert.ok(fs.existsSync(outputPath));
+
+  const written = fs.readFileSync(outputPath, 'utf8');
+  assert.ok(
+    written.includes(`# reviewed-metadata-received: ${reviewedMetadataPath}`),
+    `expected the real child process to have received the exact path, got: ${written}`
+  );
+  assert.deepStrictEqual(executeCommandCalls, [['structifact.review']]);
+});
+
+await test('runAiDiscover omits --reviewed-metadata entirely when none is given, same as before this feature existed', async () => {
+  resetVscodeMocks();
+  warningMessageResponse = 'Proceed';
+  delete process.env.FAKE_CLI_MODE;
+
+  const inputPath = path.join(tmpRoot, 'requirements6.md');
+  const outputPath = path.join(tmpRoot, 'requirements6.discovered.yml');
+  fs.writeFileSync(inputPath, '# requirements\n');
+
+  await runAiDiscover({ cliPath: fakeCliPath, cwd: tmpRoot, inputPath, outputPath });
+
+  const written = fs.readFileSync(outputPath, 'utf8');
+  assert.ok(written.includes('# reviewed-metadata-received: none'));
 });
 
 }
