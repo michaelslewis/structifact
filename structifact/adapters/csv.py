@@ -27,6 +27,28 @@ def load_csv(path: str) -> DatasetSpec:
     with open(path, newline="") as csvfile:
         reader = csv.DictReader(csvfile)
 
+        # A CSV that's already-authored metadata (this loader's only
+        # real input shape -- see examples/customers.csv) and a CSV of
+        # raw sample data (discover_csv()'s input shape) look
+        # identical by extension alone. Without this check, pointing
+        # this loader at raw data (any real user's CSV export, not
+        # just a contrived example -- reproduced against two
+        # unrelated real fixtures) crashed with a bare KeyError on the
+        # first data row, or -- for a CSV with zero data rows --
+        # silently returned an empty DatasetSpec with no error at all.
+        # Checked once, against the header, before any row is read, so
+        # both cases now get the same clear message instead.
+        required = {"column_name", "type"}
+        missing = required - set(reader.fieldnames or [])
+
+        if missing:
+            raise ValueError(
+                "This CSV does not appear to be a Structifact metadata "
+                "CSV. Expected metadata columns: column_name, type. If "
+                "this is raw data, run `structifact discover` on it "
+                f"first. (Missing: {', '.join(sorted(missing))})"
+            )
+
         for row in reader:
             parsed = parse_type(row["type"])
             column_name = row["column_name"]

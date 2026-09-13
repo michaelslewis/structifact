@@ -43,3 +43,22 @@ def test_validate_reports_both_hard_error_and_join_risk_warning(capsys):
     assert "1 warning(s)" in out
     assert "policy_status" in out
     assert "pick_one_order_by" in out
+
+
+def test_validate_raw_csv_prints_clean_error_not_a_traceback(capsys):
+    # The real reported bug: pointing validate at a raw-data CSV (no
+    # column_name/type columns -- discover_csv()'s input shape, not
+    # load_csv()'s) previously raised an unhandled KeyError straight
+    # out of the CLI. load_csv() now raises ValueError for this,
+    # which validate()'s existing except ValueError handling (already
+    # proven for registry.py's unsupported-extension case) catches
+    # exactly like any other bad-spec error -- no cli.py change needed.
+    result = validate(_args("tests/fixtures/raw_customers.csv"))
+
+    out = capsys.readouterr().out
+
+    assert result is False
+    assert "Validation failed" in out
+    assert "does not appear to be a Structifact metadata CSV" in out
+    assert "structifact discover" in out
+    assert "Traceback" not in out
